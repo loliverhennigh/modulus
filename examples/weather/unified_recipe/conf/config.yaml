@@ -38,14 +38,17 @@ defaults:
   # Model
   - model/tiny_afno
   #- model/afno
-  #- model/graphcastnet
   #- model/tiny_sfno
   #- model/sfno
+  #- model/graphcastnet
+  #- model/healpix
 
   # Training
   - training/afno
   #- training/graphcastnet
   #- training/sfno
+  #- training/healpix
 
   # Validation
   - validation/afno
+

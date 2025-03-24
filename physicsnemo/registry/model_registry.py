@@ -127,8 +127,6 @@ class ModelRegistry:
         if model is not None:
             if isinstance(model, EntryPoint) or isinstance(model, EntryPointOld):
                 model = model.load()
-            else:
-                raise TypeError(f"Model {name} is not a valid entry point.")
             return model
 
         raise KeyError(f"No model is registered under the name {name}")

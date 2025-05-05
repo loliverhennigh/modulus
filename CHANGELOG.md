@@ -10,7 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added ReGen score-based data assimilation example
+- General purpose patching API for patch-based diffusion
+- New positional embedding selection strategy for CorrDiff SongUNet models
+- Added Multi-Storage Client to allow checkpointing to/from Object Storage
+
 ### Changed
+
+- Simplified CorrDiff config files, updated default values
+- Refactored CorrDiff losses and samplers to use the patching API
+- Support for non-square images and patches in patch-based diffusion
+- ERA5 download example updated to use current file format convention and
+  restricts global statistics computation to the training set
+- Support for training custom StormCast models and various other improvements for StormCast
+- Updated CorrDiff training code to support multiple patch iterations to amortize
+  regression cost and usage of `torch.compile`
+- Refactored `physicsnemo/models/diffusion/layers.py` to optimize data type
+  casting workflow, avoiding unnecessary casting under autocast mode
+- Refactored Conv2d to enable fusion of conv2d with bias addition
+- Refactored GroupNorm, UNetBlock, SongUNet, SongUNetPosEmbd to support usage of
+  Apex GroupNorm, fusion of activation with GroupNorm, and AMP workflow.
+- Updated SongUNetPosEmbd to avoid unnecessary HtoD Memcpy of `pos_embd`
+- Updated `from_checkpoint` to accommodate conversion between Apex optimized ckp
+  and non-optimized ckp
+- Refactored CorrDiff NVTX annotation workflow to be configurable
+- Refactored `ResidualLoss` to support patch-accumlating training for
+  amortizing regression costs
 
 ### Deprecated
 
@@ -21,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 ### Dependencies
+
+## [1.0.1] - 2025-03-25
+
+### Added
+
+- Added version checks to ensure compatibility with older PyTorch for distributed
+  utilities and ShardTensor
+
+### Fixed
+
+- `EntryPoint` error that occured during physicsnemo checkpoint loading
 
 ## [1.0.0] - 2025-03-18
 

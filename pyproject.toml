@@ -10,7 +10,7 @@ authors = [
 description = "A deep learning framework for AI-driven multi-physics systems"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "Apache 2.0"}
+license = "Apache-2.0"
 dependencies = [
     "certifi>=2023.7.22",
     "fsspec>=2023.1.0",
@@ -28,16 +28,15 @@ dependencies = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
 dynamic = ["version"]
 
 [project.urls]
-Homepage = "https://github.com/NVIDIA/modulus"
-Documentation = "https://docs.nvidia.com/modulus/#core"
-Issues = "https://github.com/NVIDIA/modulus/issues"
-Changelog = "https://github.com/NVIDIA/modulus/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/NVIDIA/physicsnemo"
+Documentation = "https://docs.nvidia.com/physicsnemo/index.html#core"
+Issues = "https://github.com/NVIDIA/physicsnemo/issues"
+Changelog = "https://github.com/NVIDIA/physicsnemo/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 launch = [
@@ -57,6 +56,7 @@ dev = [
     "interrogate==1.5.0",
     "coverage==6.5.0",
     "ruff==0.0.290",
+    "moto[s3]>=5.0.28",
 ]
 
 makani = [
@@ -76,7 +76,7 @@ fignet = [
 ]
 
 storage = [
-    "multi-storage-client>=0.14.0",
+    "multi-storage-client[boto3]>=0.14.0",
 ]
 
 shardtensor = [

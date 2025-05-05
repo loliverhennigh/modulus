@@ -57,6 +57,7 @@ class Module(torch.nn.Module):
     __model_checkpoint_version__ = (
         "0.1.0"  # Used for file versioning and is not the same as physicsnemo version
     )
+    __supported_model_checkpoint_version__ = {}  # Dict of supported model checkpoints and corresponding warnings messages
 
     def __new__(cls, *args, **kwargs):
         out = super().__new__(cls)
@@ -120,6 +121,27 @@ class Module(torch.nn.Module):
                 yield member
             else:
                 print(f"Skipping potentially malicious file: {member.name}")
+
+    @classmethod
+    def _backward_compat_arg_mapper(cls, version: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Map arguments from older versions to current version format.
+        
+        This base implementation does nothing. Child classes should override this method
+        to handle version-specific argument mappings.
+        
+        Parameters
+        ----------
+        version : str
+            Version of the checkpoint being loaded
+        args : Dict[str, Any]
+            Arguments dictionary from the checkpoint
+            
+        Returns
+        -------
+        Dict[str, Any]
+            Updated arguments dictionary compatible with current version
+        """
+        return args
 
     @classmethod
     def instantiate(cls, arg_dict: Dict[str, Any]) -> "Module":
@@ -288,9 +310,16 @@ class Module(torch.nn.Module):
                 metadata_info["mdlus_file_version"]
                 != Module.__model_checkpoint_version__
             ):
-                raise IOError(
-                    f"Model checkpoint version {metadata_info['mdlus_file_version']} is not compatible with current version {Module.__version__}"
-                )
+                if metadata_info["mdlus_file_version"] in Module.__supported_model_checkpoint_version__:
+                    warnings.warn(
+                        Module.__supported_model_checkpoint_version__[
+                            metadata_info["mdlus_file_version"]
+                        ]
+                    )
+                else:
+                    raise IOError(
+                        f"Model checkpoint version {metadata_info['mdlus_file_version']} is not compatible with current version {Module.__version__}"
+                    )
 
     def load(
         self,
@@ -380,6 +409,15 @@ class Module(torch.nn.Module):
                 args = json.load(f)
 
             ckp_args = copy.deepcopy(args)
+
+            # Load metadata to get version
+            with open(local_path.joinpath("metadata.json"), "r") as f:
+                metadata = json.load(f)
+                version = metadata.get("mdlus_file_version", cls.__model_checkpoint_version__)
+
+            # Apply backward compatibility mapping if method exists
+            if version != cls.__model_checkpoint_version__:
+                args["__args__"] = cls._backward_compat_arg_mapper(version, args["__args__"])
 
             # Merge model_args (adding new keys and updating existing ones)
             if model_args is not None:

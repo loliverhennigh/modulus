@@ -16,7 +16,7 @@
 
 import importlib
 from dataclasses import dataclass
-from typing import List, Literal, Tuple, Union
+from typing import List, Literal, Tuple, Union, Dict, Any
 
 import torch
 
@@ -84,25 +84,68 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
     arXiv preprint arXiv:2309.15214.
     """
 
+    __model_checkpoint_version__ = "0.2.0"
+    __supported_model_checkpoint_version__ = {
+        "0.1.0": "Loading UNet checkpoint from older version 0.1.0 (current version is 0.2.0). This version is still supported, but consider re-saving the model to upgrade to version 0.2.0 and remove this warning."
+    }
+
+    @classmethod
+    def _backward_compat_arg_mapper(cls, version: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Map arguments from older versions to current version format.
+        
+        Parameters
+        ----------
+        version : str
+            Version of the checkpoint being loaded
+        args : Dict[str, Any]
+            Arguments dictionary from the checkpoint
+            
+        Returns
+        -------
+        Dict[str, Any]
+            Updated arguments dictionary compatible with current version
+        """
+        # Call parent class method first
+        args = super()._backward_compat_arg_mapper(version, args)
+        
+        if version == "0.1.0":
+            # In version 0.1.0, img_channels was unused
+            if "img_channels" in args:
+                _ = args.pop("img_channels")
+                
+            # Sigma parameters are also unused
+            if "sigma_min" in args:
+                _ = args.pop("sigma_min")
+            if "sigma_max" in args:
+                _ = args.pop("sigma_max")
+            if "sigma_data" in args:
+                _ = args.pop("sigma_data")
+                
+        return args
+
     def __init__(
         self,
-        img_resolution: Union[int, Tuple[int, int]],
-        img_in_channels: int,
-        img_out_channels: int,
-        use_fp16: bool = False,
-        model_type: Literal[
-            "SongUNetPosEmbd", "SongUNetPosLtEmbd", "SongUNet", "DhariwalUNet"
-        ] = "SongUNetPosEmbd",
-        **model_kwargs: dict,
+        img_resolution,
+        img_in_channels,
+        img_out_channels,
+        use_fp16=False,
+        model_type="SongUNetPosEmbd",
+        **model_kwargs,
     ):
         super().__init__(meta=MetaData)
+
+        # Extract sigma parameters if they exist
+        sigma_params = model_kwargs.pop("_sigma_params", {})
+        self.sigma_min = sigma_params.get("sigma_min", 0)
+        self.sigma_max = sigma_params.get("sigma_max", float("inf"))
+        self.sigma_data = sigma_params.get("sigma_data", 0.5)
 
         # for compatibility with older versions that took only 1 dimension
         if isinstance(img_resolution, int):
             self.img_shape_x = self.img_shape_y = img_resolution
         else:
-            self.img_shape_y = img_resolution[0]
-            self.img_shape_x = img_resolution[1]
+            self.img_shape_x = img_resolution[0]
+            self.img_shape_y = img_resolution[1]
 
         self.img_in_channels = img_in_channels
         self.img_out_channels = img_out_channels

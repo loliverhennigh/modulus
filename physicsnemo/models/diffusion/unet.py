@@ -125,27 +125,23 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
 
     def __init__(
         self,
-        img_resolution,
-        img_in_channels,
-        img_out_channels,
-        use_fp16=False,
-        model_type="SongUNetPosEmbd",
-        **model_kwargs,
+        img_resolution: Union[int, Tuple[int, int]],
+        img_in_channels: int,
+        img_out_channels: int,
+        use_fp16: bool = False,
+        model_type: Literal[
+            "SongUNetPosEmbd", "SongUNetPosLtEmbd", "SongUNet", "DhariwalUNet"
+        ] = "SongUNetPosEmbd",
+        **model_kwargs: dict,
     ):
         super().__init__(meta=MetaData)
-
-        # Extract sigma parameters if they exist
-        sigma_params = model_kwargs.pop("_sigma_params", {})
-        self.sigma_min = sigma_params.get("sigma_min", 0)
-        self.sigma_max = sigma_params.get("sigma_max", float("inf"))
-        self.sigma_data = sigma_params.get("sigma_data", 0.5)
 
         # for compatibility with older versions that took only 1 dimension
         if isinstance(img_resolution, int):
             self.img_shape_x = self.img_shape_y = img_resolution
         else:
-            self.img_shape_x = img_resolution[0]
-            self.img_shape_y = img_resolution[1]
+            self.img_shape_y = img_resolution[0]
+            self.img_shape_x = img_resolution[1]
 
         self.img_in_channels = img_in_channels
         self.img_out_channels = img_out_channels

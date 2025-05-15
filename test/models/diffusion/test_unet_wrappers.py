@@ -131,7 +131,6 @@ def test_unet_backward_compat(device):
     """Test backward compatibility of UNet wrappers"""
 
     # Construct Load UNet from older version
-    print(Path(__file__).parents[1].resolve())
     model = UNet.from_checkpoint(
         file_name = (
             str(Path(__file__).parents[1].resolve() / Path("data") / Path("diffusion_unet_0.1.0.mdlus"))

@@ -20,8 +20,8 @@ from pytest_utils import import_or_fail
 
 from physicsnemo.models.diffusion.preconditioning import (
     EDMPrecond,
-    EDMPrecondSuperResolution,
     EDMPrecondSR,
+    EDMPrecondSuperResolution,
     VEPrecond_dfsr,
     VEPrecond_dfsr_cond,
 )
@@ -215,7 +215,9 @@ def test_EDMPrecondSR_forward():
 def test_EDMPrecondSR_serialization(tmp_path, pytestconfig):
     from physicsnemo.launch.utils import load_checkpoint, save_checkpoint
 
-    module = EDMPrecondSR(8, 1, 1, 1)  # img_resolution, img_channels, img_in_channels, img_out_channels
+    module = EDMPrecondSR(
+        8, 1, 1, 1
+    )  # img_resolution, img_channels, img_in_channels, img_out_channels
     model_path = tmp_path / "output.mdlus"
     module.save(model_path.as_posix())
     loaded = Module.from_checkpoint(model_path.as_posix())

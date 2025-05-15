@@ -16,7 +16,7 @@
 
 import importlib
 from dataclasses import dataclass
-from typing import List, Literal, Tuple, Union, Dict, Any
+from typing import Any, Dict, List, Literal, Tuple, Union
 
 import torch
 
@@ -90,16 +90,18 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
     }
 
     @classmethod
-    def _backward_compat_arg_mapper(cls, version: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _backward_compat_arg_mapper(
+        cls, version: str, args: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Map arguments from older versions to current version format.
-        
+
         Parameters
         ----------
         version : str
             Version of the checkpoint being loaded
         args : Dict[str, Any]
             Arguments dictionary from the checkpoint
-            
+
         Returns
         -------
         Dict[str, Any]
@@ -107,12 +109,12 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
         """
         # Call parent class method first
         args = super()._backward_compat_arg_mapper(version, args)
-        
+
         if version == "0.1.0":
             # In version 0.1.0, img_channels was unused
             if "img_channels" in args:
                 _ = args.pop("img_channels")
-                
+
             # Sigma parameters are also unused
             if "sigma_min" in args:
                 _ = args.pop("sigma_min")
@@ -120,7 +122,7 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
                 _ = args.pop("sigma_max")
             if "sigma_data" in args:
                 _ = args.pop("sigma_data")
-                
+
         return args
 
     def __init__(

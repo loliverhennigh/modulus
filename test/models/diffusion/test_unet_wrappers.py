@@ -132,7 +132,11 @@ def test_unet_backward_compat(device):
 
     # Construct Load UNet from older version
     model = UNet.from_checkpoint(
-        file_name = (
-            str(Path(__file__).parents[1].resolve() / Path("data") / Path("diffusion_unet_0.1.0.mdlus"))
+        file_name=(
+            str(
+                Path(__file__).parents[1].resolve()
+                / Path("data")
+                / Path("diffusion_unet_0.1.0.mdlus")
+            )
         )
     )

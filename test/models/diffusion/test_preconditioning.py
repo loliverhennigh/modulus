@@ -181,6 +181,37 @@ def test_voriticity_residual_method():
 
     assert xt.size() == dx_t.size()
 
+def test_EDMPrecondSuperResolution_amp_mode():
+    """Test EDMPrecondSuperResolution amp_mode property"""
+
+    res, cin, cout = 8, 1, 1
+    model = EDMPrecondSuperResolution(
+        img_resolution=res,
+        img_in_channels=cin,
+        img_out_channels=cout,
+        model_type="SongUNet",
+    )
+
+    # Default value should be False
+    assert model.amp_mode in {None, False}
+
+    # Enable amp_mode and verify propagation
+    model.amp_mode = True
+    assert model.amp_mode is True
+    if hasattr(model.model, "amp_mode"):
+        assert model.model.amp_mode is True
+    for sub in model.model.modules():
+        if hasattr(sub, "amp_mode"):
+            assert sub.amp_mode is True
+
+    # Disable again and verify
+    model.amp_mode = False
+    assert model.amp_mode is False
+    if hasattr(model.model, "amp_mode"):
+        assert model.model.amp_mode is False
+    for sub in model.model.modules():
+        if hasattr(sub, "amp_mode"):
+            assert sub.amp_mode is False
 
 def test_EDMPrecondSR_forward():
     b, c_target, x, y = 1, 3, 8, 8
@@ -210,7 +241,6 @@ def test_EDMPrecondSR_forward():
     # Assert the output shape is correct
     assert output.shape == (b, c_target, x, y)
 
-
 @import_or_fail("termcolor")
 def test_EDMPrecondSR_serialization(tmp_path, pytestconfig):
     from physicsnemo.launch.utils import load_checkpoint, save_checkpoint
@@ -225,3 +255,4 @@ def test_EDMPrecondSR_serialization(tmp_path, pytestconfig):
     save_checkpoint(path=tmp_path, models=module, epoch=1)
     epoch = load_checkpoint(path=tmp_path)
     assert epoch == 1
+

@@ -167,7 +167,7 @@ def test_unet_backward_compat(device):
     """Test backward compatibility of UNet wrappers"""
 
     # Construct Load UNet from older version
-    model = UNet.from_checkpoint(
+    UNet.from_checkpoint(
         file_name=(
             str(
                 Path(__file__).parents[1].resolve()

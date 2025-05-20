@@ -161,6 +161,7 @@ def test_unet_amp_mode_property(device):
         if hasattr(sub, "amp_mode"):
             assert sub.amp_mode is False
 
+
 @pytest.mark.parametrize("device", ["cuda:0", "cpu"])
 def test_unet_backward_compat(device):
     """Test backward compatibility of UNet wrappers"""

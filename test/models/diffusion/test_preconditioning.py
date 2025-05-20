@@ -181,6 +181,7 @@ def test_voriticity_residual_method():
 
     assert xt.size() == dx_t.size()
 
+
 def test_EDMPrecondSuperResolution_amp_mode():
     """Test EDMPrecondSuperResolution amp_mode property"""
 
@@ -213,6 +214,7 @@ def test_EDMPrecondSuperResolution_amp_mode():
         if hasattr(sub, "amp_mode"):
             assert sub.amp_mode is False
 
+
 def test_EDMPrecondSR_forward():
     b, c_target, x, y = 1, 3, 8, 8
     c_cond = 4
@@ -241,6 +243,7 @@ def test_EDMPrecondSR_forward():
     # Assert the output shape is correct
     assert output.shape == (b, c_target, x, y)
 
+
 @import_or_fail("termcolor")
 def test_EDMPrecondSR_serialization(tmp_path, pytestconfig):
     from physicsnemo.launch.utils import load_checkpoint, save_checkpoint
@@ -255,4 +258,3 @@ def test_EDMPrecondSR_serialization(tmp_path, pytestconfig):
     save_checkpoint(path=tmp_path, models=module, epoch=1)
     epoch = load_checkpoint(path=tmp_path)
     assert epoch == 1
-

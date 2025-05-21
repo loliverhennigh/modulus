@@ -964,7 +964,7 @@ class EDMPrecondSRMetaData(ModelMetaData):
     auto_grad: bool = False
 
 
-class EDMPrecondSR(Module):
+class EDMPrecondSR(EDMPrecondSuperResolution):
     """
     NOTE: This is a deprecated version of the EDMPrecondSuperResolution model.
     This was used to maintain backwards compatibility and allow loading old models.
@@ -978,7 +978,7 @@ class EDMPrecondSR(Module):
     img_resolution : int
         Image resolution.
     img_channels : int
-        Number of color channels.
+        Number of color channels (deprecated, not used).
     img_in_channels : int
         Number of input color channels.
     img_out_channels : int
@@ -993,6 +993,8 @@ class EDMPrecondSR(Module):
         Expected standard deviation of the training data, by default 0.5.
     model_type :str
         Class name of the underlying model, by default "SongUNetPosEmbd".
+    scale_cond_input : bool
+        Whether to scale the conditional input (deprecated), by default True.
     **model_kwargs : dict
         Keyword arguments for the underlying model.
 
@@ -1011,7 +1013,7 @@ class EDMPrecondSR(Module):
     def __init__(
         self,
         img_resolution,
-        img_channels,
+        img_channels,  # deprecated
         img_in_channels,
         img_out_channels,
         use_fp16=False,
@@ -1019,7 +1021,7 @@ class EDMPrecondSR(Module):
         sigma_max=float("inf"),
         sigma_data=0.5,
         model_type="SongUNetPosEmbd",
-        scale_cond_input=True,
+        scale_cond_input=True,  # deprecated
         **model_kwargs,
     ):
         warnings.warn(
@@ -1029,28 +1031,7 @@ class EDMPrecondSR(Module):
             stacklevel=2,
         )
 
-        super().__init__(meta=EDMPrecondSRMetaData)
-        self.img_resolution = img_resolution
-        self.img_channels = img_channels  # TODO: this is not used, remove it
-        self.img_in_channels = img_in_channels
-        self.img_out_channels = img_out_channels
-        self.use_fp16 = use_fp16
-        self.sigma_min = sigma_min
-        self.sigma_max = sigma_max
-        self.sigma_data = sigma_data
-        self.scale_cond_input = scale_cond_input
-
-        model_class = getattr(network_module, model_type)
-        self.model = model_class(
-            img_resolution=img_resolution,
-            in_channels=img_in_channels + img_out_channels,
-            out_channels=img_out_channels,
-            **model_kwargs,
-        )  # TODO needs better handling
-        self.scaling_fn = self._get_scaling_fn()
-
-    def _get_scaling_fn(self):
-        if self.scale_cond_input:
+        if scale_cond_input:
             warnings.warn(
                 "scale_cond_input=True does not properly scale the conditional input. "
                 "(see https://github.com/NVIDIA/modulus/issues/229). "
@@ -1058,17 +1039,22 @@ class EDMPrecondSR(Module):
                 "Please set scale_cond_input=False.",
                 DeprecationWarning,
             )
-            return self._legacy_scaling_fn
-        else:
-            return self._scaling_fn
 
-    @staticmethod
-    def _scaling_fn(x, img_lr, c_in):
-        return torch.cat([c_in * x, img_lr.to(x.dtype)], dim=1)
+        super().__init__(
+            img_resolution=img_resolution,
+            img_in_channels=img_in_channels,
+            img_out_channels=img_out_channels,
+            use_fp16=use_fp16,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            sigma_data=sigma_data,
+            model_type=model_type,
+            **model_kwargs,
+        )
 
-    @staticmethod
-    def _legacy_scaling_fn(x, img_lr, c_in):
-        return c_in * torch.cat([x, img_lr.to(x.dtype)], dim=1)
+        # Store deprecated parameters for backward compatibility
+        self.img_channels = img_channels
+        self.scale_cond_input = scale_cond_input
 
     def forward(
         self,
@@ -1078,48 +1064,31 @@ class EDMPrecondSR(Module):
         force_fp32=False,
         **model_kwargs,
     ):
-        # Concatenate input channels
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
-        dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
-        )
-
-        c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
-        c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2).sqrt()
-        c_in = 1 / (self.sigma_data**2 + sigma**2).sqrt()
-        c_noise = sigma.log() / 4
-
-        if img_lr is None:
-            arg = c_in * x
-        else:
-            arg = self.scaling_fn(x, img_lr, c_in)
-        arg = arg.to(dtype)
-
-        F_x = self.model(
-            arg,
-            c_noise.flatten(),
-            class_labels=None,
-            **model_kwargs,
-        )
-
-        if (F_x.dtype != dtype) and not torch.is_autocast_enabled():
-            raise ValueError(
-                f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
-            )
-
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
-        return D_x
-
-    @staticmethod
-    def round_sigma(sigma: Union[float, List, torch.Tensor]):
         """
-        Convert a given sigma value(s) to a tensor representation.
-        See EDMPrecond.round_sigma
+        Forward pass of the EDMPrecondSR model wrapper.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Noisy high-resolution image of shape (B, C_hr, H, W).
+        img_lr : torch.Tensor
+            Low-resolution conditioning image of shape (B, C_lr, H, W).
+        sigma : torch.Tensor
+            Noise level of shape (B) or (B, 1) or (B, 1, 1, 1).
+        force_fp32 : bool, optional
+            Whether to force FP32 precision regardless of the `use_fp16` attribute,
+            by default False.
+        **model_kwargs : dict
+            Additional keyword arguments to pass to the underlying model.
+
+        Returns
+        -------
+        torch.Tensor
+            Denoised high-resolution image of shape (B, C_hr, H, W).
         """
-        return EDMPrecond.round_sigma(sigma)
+        return super().forward(
+            x=x, img_lr=img_lr, sigma=sigma, force_fp32=force_fp32, **model_kwargs
+        )
 
 
 class VEPrecond_dfsr(torch.nn.Module):

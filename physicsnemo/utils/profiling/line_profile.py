@@ -89,7 +89,7 @@ class LineProfileWrapper(PhysicsNeMoProfilerWrapper, metaclass=_Profiler_Singlet
         # Get the output directory:
         out_top = self.output_dir(output_top)
         with open(out_top / Path("profiler_stats.txt"), "w") as stats:
-            self._profiler.print_stats(stream=stats)
+            self._profiler.print_stats(stream=stats, stripzeros=True)
 
         # Make this profiler completed:
         self.finalized = True
@@ -103,5 +103,7 @@ class LineProfileWrapper(PhysicsNeMoProfilerWrapper, metaclass=_Profiler_Singlet
         Returns:
             The profiled function wrapped with LineProfiler
         """
+        if not lp_avail:
+            return fn
         f = self._profiler(fn)
         return f

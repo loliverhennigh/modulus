@@ -24,7 +24,7 @@ import tarfile
 import tempfile
 import warnings
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Set, Union
 
 import torch
 
@@ -57,6 +57,14 @@ class Module(torch.nn.Module):
     __model_checkpoint_version__ = (
         "0.1.0"  # Used for file versioning and is not the same as physicsnemo version
     )
+    __supported_model_checkpoint_version__ = (
+        {}
+    )  # Dict of supported model checkpoints and corresponding warnings messages
+
+    # __init__ arguments that can be overridden. By default all arguments are
+    # protected. Subclasses can override this to allow for overriding of specific
+    # __init__'s arguments with the ``from_checkpoint`` method.
+    _overridable_args: Set[str] = set()
 
     def __new__(cls, *args, **kwargs):
         out = super().__new__(cls)
@@ -122,6 +130,111 @@ class Module(torch.nn.Module):
                 print(f"Skipping potentially malicious file: {member.name}")
 
     @classmethod
+    def _backward_compat_arg_mapper(
+        cls, version: str, args: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Map arguments from older versions to current version format.
+
+        This base implementation does nothing. Child classes should override this method
+        to handle version-specific argument mappings.
+
+        Parameters
+        ----------
+        version : str
+            Version of the checkpoint being loaded
+        args : Dict[str, Any]
+            Arguments dictionary from the checkpoint
+
+        Returns
+        -------
+        Dict[str, Any]
+            Updated arguments dictionary compatible with current version
+        """
+        return args
+
+    @classmethod
+    def _override_args(
+        cls, args: Dict[str, Any], override_args: Dict[str, Any]
+    ) -> None:
+        """Safely override ``__init__`` arguments stored in a checkpoint.
+
+        This updates ``args`` *in-place* with the values provided in
+        ``override_args``. Only keys defined in ``cls._overridable_args`` are
+        allowed to be modified. Attempting to override any other key will raise
+        a ``ValueError``.
+
+        Parameters
+        ----------
+        args : Dict[str, Any]
+            Keyword arguments that will be forwarded to the model
+            constructor (e.g. ``args["__args__"]`` from a checkpoint).
+        override_args : Dict[str, Any]
+            Dictionary containing the desired argument overrides.
+        """
+
+        for key, value in override_args.items():
+            if key not in cls._overridable_args:
+                raise ValueError(
+                    f"Argument '{key}' cannot be overridden for " f"{cls.__name__}."
+                )
+            # In this case we are not overriding, but we are adding a new arg
+            if key not in args:
+                warnings.warn(f"New argument '{key}' added for {cls.__name__}.")
+            args[key] = value
+
+    @classmethod
+    def _get_class_from_args(cls, arg_dict: Dict[str, Any]) -> type:
+        """Get the class from a dictionary of arguments.
+
+        Parameters
+        ----------
+        arg_dict : Dict[str, Any]
+            Dictionary of arguments containing '__name__' and '__module__' keys.
+
+        Returns
+        -------
+        type
+            The class to instantiate.
+
+        Raises
+        ------
+        AttributeError
+            If the class cannot be found.
+        """
+        _cls_name = arg_dict["__name__"]
+        registry = ModelRegistry()
+
+        if cls.__name__ == arg_dict["__name__"]:  # If cls is the class
+            return cls
+        elif _cls_name in registry.list_models():  # Built in registry
+            return registry.factory(_cls_name)
+        else:
+            try:
+                # Check if module is using modulus import and change it to physicsnemo instead
+                if arg_dict["__module__"].split(".")[0] == "modulus":
+                    warnings.warn(
+                        "Using modulus import in model checkpoint. This is deprecated and will be removed in future versions. Please use physicsnemo instead."
+                    )
+                    arg_module = (
+                        "physicsnemo" + arg_dict["__module__"][len("modulus") :]
+                    )
+                else:
+                    arg_module = arg_dict["__module__"]
+
+                # Otherwise, try to import the class
+                _mod = importlib.import_module(arg_module)
+                _cls = getattr(_mod, arg_dict["__name__"])
+            except AttributeError:
+                # Cross fingers and hope for the best (maybe the class name changed)
+                _cls = cls
+
+        # This works with the importlib.metadata.EntryPoint
+        if isinstance(_cls, importlib.metadata.EntryPoint):
+            _cls = _cls.load()
+
+        return _cls
+
+    @classmethod
     def instantiate(cls, arg_dict: Dict[str, Any]) -> "Module":
         """Instantiate a model from a dictionary of arguments
 
@@ -163,37 +276,7 @@ class Module(torch.nn.Module):
           )
         )
         """
-
-        _cls_name = arg_dict["__name__"]
-        registry = ModelRegistry()
-        if cls.__name__ == arg_dict["__name__"]:  # If cls is the class
-            _cls = cls
-        elif _cls_name in registry.list_models():  # Built in registry
-            _cls = registry.factory(_cls_name)
-        else:
-            try:
-                # Check if module is using modulus import and change it to physicsnemo instead
-                if arg_dict["__module__"].split(".")[0] == "modulus":
-                    warnings.warn(
-                        "Using modulus import in model checkpoint. This is deprecated and will be removed in future versions. Please use physicsnemo instead."
-                    )
-                    arg_module = (
-                        "physicsnemo" + arg_dict["__module__"][len("modulus") :]
-                    )
-                else:
-                    arg_module = arg_dict["__module__"]
-
-                # Otherwise, try to import the class
-                _mod = importlib.import_module(arg_module)
-                _cls = getattr(_mod, arg_dict["__name__"])
-            except AttributeError:
-                # Cross fingers and hope for the best (maybe the class name changed)
-                _cls = cls
-
-        # This works with the importlib.metadata.EntryPoint
-        if isinstance(_cls, importlib.metadata.EntryPoint):
-            _cls = _cls.load()
-
+        _cls = cls._get_class_from_args(arg_dict)
         return _cls(**arg_dict["__args__"])
 
     def debug(self):
@@ -231,6 +314,11 @@ class Module(torch.nn.Module):
             raise ValueError(
                 f"File name must end with {self._file_extension} extension"
             )
+
+        # Strip out torch dynamo wrapper
+        if isinstance(self, torch._dynamo.eval_frame.OptimizedModule):
+            self._orig_mod.save(file_name, verbose)
+            return
 
         with tempfile.TemporaryDirectory() as temp_dir:
             local_path = Path(temp_dir)
@@ -281,16 +369,8 @@ class Module(torch.nn.Module):
         if not local_path.joinpath("model.pt").exists():
             raise IOError("Model weights 'model.pt' not found in checkpoint")
 
-        # Check if the checkpoint version is compatible with the current version
-        with open(local_path.joinpath("metadata.json"), "r") as f:
-            metadata_info = json.load(f)
-            if (
-                metadata_info["mdlus_file_version"]
-                != Module.__model_checkpoint_version__
-            ):
-                raise IOError(
-                    f"Model checkpoint version {metadata_info['mdlus_file_version']} is not compatible with current version {Module.__version__}"
-                )
+        if not local_path.joinpath("metadata.json").exists():
+            raise IOError("Metadata 'metadata.json' not found in checkpoint")
 
     def load(
         self,
@@ -340,7 +420,7 @@ class Module(torch.nn.Module):
 
     @classmethod
     def from_checkpoint(
-        cls, file_name: str, model_args: Optional[Dict] = None
+        cls, file_name: str, override_args: Optional[Dict[str, Any]] = None
     ) -> "Module":
         """Simple utility for constructing a model from a checkpoint
 
@@ -348,6 +428,24 @@ class Module(torch.nn.Module):
         ----------
         file_name : str
             Checkpoint file name
+        override_args : Optional[Dict[str, Any]], optional, default=None
+            Dictionary of arguments to override the ``__init__`` method's
+            arguments saved in the checkpoint. The override of arguments occurs
+            *before* the model is instantiated, which allows for *ad-hoc*
+            modifications to the model's initialization. Argument overrides are
+            however applied *before* the state-dict is loaded, which means that
+            for parameters or buffers saved in the state-dict, the values
+            contained in the state-dict will take precedence over the override.
+            This might also result in unexpected behavior if the model is
+            instantiated with different arguments than the ones saved in the
+            checkpoint, and some mismatching keys are saved in the state-dict.
+
+            *Note*: Only arguments defined in ``cls._overridable_args`` can be
+            overridden. ``Module``'s subclasses by default disable this
+            functionality, unless they explicity define an ``_overridable_args``
+            class attribute. Attempting to override any other argument will raise
+            a ``ValueError``. This API should be used with caution and only if
+            you fully understand the implications of the override.
 
         Returns
         -------
@@ -369,7 +467,7 @@ class Module(torch.nn.Module):
             # Open the tar file and extract its contents to the temporary directory
             with tarfile.open(cached_file_name, "r") as tar:
                 tar.extractall(
-                    path=local_path, members=list(cls._safe_members(tar, local_path))
+                    path=local_path, members=list(Module._safe_members(tar, local_path))
                 )
 
             # Check if the checkpoint is valid
@@ -381,18 +479,42 @@ class Module(torch.nn.Module):
 
             ckp_args = copy.deepcopy(args)
 
-            # Merge model_args (adding new keys and updating existing ones)
-            if model_args is not None:
-                args["__args__"].update(model_args)
+            # Load metadata to get version
+            with open(local_path.joinpath("metadata.json"), "r") as f:
+                metadata = json.load(f)
+                version = metadata.get(
+                    "mdlus_file_version", cls.__model_checkpoint_version__
+                )
 
-            model = cls.instantiate(args)
+            # Get class from args
+            _cls = Module._get_class_from_args(args)
+
+            # Check if the checkpoint version is compatible with the current version
+            # If not, apply backward compatibility mapping if method exists
+            if version != _cls.__model_checkpoint_version__:
+                if version in _cls.__supported_model_checkpoint_version__:
+                    warnings.warn(_cls.__supported_model_checkpoint_version__[version])
+                    args["__args__"] = _cls._backward_compat_arg_mapper(
+                        version, args["__args__"]
+                    )
+                else:
+                    raise IOError(
+                        f"Model checkpoint version {version} is not compatible with current version {_cls.__model_checkpoint_version__}"
+                    )
+
+            # Override args["__args__"] with override_args
+            if override_args is not None:
+                _cls._override_args(args["__args__"], override_args)
+
+            # Instantiate the model
+            model = Module.instantiate(args)
 
             # Load the model weights
             model_dict = torch.load(
                 local_path.joinpath("model.pt"), map_location=model.device
             )
 
-            model_dict = convert_ckp_apex(ckp_args, model_args, model_dict)
+            model_dict = convert_ckp_apex(ckp_args, override_args, model_dict)
             model.load_state_dict(model_dict, strict=False)
         return model
 

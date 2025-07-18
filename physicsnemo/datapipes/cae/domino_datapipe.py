@@ -34,7 +34,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional, Protocol, Sequence, Union
 
-import cuml
+try:
+    import cuml
+except ImportError:
+    pass  # TODO: Fix dependency (ohennigh)
 import cupy as cp
 import numpy as np
 import torch

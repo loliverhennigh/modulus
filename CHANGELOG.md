@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Module.from_checkpoint("chkpt.mdlus", models_args)`.
 - PyTorch Geometric MeshGraphNet backend.
 - Transient Mesh Dataset.
+- Functionality in DoMINO to take arbitrary number of `scalar` or `vector`
+  global parameters and encode them using `class ParameterModel`
 
 ### Changed
 
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Added new `vortex_shedding_mgn` example that uses PyTorch Geometric instead.
 - HEALPixLayer can now use earth2grid HEALPix padding ops, if desired
 - Mesh Dataset supports vtm files
+- Migrated Vortex Shedding Reduced Mesh example to PyTorch Geometric.
 
 ### Deprecated
 

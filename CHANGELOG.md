@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Safe API to override `__init__`'s arguments saved in checkpoint file with
   `Module.from_checkpoint("chkpt.mdlus", models_args)`.
 - PyTorch Geometric MeshGraphNet backend.
+- Transient Mesh Dataset.
 
 ### Changed
 
@@ -27,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Existing DGL-based vortex shedding example has been renamed to `vortex_shedding_mgn_dgl`.
   Added new `vortex_shedding_mgn` example that uses PyTorch Geometric instead.
 - HEALPixLayer can now use earth2grid HEALPix padding ops, if desired
+- Mesh Dataset supports vtm files
 
 ### Deprecated
 

@@ -412,7 +412,6 @@ class Module(torch.nn.Module):
                     path=local_path,
                     members=list(Module._safe_members(tar, local_path)),
                 )
-                # Only available from Python 3.12 onwards.
                 if "filter" in tar.extractall.__code__.co_varnames:
                     extract_kwargs["filter"] = "data"
 

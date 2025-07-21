@@ -17,7 +17,6 @@
 
 import numpy as np
 import torch
-import vtk
 
 try:
     import nvidia.dali as dali
@@ -38,7 +37,14 @@ from torch import Tensor
 from physicsnemo.datapipes.datapipe import Datapipe
 from physicsnemo.datapipes.meta import DatapipeMetaData
 
-from .readers import parse_vtk_polydata, parse_vtk_unstructuredgrid, read_cgns, read_vtp, read_vtu, read_vtm
+from .readers import (
+    parse_vtk_polydata,
+    parse_vtk_unstructuredgrid,
+    read_cgns,
+    read_vtm,
+    read_vtp,
+    read_vtu,
+)
 
 
 @dataclass
@@ -281,7 +287,9 @@ class TransientMeshDatapipe(Datapipe):
 
             # Normalize attributes if statistics are available.
             if self.stats_dir is not None:
-                attributes = dali.fn.normalize(attributes, mean=self.mu, stddev=self.std)
+                attributes = dali.fn.normalize(
+                    attributes, mean=self.mu, stddev=self.std
+                )
 
             # Set outputs.
             pipe.set_outputs(vertices, attributes, edges)
@@ -337,7 +345,9 @@ class TransientMeshDaliExternalSource:
             unique_files = {fp for seq in self.sequence_paths for fp in seq}
             self.data_cache = {fp: None for fp in unique_files}
 
-    def __call__(self, sample_info: dali.types.SampleInfo) -> Tuple[Tensor, Tensor, Tensor]:
+    def __call__(
+        self, sample_info: dali.types.SampleInfo
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         if sample_info.iteration >= self.num_batches:
             raise StopIteration()
 
@@ -359,7 +369,9 @@ class TransientMeshDaliExternalSource:
                     self.data_cache[fp] = cached
                 v, a, e = cached
             else:
-                v, a, e = self.parse_vtk_data_fn(self.mesh_reader_fn(fp), self.variables)
+                v, a, e = self.parse_vtk_data_fn(
+                    self.mesh_reader_fn(fp), self.variables
+                )
             vertices_seq.append(v)
             attributes_seq.append(a)
             edges_seq.append(e)

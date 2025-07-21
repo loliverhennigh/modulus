@@ -127,4 +127,4 @@ def test_transient_mesh_datapipe(device, file_format, tmp_path, pytestconfig):
         assert edges.shape[-1] == 2
 
         # Only iterate first batch for speed.
-        break 
+        break

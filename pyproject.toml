@@ -137,6 +137,7 @@ exclude = ["examples", "physicsnemo/experimental"]
 # ==== UV configuration ====
 [tool.uv]
 no-build-isolation-package = ["torch_scatter"]
+managed = false
 
 [project.entry-points."physicsnemo.models"]
 AFNO = "physicsnemo.models.afno:AFNO"

@@ -23,10 +23,4 @@ from physicsnemo.core.benchmark import BenchmarkMixin
 
 class Function(TorchAutogradFunction, BenchmarkMixin):
     """Base class for PhysicsNeMo custom autograd functions."""
-
-    @classmethod
-    def _benchmark_forward(cls, values, *rest):
-        cls.apply(values, *rest)
-
-
-__all__ = ["Function"]
+    # Placeholder for utilities to bring in warp, fuser, etc.

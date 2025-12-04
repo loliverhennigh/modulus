@@ -23,12 +23,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from physicsnemo.core.version_check import check_min_version
+from physicsnemo.core.version_check import check_version_spec
 from physicsnemo.distributed import DistributedManager
 
 from .utils import create_ddp_group_tag
 
-WANDB_AVAILABLE = check_min_version("wandb", "0.15.0", hard_fail=False)
+WANDB_AVAILABLE = check_version_spec("wandb", hard_fail=False)
 
 if WANDB_AVAILABLE:
     wandb = importlib.import_module("wandb")
@@ -141,6 +141,7 @@ if WANDB_AVAILABLE:
         return _WANDB_INITIALIZED
 
 else:
+    wandb = None
 
     def _raise_wandb_not_installed():
         raise ImportError(

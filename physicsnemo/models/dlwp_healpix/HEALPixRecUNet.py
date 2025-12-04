@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 class MetaData(ModelMetaData):
     """Metadata for the DLWP HEALPix Model"""
 
-    name: str = "DLWP_HEALPixRec"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = True

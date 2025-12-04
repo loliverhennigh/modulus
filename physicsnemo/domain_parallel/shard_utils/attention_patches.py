@@ -19,19 +19,13 @@ from typing import Any, Callable, Optional, Tuple, Union
 import torch
 import torch.distributed as dist
 from torch.autograd.profiler import record_function
+from torch.distributed import DeviceMesh
 
-from physicsnemo.core.version_check import check_module_requirements
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-
-from torch.distributed import DeviceMesh  # noqa: E402
-
-from physicsnemo.domain_parallel import ShardTensor  # noqa: E402
-from physicsnemo.domain_parallel.shard_utils.patch_core import (  # noqa: E402
+from physicsnemo.domain_parallel import ShardTensor
+from physicsnemo.domain_parallel.shard_utils.patch_core import (
     MissingShardPatch,
 )
-from physicsnemo.domain_parallel.shard_utils.ring import (  # noqa: E402
+from physicsnemo.domain_parallel.shard_utils.ring import (
     RingPassingConfig,
     perform_ring_iteration,
 )

@@ -169,11 +169,8 @@ def _unique_model_names(
             is_compiled = True
         else:
             is_compiled = False
-        # Base name of model is meta.name unless pytorch model
-        base_name = model0.__class__.__name__
-        if isinstance(model0, physicsnemo.core.Module):
-            if model0.meta and getattr(model0.meta, "name", None):
-                base_name = model0.meta.name
+        # Base name of model is the class name
+        base_name = type(model0).__name__
         # Warning in case of attempt to load into a compiled model
         if is_compiled and loading:
             checkpoint_logging.warning(
@@ -219,11 +216,8 @@ def save_checkpoint(
     - Training state (when optimizer/scheduler/scaler are provided):
       "checkpoint.{model_parallel_rank}.{epoch}.pt"
 
-    For PhysicsNeMo models, the {model_name} is derived from the model's metadata through
-    ``model.meta.name``; if the model has no metadata, then the model's class name
-    ``model.__class__.__name__`` is used.
-    For PyTorch models, the model_name is always derived from the model's class name ``__class__.__name__``.
-    models).
+    For both PhysicsNeMo and PyTorch models, the {model_name} is always derived from
+    the model's class name ``model.__class__.__name__``.
     If multiple models share the same {model_name}, they are indexed by {model_id}
     (e.g., "MyModel0", "MyModel1").
 

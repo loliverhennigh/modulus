@@ -18,13 +18,8 @@ from typing import Any
 
 import torch
 
-from physicsnemo.core.version_check import check_module_requirements
+from physicsnemo.domain_parallel import ShardTensor
 from physicsnemo.nn.sdf import signed_distance_field
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-
-from physicsnemo.domain_parallel import ShardTensor  # noqa: E402
 
 
 def sharded_signed_distance_field(

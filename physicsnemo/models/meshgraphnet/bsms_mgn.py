@@ -27,7 +27,6 @@ from physicsnemo.nn.gnn_layers.utils import DGLGraph, GraphType, PyGData
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "BiStrideMeshGraphNet"
     # Optimization, no JIT as DGLGraph causes trouble
     jit: bool = False
     cuda_graphs: bool = False

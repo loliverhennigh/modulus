@@ -48,7 +48,6 @@ Tensor = torch.Tensor
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "SuperResolution"
     # Optimization
     jit: bool = True
     cuda_graphs: bool = False  # TODO: Investigate this

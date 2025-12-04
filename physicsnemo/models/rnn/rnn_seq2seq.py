@@ -34,7 +34,6 @@ from physicsnemo.nn import get_activation
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "Seq2SeqRNN"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

@@ -35,7 +35,7 @@ def test_song_unet_forward(device):
     assert common.validate_forward_accuracy(
         model,
         (input_image, noise_labels, class_labels),
-        file_name="ddmpp_unet_output.pth",
+        file_name="models/diffusion/data/ddmpp_unet_output.pth",
         atol=1e-3,
     )
 
@@ -54,7 +54,7 @@ def test_song_unet_forward(device):
     assert common.validate_forward_accuracy(
         model,
         (input_image, noise_labels, class_labels),
-        file_name="ncsnpp_unet_output.pth",
+        file_name="models/diffusion/data/ncsnpp_unet_output.pth",
         atol=1e-3,
     )
 

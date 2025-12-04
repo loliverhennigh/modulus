@@ -395,7 +395,6 @@ class PatchEmbed(nn.Module):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "AFNO"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
     cuda_graphs: bool = True

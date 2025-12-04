@@ -21,32 +21,26 @@ from warnings import warn
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh, _mesh_resources
-
-from physicsnemo.core.version_check import check_module_requirements
-from physicsnemo.distributed import DistributedManager
-from physicsnemo.utils.profiling import annotate, profile
-
-# Prevent importing this module if the minimum version of pytorch is not met.
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-from torch.distributed.tensor import DTensor  # noqa: E402
-from torch.distributed.tensor._dtensor_spec import (  # noqa: E402
+from torch.distributed.tensor import DTensor
+from torch.distributed.tensor._dtensor_spec import (
     TensorMeta,
 )
-from torch.distributed.tensor.placement_types import (  # noqa: E402
+from torch.distributed.tensor.placement_types import (
     Placement,
     Replicate,
     Shard,
 )
 
-from physicsnemo.domain_parallel._shard_redistribute import (  # noqa: E402
+from physicsnemo.distributed import DistributedManager
+from physicsnemo.domain_parallel._shard_redistribute import (
     ShardRedistribute,
 )
-from physicsnemo.domain_parallel._shard_tensor_spec import (  # noqa: E402
+from physicsnemo.domain_parallel._shard_tensor_spec import (
     ShardTensorSpec,
     _infer_shard_tensor_spec_from_local_chunks,
     _stride_from_contiguous_shape_C_style,
 )
+from physicsnemo.utils.profiling import annotate, profile
 
 aten = torch.ops.aten
 

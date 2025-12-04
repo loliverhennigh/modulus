@@ -21,8 +21,6 @@
 
 import torch
 
-from physicsnemo.core.version_check import check_module_requirements
-
 from .autograd import all_gather_v, gather_v, indexed_all_to_all_v, scatter_v
 from .config import ProcessGroupConfig, ProcessGroupNode
 

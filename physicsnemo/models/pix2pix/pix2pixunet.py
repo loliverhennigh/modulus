@@ -112,7 +112,6 @@ def init_weights(net, init_type="normal", init_gain=0.02):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "Pix2PixUnet"
     # Optimization
     jit: bool = True
     cuda_graphs: bool = True

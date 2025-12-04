@@ -95,7 +95,7 @@ class _StaticCapture(object):
             # CUDA graphs
             if use_graphs and not self.model.meta.cuda_graphs:
                 self.logger.warning(
-                    f"Model {model.meta.name} does not support CUDA graphs, turning off"
+                    f"Model {type(model).__name__} does not support CUDA graphs, turning off"
                 )
                 use_graphs = False
             self.cuda_graphs_enabled = use_graphs
@@ -103,7 +103,7 @@ class _StaticCapture(object):
             # AMP GPU
             if not self.model.meta.amp_gpu:
                 self.logger.warning(
-                    f"Model {model.meta.name} does not support AMP on GPUs, turning off"
+                    f"Model {type(model).__name__} does not support AMP on GPUs, turning off"
                 )
                 use_autocast = False
                 use_gradscaler = False
@@ -129,7 +129,7 @@ class _StaticCapture(object):
             # AMP CPU
             if use_autocast and not self.model.meta.amp_cpu:
                 self.logger.warning(
-                    f"Model {model.meta.name} does not support AMP on CPUs, turning off"
+                    f"Model {type(model).__name__} does not support AMP on CPUs, turning off"
                 )
                 use_autocast = False
 

@@ -775,7 +775,6 @@ class FNO4DEncoder(nn.Module):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "FourierNeuralOperator"
     # Optimization
     jit: bool = True
     cuda_graphs: bool = True

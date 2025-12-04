@@ -29,26 +29,13 @@ available.  Second, the points are sorted before making a comparison.
 
 import pytest
 import torch
-
-from physicsnemo.core.version_check import check_module_requirements
-from physicsnemo.distributed import DistributedManager
-
-try:
-    check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-except ImportError:
-    pytest.skip(
-        "Skipping test because physicsnemo.distributed.shard_tensor is not available",
-        allow_module_level=True,
-    )
-
-
 from torch.distributed.tensor import distribute_module  # noqa: E402
 from torch.distributed.tensor.placement_types import (  # noqa: E402
     Replicate,
     Shard,
 )
 
+from physicsnemo.distributed import DistributedManager
 from physicsnemo.domain_parallel import (
     scatter_tensor,
 )

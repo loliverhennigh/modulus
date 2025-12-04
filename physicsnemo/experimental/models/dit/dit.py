@@ -27,7 +27,6 @@ from physicsnemo.experimental.models.dit.layers import get_tokenizer, get_detoke
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "DiT"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

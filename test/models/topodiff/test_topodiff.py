@@ -55,6 +55,7 @@ def test_topodiff_forward(device):
             cons,
             timesteps,
         ),
+        file_name="models/topodiff/data/topodiff_output.pth",
     )
 
 

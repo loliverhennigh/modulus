@@ -18,24 +18,19 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
-
-from physicsnemo.core.version_check import check_module_requirements
-from physicsnemo.utils.profiling import profile
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-from torch.distributed.tensor import DTensor  # noqa: E402
-from torch.distributed.tensor.placement_types import (  # noqa: E402
+from torch.distributed.tensor import DTensor
+from torch.distributed.tensor.placement_types import (
     Shard,
 )
 
-from physicsnemo.domain_parallel import ShardTensor, ShardTensorSpec  # noqa: E402
-from physicsnemo.domain_parallel.shard_utils.patch_core import (  # noqa: E402
+from physicsnemo.domain_parallel import ShardTensor, ShardTensorSpec
+from physicsnemo.domain_parallel.shard_utils.patch_core import (
     MissingShardPatch,
 )
+from physicsnemo.utils.profiling import profile
 
-from .halo import HaloConfig, halo_padding  # noqa: E402
-from .patch_core import promote_to_iterable  # noqa: E402
+from .halo import HaloConfig, halo_padding
+from .patch_core import promote_to_iterable
 
 
 @profile

@@ -27,7 +27,7 @@ import torch.cuda.profiler as profiler
 from physicsnemo.distributed import DistributedManager, reduce_loss
 
 from .console import PythonLogger
-from .wandb import _WANDB_AVAILABLE
+from .wandb import WANDB_AVAILABLE
 from .wandb import alert as _wandb_alert
 from .wandb import wandb as _wandb
 
@@ -133,12 +133,13 @@ class LaunchLogger(object):
                 self.total_iteration_index = 0
 
         # Set x axis metric to epoch for this namespace
-        if self.wandb_backend and _WANDB_AVAILABLE:
-            _wandb.define_metric(name_space + "/mini_batch_*", step_metric="iter")
-            _wandb.define_metric(name_space + "/*", step_metric="epoch")
-        elif self.wandb_backend:
-            self.pyLogger.warning("WandB not installed, turning off")
-            self.__class__.wandb_backend = False
+        if self.wandb_backend:
+            if WANDB_AVAILABLE:
+                _wandb.define_metric(name_space + "/mini_batch_*", step_metric="iter")
+                _wandb.define_metric(name_space + "/*", step_metric="epoch")
+            else:
+                self.pyLogger.warning("WandB not installed, turning off")
+                self.__class__.wandb_backend = False
 
     def log_minibatch(self, losses: Dict[str, float]):
         """Logs metrics for a mini-batch epoch
@@ -287,15 +288,17 @@ class LaunchLogger(object):
             and self.root
             and self.epoch % self.epoch_alert_freq == 0
         ):
-            if self.wandb_backend and _WANDB_AVAILABLE:
-                # TODO: Make this a little more informative?
-                _wandb_alert(
-                    title=f"{sys.argv[0]} training progress report",
-                    text=f"Run {_wandb.run.name} is at epoch {self.epoch}.",
-                )
-            elif self.wandb_backend:
-                self.pyLogger.warning("WandB not installed, turning off")
-                self.__class__.wandb_backend = False
+            if self.wandb_backend:
+                if WANDB_AVAILABLE:
+                    # TODO: Make this a little more informative?
+
+                    _wandb_alert(
+                        title=f"{sys.argv[0]} training progress report",
+                        text=f"Run {_wandb.run.name} is at epoch {self.epoch}.",
+                    )
+                else:
+                    self.pyLogger.warning("WandB not installed, turning off")
+                    self.__class__.wandb_backend = False
 
     def _log_backends(
         self,
@@ -327,15 +330,16 @@ class LaunchLogger(object):
                 )
 
         # WandB Logging
-        if self.wandb_backend and _WANDB_AVAILABLE:
-            # For WandB send step in as a metric
-            # Step argument in lod function does not work with multiple log calls at
-            # different intervals
-            metric_dict[step[0]] = step[1]
-            _wandb.log(metric_dict)
-        elif self.wandb_backend:
-            self.pyLogger.warning("WandB not installed, turning off")
-            self.__class__.wandb_backend = False
+        if self.wandb_backend:
+            if WANDB_AVAILABLE:
+                # For WandB send step in as a metric
+                # Step argument in lod function does not work with multiple log calls at
+                # different intervals
+                metric_dict[step[0]] = step[1]
+                _wandb.log(metric_dict)
+            else:
+                self.pyLogger.warning("WandB not installed, turning off")
+                self.__class__.wandb_backend = False
 
     def log_figure(
         self,
@@ -361,11 +365,12 @@ class LaunchLogger(object):
         if dist.rank != 0:
             return
 
-        if self.wandb_backend and _WANDB_AVAILABLE:
-            _wandb.log({artifact_file: figure})
-        elif self.wandb_backend:
-            self.pyLogger.warning("WandB not installed, turning off")
-            self.__class__.wandb_backend = False
+        if self.wandb_backend:
+            if WANDB_AVAILABLE:
+                _wandb.log({artifact_file: figure})
+            else:
+                self.pyLogger.warning("WandB not installed, turning off")
+                self.__class__.wandb_backend = False
 
         if self.mlflow_backend:
             self.mlflow_client.log_figure(
@@ -419,7 +424,7 @@ class LaunchLogger(object):
             Use MLFlow logging, by default False
         """
         if use_wandb:
-            if not _WANDB_AVAILABLE:
+            if _wandb is None:
                 PythonLogger().warning("WandB not installed, turning off")
                 use_wandb = False
             elif _wandb.run is None:

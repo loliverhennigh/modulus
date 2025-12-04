@@ -14,7 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field
+
+_DEPRECATED_SENTINEL = object()
 
 
 @dataclass
@@ -22,7 +25,7 @@ class ModelMetaData:
     """Data class for storing essential meta data needed for all PhysicsNeMo Models"""
 
     # Model info
-    name: str = "PhysicsNeMoModule"
+    name: str | object = field(default=_DEPRECATED_SENTINEL, repr=False)
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -44,6 +47,19 @@ class ModelMetaData:
     auto_grad: bool = False
 
     def __post_init__(self):
+        # Handle deprecated 'name' attribute
+        if self.name is not _DEPRECATED_SENTINEL:
+            warnings.warn(
+                "The 'name' attribute in ModelMetaData is deprecated and currently has "
+                "no effect. It will be removed in a future version. "
+                "The model's class name is now used automatically instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        # Set default value for backward compatibility
+        else:
+            self.name = "PhysicsNeMoModule"
+
         self.amp_cpu = self.amp if self.amp_cpu is None else self.amp_cpu
         self.amp_gpu = self.amp if self.amp_gpu is None else self.amp_gpu
         self.onnx_cpu = self.onnx if self.onnx_cpu is None else self.onnx_cpu

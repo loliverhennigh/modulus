@@ -23,13 +23,13 @@ from typing import Literal, Tuple
 
 import torch
 
-from physicsnemo.core.version_check import check_min_version
+from physicsnemo.core.version_check import check_version_spec
 from physicsnemo.distributed import DistributedManager
 
 from .console import PythonLogger
 from .launch import LaunchLogger
 
-MLFLOW_AVAILABLE = check_min_version("mlflow", "2.5.0", hard_fail=False)
+MLFLOW_AVAILABLE = check_version_spec("mlflow", "2.5.0", hard_fail=False)
 
 
 logger = PythonLogger("mlflow")

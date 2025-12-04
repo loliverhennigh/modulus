@@ -30,7 +30,6 @@ from physicsnemo.nn import (
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "SwinRNN"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
     cuda_graphs: bool = True

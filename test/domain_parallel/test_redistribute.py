@@ -29,20 +29,6 @@ complex resharding requirements.  In all cases, the input tensors are sharded:
 """
 
 import pytest
-
-from physicsnemo.core.version_check import check_module_requirements
-
-try:
-    check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-
-except ImportError:
-    pytest.skip(
-        "Skipping test because physicsnemo.distributed.shard_tensor is not available",
-        allow_module_level=True,
-    )
-
-
 import torch
 import torch.distributed as dist
 from torch.distributed.tensor.placement_types import Replicate, Shard

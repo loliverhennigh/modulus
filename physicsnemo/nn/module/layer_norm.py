@@ -14,18 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import os
 import warnings
 
 import torch
 from torch import nn
 
-try:
-    import transformer_engine.pytorch as te
+from physicsnemo.core.version_check import check_module_requirements
 
-    TE_AVAILABLE = True
-except ImportError:
-    TE_AVAILABLE = False
+TE_AVAILABLE = check_module_requirements("transformer_engine", hard_fail=False)
 
 
 def remove_extra_state_hook_for_torch(
@@ -124,6 +122,7 @@ def get_layer_norm_class() -> nn.Module:
             )
 
     if te_available:
+        te = importlib.import_module("transformer_engine.pytorch")
         base = te.LayerNorm
     else:
         base = nn.LayerNorm

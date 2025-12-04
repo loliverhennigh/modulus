@@ -115,7 +115,6 @@ def get_lat_lon_partition_separators(partition_size: int):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "GraphCastNet"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

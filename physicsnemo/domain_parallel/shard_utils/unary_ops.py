@@ -26,16 +26,11 @@ This module provides:
 from typing import Dict, List, Sequence
 
 import torch
-
-from physicsnemo.core.version_check import check_module_requirements
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-from torch.distributed.tensor.placement_types import (  # noqa: E402
+from torch.distributed.tensor.placement_types import (
     Shard,
 )
 
-from physicsnemo.domain_parallel import ShardTensor  # noqa: E402
+from physicsnemo.domain_parallel import ShardTensor
 
 aten = torch.ops.aten
 

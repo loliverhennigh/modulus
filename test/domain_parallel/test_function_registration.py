@@ -23,15 +23,6 @@ connect correctly.
 
 import pytest
 import torch
-
-# ST_AVAILABLE = check_module_requirements(
-#     "physicsnemo.distributed.shard_tensor", hard_fail=False
-# )
-# if not ST_AVAILABLE:
-#     pytest.skip(
-#         "Skipping test because physicsnemo.distributed.shard_tensor is not available",
-#         allow_module_level=True,
-#     )
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor.placement_types import Replicate
 

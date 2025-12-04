@@ -29,20 +29,7 @@ import functools
 from importlib import metadata
 from typing import Optional
 
-from packaging.specifiers import SpecifierSet
-from packaging.version import Version
-
-install_cmds = {
-    "cupy": "pip install cupy-cuda13",
-    "cuml": "pip install cuml-cu13",
-    "scipy": "pip install scipy",
-}
-
-extra_info = {
-    "cupy": "For more details about installing cupy, see https://docs.cupy.dev/en/stable/install.html/.",
-    "cuml": "For more details about installing cuml, see https://docs.rapids.ai/install/.",
-    "scipy": "For more details about installing scipy, see https://www.scipy.org/install/.",
-}
+from packaging.version import parse
 
 
 def check_min_version(
@@ -67,25 +54,35 @@ def get_installed_version(distribution_name: str) -> Optional[str]:
     Uses importlib.metadata to avoid heavy import-time side effects.
     Cached for repeated lookups.
     """
+
+    # First, try exact match:
     try:
         return metadata.version(distribution_name)
     except metadata.PackageNotFoundError:
-        return None
+        pass
+
+    # Some packages have only partial matches, like `cupy`
+    for dist in metadata.distributions():
+        name = dist.metadata["Name"].lower()
+        if name.startswith(distribution_name):
+            return dist.version
+
+    return None
 
 
 def check_version_spec(
     distribution_name: str,
-    spec: str,
+    spec: str = "0.0.0",
     *,
     error_msg: Optional[str] = None,
-    hard_fail: bool = True,
+    hard_fail: bool = False,
 ) -> bool:
     """
     Check whether the installed distribution satisfies a PEP 440 version specifier.
 
     Args:
         distribution_name: Distribution (package) name as installed by pip
-        spec: PEP 440 version specifier (e.g., '>=2.4,<2.6')
+        spec: version specifier (e.g., '2.4') (Not PEP 440 to allow dev versions, etc.)
         error_msg: Optional custom error message
         hard_fail: Whether to raise an ImportError if the version requirement is not met
     Returns:
@@ -103,7 +100,7 @@ def check_version_spec(
         else:
             return False
 
-    ok = Version(installed) in SpecifierSet(spec)
+    ok = parse(installed) >= parse(spec)
     if not ok:
         msg = (
             error_msg
@@ -118,11 +115,11 @@ def check_version_spec(
 
 def require_version_spec(package_name: str, spec: str = ">=0.0.0"):
     """
-    Decorator variant that accepts a full PEP 440 specifier instead of a single minimum version.
+    Decorator variant that accepts a full version specifier instead of a single minimum version.
 
     Args:
         package_name: Name of the package to check
-        spec: PEP 440 version specifier (e.g., '>=2.4,<2.6')
+        spec: version specifier (e.g., '2.4') (Not PEP 440 to allow dev versions, etc.)
 
     Returns:
         Decorator function that checks version requirement before execution
@@ -143,44 +140,3 @@ def require_version_spec(package_name: str, spec: str = ">=0.0.0"):
         return wrapper
 
     return decorator
-
-
-def ensure_available(
-    distribution_name: str,
-    spec: str = ">=0.0.0",
-    *,
-    install_hint: Optional[str] = None,
-    extra_message: Optional[str] = None,
-    hard_fail: bool = True,
-) -> bool:
-    """
-    Ensure a distribution is installed and satisfies the given specifier.
-    If not satisfied:
-      - When hard_fail=True, raises ImportError with an actionable message
-      - When hard_fail=False, returns False
-
-    Args:
-        distribution_name: Distribution (package) name as installed by pip
-        spec: PEP 440 specifier (e.g., '>=24.0.0', '>=2.4,<2.6')
-        install_hint: Optional string suggesting how to install (e.g., "pip install cupy-cuda12x")
-        extra_message: Optional extra context to append to the error
-        hard_fail: Whether to raise on failure
-    """
-    try:
-        return check_version_spec(distribution_name, spec, hard_fail=True)
-    except ImportError as e:
-        if not hard_fail:
-            return False
-        msg_parts = [str(e)]
-        # If not provided, and we have a hint above, use it:
-        if install_hint is None and distribution_name in install_cmds:
-            install_hint = install_cmds[distribution_name]
-        # If not provided, and we have extra info above, use it:
-        if extra_message is None and distribution_name in extra_message:
-            extra_message = extra_info[distribution_name]
-
-        if install_hint:
-            msg_parts.append(f"Install hint: {install_hint}")
-        if extra_message:
-            msg_parts.append(extra_message)
-        raise ImportError(" | ".join(msg_parts))

@@ -69,7 +69,6 @@ Tensor = torch.Tensor
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "Pix2Pix"
     # Optimization
     jit: bool = True
     cuda_graphs: bool = True

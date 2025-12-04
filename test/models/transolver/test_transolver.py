@@ -67,7 +67,7 @@ def test_transolver2d_forward(device):
             fx,
             embedding,
         ),
-        file_name="transolver2d_output.pth",
+        file_name="models/transolver/data/transolver2d_output.pth",
         atol=1e-3,
     )
 
@@ -106,7 +106,7 @@ def test_transolver_irregular_forward(device):
             embedding,
             functional_input,
         ),
-        file_name="transolver_irregular_output.pth",
+        file_name="models/transolver/data/transolver_irregular_output.pth",
         atol=1e-3,
     )
 
@@ -218,7 +218,7 @@ def test_transolver_te(pytestconfig):
             embedding,
             functional_input,
         ),
-        file_name="transolver_irregular_te_output.pth",
+        file_name="models/transolver/data/transolver_irregular_te_output.pth",
         atol=1e-3,
     )
 

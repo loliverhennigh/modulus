@@ -19,10 +19,10 @@ import importlib
 
 import torch
 
-from physicsnemo.core.version_check import check_min_version
+from physicsnemo.core.version_check import check_version_spec
 
-CUML_AVAILABLE = check_min_version("cuml", "24.0.0", hard_fail=False)
-CUPY_AVAILABLE = check_min_version("cupy", "13.0.0", hard_fail=False)
+CUML_AVAILABLE = check_version_spec("cuml", "24.0.0", hard_fail=False)
+CUPY_AVAILABLE = check_version_spec("cupy", "13.0.0", hard_fail=False)
 
 if CUML_AVAILABLE and CUPY_AVAILABLE:
     cuml = importlib.import_module("cuml")
@@ -77,23 +77,12 @@ if CUML_AVAILABLE and CUPY_AVAILABLE:
         return idx_output, dist_output
 else:
 
-    def knn_impl(
-        points: torch.Tensor,
-        queries: torch.Tensor,
-        k: int = 3,
-    ) -> None:
+    def knn_impl(*args, **kwargs) -> None:
         """
         Dummy implementation for when cuml is not available.
-
-        Args:
-            points (torch.Tensor): The points to search in.
-            queries (torch.Tensor): The queries to search for.
-            k (int): The number of neighbors to search for.
-
-        Raises:
-            ImportError: If cuml is not installed.
         """
 
         raise ImportError(
-            "cuml is not installed, can not be used as a backend for a knn search"
+            "physics nemo kNN: cuml or cupy is not installed, can not be used as a backend for a knn search"
+            "Please install cuml and cupy, for installation instructions see: https://docs.rapids.ai/install"
         )

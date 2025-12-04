@@ -63,53 +63,64 @@ This document is structured in two main sections:
 
 | Rule ID | Summary | Apply When |
 |---------|---------|------------|
-| [`MOD-000`](#mod-000-models-organization-and-where-to-place-new-model-classes) | Models organization and where to place new model classes | Creating or refactoring new model classes |
-| [`MOD-001`](#mod-001-use-proper-class-inheritance-for-all-models) | Use proper class inheritance for all models | Creating or refactoring new model classes |
-| [`MOD-002`](#mod-002-model-classes-lifecycle) | Model classes lifecycle | Creating or moving existing model classes |
-| [`MOD-003`](#mod-003-model-classes-documentation) | Model classes documentation | Creating or editing any docstring in a model class |
-| [`MOD-004`](#mod-004-self-contained-model-modules) | Keep utility functions in the same module as the model | Organizing or refactoring model code |
-| [`MOD-005`](#mod-005-tensor-shape-validation) | Validate tensor shapes in forward and public methods | Implementing or modifying model forward or public methods |
-| [`MOD-006`](#mod-006-jaxtyping-annotations) | Use jaxtyping for tensor type annotations | Adding or editing any new public method of a model class |
-| [`MOD-007`](#mod-007-backward-compatibility) | Maintain backward compatibility for model signatures | Modifying existing production models |
-| [`MOD-008`](#mod-008-minimal-ci-testing-requirements) | Provide comprehensive CI tests for all models | Moving models out of experimental or adding new models |
+| [`MOD-000a`](#mod-000a-reusable-layersblocks-belong-in-physicsnemonn) | Reusable layers/blocks belong in physicsnemo.nn | Creating or refactoring reusable layer classes |
+| [`MOD-000b`](#mod-000b-complete-models-belong-in-physicsnemomodels) | Complete models belong in physicsnemo.models | Creating or refactoring complete model classes |
+| [`MOD-001`](#mod-001-use-physicsnemomodule-as-model-base-classes) | Use physicsnemo.Module as model base classes | Creating or refactoring new model classes |
+| [`MOD-002a`](#mod-002a-new-models-and-layers-belong-in-physicsnemoexperimental) | New models and layers belong in physicsnemo.experimental | Creating new model or layer classes |
+| [`MOD-002b`](#mod-002b-add-deprecation-warnings-to-deprecating-model-class) | Add deprecation warnings to deprecating model class | Deprecating existing model classes |
+| [`MOD-002c`](#mod-002c-remove-deprecated-model-from-codebase) | Remove deprecated model from codebase | Removing deprecated models after warning period |
+| [`MOD-003a`](#mod-003a-missing-or-incomplete-docstring-for-modellayer-code) | Missing or incomplete docstring for model/layer code | Creating or editing any model or layer code |
+| [`MOD-003b`](#mod-003b-docstring-must-use-raw-string-prefix-r) | Docstring must use raw string prefix r""" | Writing any model or method docstring |
+| [`MOD-003c`](#mod-003c-missing-required-class-docstring-sections) | Missing required class docstring sections | Writing class docstrings |
+| [`MOD-003d`](#mod-003d-missing-required-method-docstring-sections) | Missing required method docstring sections | Writing method docstrings |
+| [`MOD-003e`](#mod-003e-tensor-shapes-must-use-latex-math-notation) | Tensor shapes must use LaTeX math notation | Documenting tensors in docstrings |
+| [`MOD-003f`](#mod-003f-callback-functions-must-have-code-block-specification) | Callback functions must have code-block specification | Documenting callback function parameters |
+| [`MOD-003g`](#mod-003g-inline-code-must-use-double-backticks) | Inline code must use double backticks | Writing inline code in docstrings |
+| [`MOD-003h`](#mod-003h-parameters-must-be-documented-on-single-line) | Parameters must be documented on single line | Documenting function/method parameters |
+| [`MOD-003i`](#mod-003i-docstrings-should-include-cross-references) | Docstrings should include cross-references | Writing comprehensive docstrings |
+| [`MOD-003j`](#mod-003j-docstrings-should-include-examples-section) | Docstrings should include Examples section | Writing model class docstrings |
+| [`MOD-003k`](#mod-003k-add-high-level-comments-for-complex-tensor-operations) | Add high-level comments for complex tensor operations | Writing model code with complex tensor operations |
+| [`MOD-004`](#mod-004-model-code-is-not-self-contained) | Model code is not self-contained | Organizing or refactoring model code |
+| [`MOD-005`](#mod-005-invalid-or-missing-tensor-shape-validation-logic) | Invalid or missing tensor shape validation logic | Implementing model forward or public methods |
+| [`MOD-006`](#mod-006-invalid-or-missing-jaxtyping-tensor-annotations-in-public-function-signature) | Invalid or missing jaxtyping tensor annotations in public function signature | Adding type hints to model methods |
+| [`MOD-007a`](#mod-007a-cannot-add-required-parameters-without-defaults) | Cannot add required parameters without defaults | Modifying production model signatures |
+| [`MOD-007b`](#mod-007b-cannot-remove-or-rename-parameters-without-compat-mapper) | Cannot remove or rename parameters without compat mapper | Modifying production model signatures |
+| [`MOD-007c`](#mod-007c-cannot-change-return-types-of-public-methods) | Cannot change return types of public methods | Modifying production model method signatures |
+| [`MOD-008a`](#mod-008a-model-missing-constructorattributes-tests) | Model missing constructor/attributes tests | Adding CI tests for models |
+| [`MOD-008b`](#mod-008b-model-missing-non-regression-test-with-reference-data) | Model missing non-regression test with reference data | Adding CI tests for models |
+| [`MOD-008c`](#mod-008c-model-missing-checkpoint-loading-test) | Model missing checkpoint loading test | Adding CI tests for models |
+| [`MOD-009`](#mod-009-avoid-string-based-class-selection-in-model-constructors) | Avoid string-based class selection in model constructors | Designing model constructor APIs |
+| [`MOD-010`](#mod-010-avoid-splatted-kwargs-in-model-constructors) | Avoid splatted kwargs in model constructors | Designing model constructor APIs |
+| [`MOD-011`](#mod-011-use-proper-optional-dependency-handling) | Use proper optional dependency handling | Implementing models with optional dependencies |
 
 ---
 
 ## Detailed Rules
 
-### MOD-000: Models organization and where to place new model classes
+### MOD-000a: Reusable layers/blocks belong in physicsnemo.nn
 
 **Description:**
 
-There are two types of models in PhysicsNeMo:
+Reusable layers that are the building blocks of more complex architectures
+should go into `physicsnemo/nn`. Those include for instance `FullyConnected`,
+various variants of attention layers, `UNetBlock` (a block of a U-Net), etc.
 
-- Reusable layers that are the building blocks of more complex architectures.
-  Those should go into `physicsnemo/nn`. Those include for instance
-  `FullyConnected`, various variants of attention layers, `UNetBlock` (a block
-  of a U-Net), etc.
-  All layers that are directly exposed to the user should be imported in
-  `physicsnemo/nn/__init__.py`, such that they can be used as follows:
-  ```python
-  from physicsnemo.nn import MyLayer
-  ```
-- More complete models, composed of multiple layers and/or other sub-models.
-  Those should go into `physicsnemo/models`. All models that are directly
-  exposed to the user should be imported in `physicsnemo/models/__init__.py`,
-  such that they can be used as follows:
-  ```python
-  from physicsnemo.models import MyModel
-  ```
+All layers that are directly exposed to the user should be imported in
+`physicsnemo/nn/__init__.py`, such that they can be used as follows:
 
-The only exception to this rule is for models or layers that are highly specific to a
+```python
+from physicsnemo.nn import MyLayer
+```
+
+The only exception to this rule is for layers that are highly specific to a
 single example. In this case, it may be acceptable to place them in a module
-specific to the example code, such as for example
-`examples/<example_name>/utils/nn.py`.
+specific to the example code, such as `examples/<example_name>/utils/nn.py`.
 
 **Rationale:**
-Ensures consistency and clarity in the organization of models in the
-repository, in particular a clear separation between reusable layers and more
-complete models that are applicable to a specific domain or specific data
-modality.
+
+Ensures consistency in the organization of reusable layers in the repository.
+Keeping all reusable components in a single location makes them easy to find
+and promotes code reuse across different models.
 
 **Example:**
 
@@ -119,15 +130,10 @@ class MultiHeadAttention(Module):
     """A reusable attention layer that can be used in various architectures."""
     pass
 
-# Good: Complete model in physicsnemo/models/transformer.py
-class TransformerModel(Module):
-    """A complete transformer model composed of attention and feedforward layers."""
-    def __init__(self):
-        super().__init__()
-        self.attention = MultiHeadAttention(...)
-        self.ffn = FeedForward(...)
+# Good: Import in physicsnemo/nn/__init__.py
+from physicsnemo.nn.attention import MultiHeadAttention
 
-# Good: Example-specific utility in examples/weather/utils/nn.py
+# Good: Example-specific layer in examples/weather/utils/nn.py
 class WeatherSpecificLayer(Module):
     """Layer highly specific to the weather forecasting example."""
     pass
@@ -136,13 +142,7 @@ class WeatherSpecificLayer(Module):
 **Anti-pattern:**
 
 ```python
-# WRONG: Complete model placed in physicsnemo/nn/ instead of physicsnemo/models/
-# File: physicsnemo/nn/transformer.py
-class TransformerModel(Module):
-    """Should be in physicsnemo/models/ not physicsnemo/nn/"""
-    pass
-
-# WRONG: Reusable layer placed in physicsnemo/models/ instead of physicsnemo/nn/
+# WRONG: Reusable layer placed in physicsnemo/models/
 # File: physicsnemo/models/attention.py
 class MultiHeadAttention(Module):
     """Should be in physicsnemo/nn/ not physicsnemo/models/"""
@@ -151,9 +151,60 @@ class MultiHeadAttention(Module):
 
 ---
 
-### MOD-001: Use proper class inheritance for all models
+### MOD-000b: Complete models belong in physicsnemo.models
 
 **Description:**
+
+More complete models, composed of multiple layers and/or other sub-models,
+should go into `physicsnemo/models`. All models that are directly exposed to
+the user should be imported in `physicsnemo/models/__init__.py`, such that they
+can be used as follows:
+
+```python
+from physicsnemo.models import MyModel
+```
+
+The only exception to this rule is for models that are highly specific to a
+single example. In this case, it may be acceptable to place them in a module
+specific to the example code, such as `examples/<example_name>/utils/nn.py`.
+
+**Rationale:**
+
+Ensures consistency and clarity in the organization of models in the repository,
+in particular a clear separation between reusable layers and more complete
+models that are applicable to a specific domain or specific data modality.
+
+**Example:**
+
+```python
+# Good: Complete model in physicsnemo/models/transformer.py
+class TransformerModel(Module):
+    """A complete transformer model composed of attention and feedforward layers."""
+    def __init__(self):
+        super().__init__()
+        self.attention = MultiHeadAttention(...)
+        self.ffn = FeedForward(...)
+
+# Good: Import in physicsnemo/models/__init__.py
+from physicsnemo.models.transformer import TransformerModel
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Complete model placed in physicsnemo/nn/
+# File: physicsnemo/nn/transformer.py
+class TransformerModel(Module):
+    """Should be in physicsnemo/models/ not physicsnemo/nn/"""
+    pass
+```
+
+---
+
+### MOD-001: Use physicsnemo.Module as model base classes
+
+**Description:**
+
 All model classes must inherit from `physicsnemo.Module`. Direct subclasses of
 `torch.nn.Module` are not allowed. Direct subclasses of `physicsnemo.Module`
 are allowed (note that `physicsnemo.Module` is a subclass of `torch.nn.Module`).
@@ -192,72 +243,96 @@ class MyModel(nn.Module):
 
 ---
 
-### MOD-002: Model classes lifecycle
+### MOD-002a: New models and layers belong in physicsnemo.experimental
 
 **Description:**
-All model classes must follow the following lifecycle:
 
-- Stage 1: Creation. This is the stage where the model class is created. For
-  the vast majority of models, new classes are created either in
-  `physicsnemo/experimental/nn` for reusable layers, or in
-  `physicsnemo/experimental/models` for more complete models. The `experimental`
-  folder is used to store models that are still under development (beta or
-  alpha releases) during this stage, backward compatibility is not guaranteed.
-  One exception is when the developer is highly confident that the model
-  is sufficiently mature and applicable to many domains or use cases. In this
-  case the model class can be created in the `physicsnemo/nn` or `physicsnemo/models`
-  folders directly, and backward compatibility is guaranteed. Another exception
-  is when the model class is highly specific to a single example. In this case,
-  it may be acceptable to place it in a module specific to the example code,
-  such as for example `examples/<example_name>/utils/nn.py`.
+For the vast majority of models, new classes are created either in
+`physicsnemo/experimental/nn` for reusable layers, or in
+`physicsnemo/experimental/models` for more complete models. The `experimental`
+folder is used to store models that are still under development (beta or alpha
+releases), where backward compatibility is not guaranteed.
 
-- Stage 2: Production. After staying in stage 1 for a sufficient amount of time
-  (typically at least 1 release cycle), the model class is promoted to stage 2.
-  It is then moved to the `physicsnemo/nn` or `physicsnemo/models` folders,
-  based on the rule `MOD-000`. During this stage, backward compatibility is
-  guaranteed.
+One exception is when the developer is highly confident that the model is
+sufficiently mature and applicable to many domains or use cases. In this case
+the model class can be created in the `physicsnemo/nn` or `physicsnemo/models`
+folders directly, and backward compatibility is guaranteed.
 
-- Stage 3: Pre-deprecation. For a model class in stage 3 in `physicsnemo/nn` or
-  `physicsnemo/models`, the developer should start planning its deprecation.
-  This is done by adding a warning message to the model class, indicating that
-  the model class is deprecated and will be removed in a future release. The
-  warning message should be a clear and concise message that explains why the
-  model class is being deprecated and what the user should do instead. The
-  deprecation message should be added to both the docstring and should be
-  raised at runtime. The developer is free to choose the mechanism to raise the
-  deprecation warning. A model class cannot be deprecated without staying in
-  stage 3 "pre-deprecation" for at least 1 release cycle.
+Another exception is when the model class is highly specific to a single
+example. In this case, it may be acceptable to place it in a module specific to
+the example code, such as `examples/<example_name>/utils/nn.py`.
 
-- Stage 4: Deprecation. After staying in stage 3 "pre-deprecation" for at least 1
-  release cycle, the model class is deprecated. It can be deleted from the
-  codebase.
+After staying in experimental for a sufficient amount of time (typically at
+least 1 release cycle), the model class can be promoted to production. It is
+then moved to the `physicsnemo/nn` or `physicsnemo/models` folders, based on
+whether it's a reusable layer (MOD-000a) or complete model (MOD-000b). During
+the production stage, backward compatibility is guaranteed.
+
+**Note:** Per MOD-008a, MOD-008b, and MOD-008c, it is forbidden to move a model
+out of the experimental stage/directory without the required CI tests.
 
 **Rationale:**
-This lifecycle ensures a structured approach to model development and maintenance.
+
 The experimental stage allows rapid iteration without backward compatibility
-constraints, enabling developers to refine APIs based on user feedback. The
-production stage provides stability for users who depend on these models. The
-pre-deprecation and deprecation stages ensure users have sufficient time to
-migrate to newer alternatives, preventing breaking changes that could disrupt
-their workflows. This graduated approach balances innovation with stability,
-a critical requirement for a scientific computing framework.
+constraints, enabling developers to refine APIs based on user feedback. This
+protects users from unstable APIs while allowing innovation.
 
 **Example:**
 
 ```python
-# Good: Stage 1 - New experimental model
+# Good: New experimental model
 # File: physicsnemo/experimental/models/new_diffusion.py
 class DiffusionModel(Module):
     """New diffusion model under active development. API may change."""
     pass
 
-# Good: Stage 2 - Promoted to production after 1 release cycle
+# Good: After 1+ release cycles, promoted to production
 # File: physicsnemo/models/diffusion.py (moved from experimental/)
 class DiffusionModel(Module):
     """Stable diffusion model with backward compatibility guarantees."""
     pass
+```
 
-# Good: Stage 3 - Pre-deprecation with warning
+**Anti-pattern:**
+
+```python
+# WRONG: New model directly in production folder
+# File: physicsnemo/models/brand_new_model.py (should be in experimental/ first)
+class BrandNewModel(Module):
+    """Skipped experimental stage - risky for stability"""
+    pass
+```
+
+---
+
+### MOD-002b: Add deprecation warnings to deprecating model class
+
+**Description:**
+
+For a model class being deprecated in `physicsnemo/nn` or `physicsnemo/models`,
+the developer must add warning messages indicating that the model class is
+deprecated and will be removed in a future release.
+
+The warning message should be clear and concise, explaining why the model class
+is being deprecated and what the user should do instead. The deprecation message
+must be added to both:
+1. The docstring using `.. deprecated::` directive
+2. Runtime using `warnings.warn(..., DeprecationWarning)`
+
+The developer is free to choose the mechanism to raise the deprecation warning.
+A model class cannot be deprecated without staying in the pre-deprecation stage
+for at least 1 release cycle before it can be deleted (see MOD-002c).
+
+**Rationale:**
+
+Ensures users have sufficient time to migrate to newer alternatives, preventing
+breaking changes that could disrupt their workflows. This graduated approach
+balances innovation with stability.
+
+**Example:**
+
+```python
+# Good: Pre-deprecation with proper warnings
 # File: physicsnemo/models/old_diffusion.py
 class DiffusionModel(Module):
     """
@@ -270,355 +345,727 @@ class DiffusionModel(Module):
     def __init__(self):
         import warnings
         warnings.warn(
-            "OldDiffusionModel is deprecated. Use DiffusionModel instead.",
+            "OldDiffusionModel is deprecated. Use NewDiffusionModel instead.",
             DeprecationWarning,
             stacklevel=2
         )
         super().__init__()
-
-# Good: Stage 4 - Model removed after deprecation period
-# (File deleted from codebase)
 ```
 
 **Anti-pattern:**
 
 ```python
-# WRONG: New model directly in production folder without experimental phase
-# File: physicsnemo/models/brand_new_model.py (should be in experimental/ first)
-class BrandNewModel(Module):
-    """Skipped experimental stage - risky for stability"""
-    pass
-
-# WRONG: Breaking changes in production without deprecation cycle
-# File: physicsnemo/models/diffusion.py
-class DiffusionModel(Module):
-    def __init__(self, new_required_param):  # Breaking change!
-        # Changed API without deprecation warning - breaks user code
-        pass
-
-# WRONG: Deprecation without sufficient warning period
-# (Model deprecated and removed in same release)
-
-# WRONG: No deprecation warning in code
+# WRONG: No runtime warning
 # File: physicsnemo/models/old_model.py
 class OldModel(Module):
     """Will be removed next release."""  # Docstring mentions it but no runtime warning
     def __init__(self):
         # Missing: warnings.warn(..., DeprecationWarning)
         super().__init__()
+
+# WRONG: Deprecation without sufficient warning period
+# (Model deprecated and removed in same release)
 ```
 
 ---
 
-### MOD-003: Model classes documentation
+### MOD-002c: Remove deprecated model from codebase
 
 **Description:**
 
-Every new model or modification of any model code should be documented with a
-comprehensive docstring. Each method of the model class should be documented with a
-docstring as well. The forward method should be documented in the docstring of the
-model class, instead of being in the docstring of the forward method itself. A
-docstring for the forward is still possible but it should be concise and to the
-point. To document the forward method, use the sections `Forward` and
-`Outputs`. In addition, all docstrings should be written in the NumPy style,
-and adopt formatting to be compatible with our Sphinx restructured text (RST)
-documentation.
-The docstrings should follow the following requirements:
+After staying in the pre-deprecation stage for at least 1 release cycle, the
+model class is considered deprecated and can be deleted from the codebase.
 
-- Each docstring should be prefixed with `r"""`.
-
-- The class docstring should at least contain three sections: `Parameters`,
-  `Forward`, and `Outputs`. Other sections such as `Notes`, `Examples`,
-  or `..important::` or `..code-block:: python` are possible. Other sections
-  are not recognized by our Sphinx documentation and are prohibited.
-
-- All methods should be documented with a docstring, with at least a `Parameters`
-  section and a `Returns` section. Other sections such as `Notes`, `Examples`,
-  or `..important::` or `..code-block:: python` are possible. Other sections
-  are not recognized by our Sphinx documentation and are prohibited.
-
-- All tensors should be documented with their shape, using LaTeX math notation such
-  as :math:`(N, C, H_{in}, W_{in})` (there is flexibility for naming the
-  dimensions, but the math format should be enforced). Our documentation is
-  rendered using LaTeX, and supports a rich set of LaTeX commands, so
-  it is recommended to use LaTeX commands whenever possible for mathematical
-  variables in the docstrings. The mathematical notations should be to some degree
-  consistent with the actual variable names in the code (even though
-  that is not always possible, to avoid too complex formatting).
-
-- For arguments or variables that are callback functions, (e.g. Callable), the
-  docstring should include a clear separated ..code-block:: that specifies the
-  required signature and return type of the callback function. This is not only
-  true for callback functions, but for any type of parameters or arguments that
-  has some complex type specification or API requirements. The explanation code
-  block should be placed in the top or bottom section of the docstrings, but
-  not in the `Parameters` or `Forward` or `Outputs` sections, for readability
-  and clarity.
-
-- Inline code should be formatted double backticks, such as ``my_variable``.
-  Single backticks are not allowed as they don't render properly in our Sphinx
-  documentation.
-
-- All parameters should be documented with their type and default values on a
-  single line.
-
-- When possible, docstrings should use links to other docstrings, such as
-  :class:`~physicsnemo.models.some_model.SomeModel`, or
-  :func:`~physicsnemo.utils.common_function`, or
-  :meth:`~physicsnemo.models.some_model.SomeModel.some_method`.
-
-- When referencing external resources, such as papers, websites, or other
-  documentation, docstrings should use links to the external resource in the
-  format `some link text <some_url>`_.
-
-- Docstrings are strongly encouraged to have an `Examples` section that
-  demonstrates basic construction and usage of the model. These example sections
-  serve as both documentation and tests, as our CI system automatically tests
-  these code sections for correctness when present. Examples should be
-  executable Python code showing typical use cases, including model
-  instantiation, input preparation, and forward pass execution.
+A model class cannot be deleted without first spending at least 1 release cycle
+in the pre-deprecation stage with proper deprecation warnings (see MOD-002b).
 
 **Rationale:**
-Comprehensive and well-formatted documentation is essential for scientific
-software. It enables users to understand model capabilities, expected inputs,
-and outputs without inspecting source code. LaTeX math notation and proper
-formatting ensure documentation renders correctly in Sphinx, creating
-professional, publication-quality documentation. Consistent documentation
-standards facilitate automatic documentation generation, improve code
-discoverability, and help AI agents understand code context. For a framework
-used in scientific research, clear documentation of tensor shapes, mathematical
-formulations, and API contracts is critical for reproducibility and correct usage.
+
+This ensures users have sufficient warning and time to migrate their code to
+newer alternatives. Premature deletion of models would break user code without
+adequate notice, violating the framework's commitment to stability.
 
 **Example:**
 
 ```python
-from typing import Callable, Optional
-from physicsnemo.models import Module
-import torch
-
-class SimpleEncoder(Module):
-    r"""
-    # Rule: Docstring starts with r (for raw string) followed by three double quotes for proper LaTeX rendering
-    A simple encoder network that transforms input features to a latent representation.
-
-    This model applies a sequence of linear transformations with activation functions
-    to encode input data into a lower-dimensional latent space. The architecture is
-    based on the approach described in `Autoencoder Networks <https://arxiv.org/example>`_.
-    # Rule: External references use proper link format
-
-    The model supports custom preprocessing via a callback function that is applied
-    to the input before encoding.
-
-    .. code-block:: python
-
-        # Rule: Callback functions or complex API requirements documented in a concise code-block
-        def preprocess_fn(x: torch.Tensor) -> torch.Tensor:
-            ...
-            return y
-    
-    where ``x`` is the input tensor of shape :math:`(B, D_{in})` and ``y`` is the output tensor of shape :math:`(B, D_{out})`.
-
-    Parameters
-    ----------
-    # Rule: Parameters section is mandatory
-    input_dim : int
-        # Rule: Type and description on single line
-        Dimension of input features.
-    latent_dim : int
-        Dimension of the latent representation.
-    hidden_dim : int, optional, default=128
-        # Rule: Default values are documented on same line
-        Dimension of the hidden layer.
-    activation : str, optional, default="relu"
-        Activation function to use. See :func:`~torch.nn.functional.relu` for details.
-        # Rule: Cross-references use proper Sphinx syntax
-    preprocess_fn : Callable[[torch.Tensor], torch.Tensor], optional, default=None
-        Optional preprocessing function applied to input. See the code block above
-        for the required signature.
-        # Rule: Callback functions documented with reference to code-block
-
-    Forward
-    # Rule: Forward section documents the forward method in class docstring
-    -------
-    x : torch.Tensor
-        Input tensor of shape :math:`(B, D_{in})` where :math:`B` is batch size
-        # Rule: Tensor shapes use LaTeX math notation with :math:
-        and :math:`D_{in}` is input dimension.
-    return_hidden : bool, optional, default=False
-        If ``True``, also returns hidden layer activations.
-        # Rule: Inline code uses double backticks
-
-    Outputs
-    # Rule: Outputs section is mandatory
-    -------
-    torch.Tensor or tuple
-        If ``return_hidden`` is ``False``, returns latent representation of shape
-        :math:`(B, D_{latent})`. If ``True``, returns tuple of
-        (latent, hidden) where hidden has shape :math:`(B, D_{hidden})`.
-
-    Examples
-    # Rule: Examples section is allowed and helpful
-    --------
-    >>> model = SimpleEncoder(input_dim=784, latent_dim=64)
-    >>> x = torch.randn(32, 784)
-    >>> latent = model(x)
-    >>> latent.shape
-    torch.Size([32, 64])
-
-    Notes
-    # Rule: Notes section is allowed for additional context
-    -----
-        This encoder can be used as part of a larger autoencoder architecture
-        by combining it with a decoder network such as
-        :class:`~physicsnemo.models.decoder.SimpleDecoder`.
-        # Rule: Cross-references to other classes use proper Sphinx syntax
-    """
-
-    def __init__(
-        self,
-        input_dim: int,
-        latent_dim: int,
-        hidden_dim: int = 128,
-        activation: str = "relu",
-        preprocess_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None
-    ):
-        super().__init__(meta=SimpleEncoderMetaData())
-        self.fc1 = torch.nn.Linear(input_dim, hidden_dim)
-        self.fc2 = torch.nn.Linear(hidden_dim, latent_dim)
-        self.preprocess_fn = preprocess_fn
-
-    def forward(self, x: torch.Tensor, return_hidden: bool = False):
-        """Concise forward docstring referencing class docstring for details."""
-        # Rule: Forward method can have concise docstring, main docs in class
-        if self.preprocess_fn is not None:
-            x = self.preprocess_fn(x)
-        hidden = torch.relu(self.fc1(x))
-        latent = self.fc2(hidden)
-        if return_hidden:
-            return latent, hidden
-        return latent
-
-    def compute_reconstruction_loss(
-        self,
-        latent: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""
-        Compute mean squared error between latent representation and target.
-        # Rule: Methods have their own docstrings with Parameters and Returns sections
-
-        Parameters
-        ----------
-        # Rule: Parameters section is mandatory for methods
-        latent : torch.Tensor
-            Latent representation of shape :math:`(B, D_{latent})`.
-            # Rule: Tensor shapes documented with :math:
-        target : torch.Tensor
-            Target tensor of shape :math:`(B, D_{latent})`.
-
-        Returns
-        -------
-        # Rule: Returns section is mandatory for methods (not "Outputs" - that's for forward)
-        torch.Tensor
-            Scalar loss value.
-        """
-        return torch.nn.functional.mse_loss(latent, target)
+# Good: Proper deprecation timeline
+# v0.5.0: Added deprecation warnings (Stage 3 - pre-deprecation)
+# v0.6.0: Model can be safely removed (Stage 4 - deprecation)
+# File: physicsnemo/models/old_diffusion.py - DELETED
 ```
 
 **Anti-pattern:**
 
 ```python
-from physicsnemo.models import Module
-import torch
+# WRONG: Deleting model without deprecation period
+# v0.5.0: Model exists without warnings
+# v0.6.0: Model deleted - BREAKS USER CODE!
 
-class BadEncoder(Module):
-    '''
-    # WRONG: Should use r (for raw string) followed by three double quotes for docstrings not three single quotes
-    A simple encoder network
-    # WRONG: missing Parameters, Forward, or Outputs sections in the docstring
-    # WRONG: callback function preprocess_fn is not documented at all
-    '''
-    def __init__(self, input_dim, latent_dim, hidden_dim=128, preprocess_fn=None):
-        # WRONG: No type hints in signature
-        # WRONG: preprocess_fn callback parameter is missing from docstring entirely
-        super().__init__()
-        self.fc1 = torch.nn.Linear(input_dim, hidden_dim)
-        self.fc2 = torch.nn.Linear(hidden_dim, latent_dim)
-        self.preprocess_fn = preprocess_fn
-
-    def forward(self, x, return_hidden=False):
-        # WRONG: No type hints
-        """
-        Forward pass of the encoder.
-        # WRONG: Should be brief, main docs for the forward method should be in the class docstring
-
-        Args:
-            x: input tensor with shape (B, D_in)
-            # WRONG: Using "Args" instead of NumPy-style "Parameters"
-            # WRONG: Not using :math: with backticks for shapes and other mathematical notations
-            return_hidden (bool): whether to return hidden state
-            # WRONG: Mixing documentation styles
-
-        Returns:
-            encoded representation
-            # WRONG: Using "Returns" instead of "Outputs". The "Returns" section is for methods other than the forward method. The forward method should have an "Outputs" section instead.
-            # WRONG: No shape information
-        """
-        # WRONG: Entire forward signature and behavior should be in class docstring
-        if self.preprocess_fn is not None:
-            x = self.preprocess_fn(x)
-        hidden = torch.relu(self.fc1(x))
-        latent = self.fc2(hidden)
-        if return_hidden:
-            return latent, hidden
-        return latent
-
-    def compute_loss(self, x, y):
-        # WRONG: No type hints
-        """
-        Compute the loss
-        # WRONG: No proper docstring structure
-
-        Description:
-            # WRONG: "Description" is not a recognized section, should be in the main description
-            This method computes some loss value
-
-        Arguments:
-            # WRONG: "Arguments" is not recognized, should be "Parameters"
-            x: first input (B, D)
-            # WRONG: Not using :math: for tensor shapes
-            y: second input
-            # WRONG: No shape information
-
-        Output:
-            # WRONG: "Output" (singular) is not recognized, should be "Returns" for methods
-            loss value
-            # WRONG: No type or shape information
-        """
-        return torch.nn.functional.mse_loss(x, y)
-
-    def helper_method(self, x):
-        # WRONG: No docstring at all for method, docstrings for methods are mandatory
-        # WRONG: missing Parameters and Returns sections in the docstring
-        # WRONG: No type hints
-        return x * 2
+# WRONG: Breaking changes without deprecation
+# File: physicsnemo/models/diffusion.py
+class DiffusionModel(Module):
+    def __init__(self, new_required_param):  # Breaking change!
+        # Changed API without deprecation warning - breaks user code
+        pass
 ```
 
 ---
 
-### MOD-004: Self-contained model modules
+### MOD-003a: Missing or incomplete docstring for model/layer code
 
 **Description:**
 
-All utility functions for a model class should be contained in the same module
-file as the model class itself. For a model called `MyModelName` in
-`my_model_name.py`, all utility functions specific to that model should also be
-in `my_model_name.py`. Utility functions should never be placed in separate
-files like `my_model_name_utils.py` or `my_model_name/utils.py`.
+Every new model or modification of any model code should be documented with a
+comprehensive docstring following all the sub-rules MOD-003b through MOD-003k.
+All docstrings should be written in the NumPy style and adopt formatting to be
+compatible with our Sphinx restructured text (RST) documentation.
 
-The only exception to this rule is when a utility function is used across
-multiple models. In that case, the shared utility should be placed in an
-appropriate shared module and imported in `my_model_name.py`.
+**Rationale:**
+
+Comprehensive and well-formatted documentation is essential for scientific
+software. It enables users to understand model capabilities, expected inputs,
+and outputs without inspecting source code.
+
+**Example:**
+
+```python
+class MyEncoder(Module):
+    r"""
+    A simple encoder network.
+
+    Parameters
+    ----------
+    input_dim : int
+        Dimension of input features.
+    output_dim : int
+        Dimension of output features.
+
+    Forward
+    -------
+    x : torch.Tensor
+        Input tensor of shape :math:`(B, D_{in})`.
+
+    Outputs
+    -------
+    torch.Tensor
+        Output tensor of shape :math:`(B, D_{out})`.
+
+    Examples
+    --------
+    >>> model = MyEncoder(input_dim=784, output_dim=128)
+    >>> x = torch.randn(32, 784)
+    >>> output = model(x)
+    >>> output.shape
+    torch.Size([32, 128])
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Missing all required sections
+class BadEncoder(Module):
+    '''A simple encoder.'''  # Wrong quotes, no sections
+    pass
+```
+
+---
+
+### MOD-003b: Docstring must use raw string prefix r"""
+
+**Description:**
+
+Each docstring should be prefixed with `r"""` (not `"""` or `'''`). The `r`
+prefix creates a raw string that prevents Python from interpreting backslashes,
+which is essential for LaTeX math notation to render correctly in Sphinx
+documentation.
+
+**Rationale:**
+
+LaTeX commands in docstrings use backslashes (e.g., `\math`, `\text`). Without
+the raw string prefix, Python interprets these as escape sequences, breaking the
+documentation rendering.
+
+**Example:**
+
+```python
+class MyModel(Module):
+    r"""
+    A model with LaTeX notation.
+
+    Parameters
+    ----------
+    dim : int
+        Dimension :math:`D` of input features.
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Using ''' instead of r"""
+class MyModel(Module):
+    '''
+    A model with LaTeX notation.
+    '''
+    pass
+```
+
+---
+
+### MOD-003c: Missing required class docstring sections
+
+**Description:**
+
+The class docstring should at least contain three sections: `Parameters`,
+`Forward`, and `Outputs`. The forward method should be documented in the
+docstring of the model class, instead of being in the docstring of the forward
+method itself. A docstring for the forward method is still possible but it
+should be concise and to the point.
+
+Other sections such as `Notes`, `Examples`, or `..important::` or
+`..code-block::python`
+are possible. Other sections are not recognized by our Sphinx restructured text
+(RST) documentation and are prohibited.
+
+**Rationale:**
+
+Standardized sections ensure documentation is consistent and complete across all
+models. The Forward and Outputs sections in the class docstring provide a
+centralized place to document the model's primary behavior, making it easier for
+users to understand the model's API.
+
+**Example:**
+
+```python
+class MyModel(Module):
+    r"""
+    A simple encoder model.
+
+    Parameters
+    ----------
+    input_dim : int
+        Dimension of input features.
+
+    Forward
+    -------
+    x : torch.Tensor
+        Input tensor of shape :math:`(B, D_{in})`.
+
+    Outputs
+    -------
+    torch.Tensor
+        Output tensor of shape :math:`(B, D_{out})`.
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Missing required sections
+class BadModel(Module):
+    r"""
+    A simple encoder model.
+
+    No proper sections defined.
+    """
+    pass
+```
+
+---
+
+### MOD-003d: Missing required method docstring sections
+
+**Description:**
+
+All methods should be documented with a docstring, with at least a `Parameters`
+section and a `Returns` section. Other sections such as `Notes`, `Examples`, or
+`..important::` or `..code-block:: python` are possible. Other sections are not
+recognized by our Sphinx documentation and are prohibited.
+
+Note: The forward method is a special case - its full documentation should be in
+the class docstring (see MOD-003c), though a concise forward method docstring is
+permitted.
+
+**Rationale:**
+
+Complete method documentation ensures users understand how to call methods and
+what to expect in return. Standardized sections make documentation consistent
+and easier to parse for both humans and AI agents.
+
+**Example:**
+
+```python
+def compute_loss(
+    self,
+    pred: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    r"""
+    Compute mean squared error loss.
+
+    Parameters
+    ----------
+    pred : torch.Tensor
+        Predicted values of shape :math:`(B, D)`.
+    target : torch.Tensor
+        Target values of shape :math:`(B, D)`.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar loss value.
+    """
+    return torch.nn.functional.mse_loss(pred, target)
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: No docstring
+def helper_method(self, x):
+    return x * 2
+
+# WRONG: Using wrong section names
+def compute_loss(self, pred, target):
+    """
+    Args:
+        pred: predictions
+    Returns:
+        loss
+    """
+    pass
+```
+
+---
+
+### MOD-003e: Tensor shapes must use LaTeX math notation
+
+**Description:**
+
+All tensors should be documented with their shape, using LaTeX math notation
+such as `:math:`(N, C, H_{in}, W_{in})``. There is flexibility for naming the
+dimensions, but the math format should be enforced.
+
+Our documentation is rendered using LaTeX, and supports a rich set of LaTeX
+commands, so it is recommended to use LaTeX commands whenever possible for
+mathematical variables in the docstrings. The mathematical notations should be
+to some degree consistent with the actual variable names in the code.
+
+**Rationale:**
+
+LaTeX math notation ensures tensor shapes render correctly and consistently in
+Sphinx documentation. This is critical for scientific software where precise
+mathematical notation is expected. Plain text shapes don't render properly and
+can be ambiguous.
+
+**Example:**
+
+```python
+def forward(self, x: torch.Tensor) -> torch.Tensor:
+    r"""
+    Process input tensor.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input of shape :math:`(B, C, H_{in}, W_{in})` where :math:`B` is batch
+        size, :math:`C` is channels, and :math:`H_{in}, W_{in}` are spatial dims.
+
+    Returns
+    -------
+    torch.Tensor
+        Output of shape :math:`(B, C_{out}, H_{out}, W_{out})`.
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Not using :math: notation
+def forward(self, x: torch.Tensor) -> torch.Tensor:
+    """
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input of shape (B, C, H, W)  # Missing :math:`...`
+    """
+    pass
+```
+
+---
+
+### MOD-003f: Callback functions must have code-block specification
+
+**Description:**
+
+For arguments or variables that are callback functions (e.g. Callable), the
+docstring should include a clear separated `..code-block::` that specifies the
+required signature and return type of the callback function. This is not only
+true for callback functions, but for any type of parameters or arguments that
+has some complex type specification or API requirements.
+
+The explanation code block should be placed in the top or bottom section of the
+docstrings, but not in the `Parameters` or `Forward` or `Outputs` sections, for
+readability and clarity.
+
+**Rationale:**
+
+Callback functions have complex type signatures that are difficult to express
+clearly in the Parameters section alone. A dedicated code-block provides a clear
+visual reference for the expected signature, making it much easier for users to
+implement compatible callbacks.
+
+**Example:**
+
+```python
+class MyModel(Module):
+    r"""
+    Model with callback function.
+
+    .. code-block:: python
+
+        def preprocess_fn(x: torch.Tensor) -> torch.Tensor:
+            '''Preprocessing function signature.'''
+            ...
+            return y
+
+    where ``x`` is input of shape :math:`(B, D_{in})` and ``y`` is output
+    of shape :math:`(B, D_{out})`.
+
+    Parameters
+    ----------
+    preprocess_fn : Callable[[torch.Tensor], torch.Tensor], optional
+        Optional preprocessing function. See code block above for signature.
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: No code-block specification
+class MyModel(Module):
+    r"""
+    Parameters
+    ----------
+    preprocess_fn : Callable, optional
+        Preprocessing function.  # No specification!
+    """
+    pass
+```
+
+---
+
+### MOD-003g: Inline code must use double backticks
+
+**Description:**
+
+Inline code should be formatted with double backticks, such as ``my_variable``.
+Single backticks are not allowed as they don't render properly in our Sphinx
+documentation.
+
+**Rationale:**
+
+Sphinx uses reStructuredText, which requires double backticks for inline code
+literals. Single backticks are interpreted differently and don't produce the
+expected code formatting in the rendered documentation.
+
+**Example:**
+
+```python
+class MyModel(Module):
+    r"""
+    Model with inline code references.
+
+    If ``True``, enables dropout. Set ``model.training`` to control behavior.
+    The parameter ``hidden_dim`` controls layer size.
+
+    Parameters
+    ----------
+    hidden_dim : int
+        Size of hidden layer. Access via ``self.hidden_dim``.
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Using single backticks
+class MyModel(Module):
+    r"""
+    If `True`, enables dropout.  # WRONG
+    """
+    pass
+```
+
+---
+
+### MOD-003h: Parameters must be documented on single line
+
+**Description:**
+
+All parameters should be documented with their type and default values on a
+single line, following the NumPy docstring style format:
+
+```
+parameter_name : type, optional, default=value
+```
+
+The description then follows on the next line(s), indented.
+
+**Rationale:**
+
+This standardized format makes parameter documentation consistent and easy to
+parse. It provides all key information (name, type, optionality, default) at a
+glance, improving readability.
+
+**Example:**
+
+```python
+class MyModel(Module):
+    r"""
+    Parameters
+    ----------
+    input_dim : int
+        Dimension of input features.
+    hidden_dim : int, optional, default=128
+        Dimension of hidden layer.
+    dropout : float, optional, default=0.1
+        Dropout probability.
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Type and default not on same line
+class MyModel(Module):
+    r"""
+    Parameters
+    ----------
+    hidden_dim : int
+        optional, default=128  # Should be on line above
+        Dimension of hidden layer.
+    """
+    pass
+```
+
+---
+
+### MOD-003i: Docstrings should include cross-references
+
+**Description:**
+
+When possible, docstrings should use links to other docstrings using Sphinx
+cross-reference syntax:
+- Classes: `:class:`~physicsnemo.models.some_model.SomeModel``
+- Functions: `:func:`~physicsnemo.utils.common_function``
+- Methods: `:meth:`~physicsnemo.models.some_model.SomeModel.some_method``
+
+When referencing external resources, such as papers, websites, or other
+documentation, docstrings should use links to the external resource in the
+format `some link text <some_url>`_.
+
+**Rationale:**
+
+Cross-references create a navigable documentation structure where users can
+easily jump between related classes, methods, and functions. External links
+provide context and attribution for algorithms and techniques.
+
+**Example:**
+
+```python
+class MyEncoder(Module):
+    r"""
+    Encoder using attention.
+
+    Based on `Transformer Architecture <https://arxiv.org/abs/1706.03762>`_.
+    See :class:`~physicsnemo.nn.MultiHeadAttention` for attention details.
+
+    Parameters
+    ----------
+    activation : str
+        Activation function. See :func:`~torch.nn.functional.relu`.
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# Not wrong, but missing opportunities for useful links
+class MyEncoder(Module):
+    r"""
+    Uses MultiHeadAttention.  # Could link to class
+    Based on Transformer paper.  # Could link to paper
+    """
+    pass
+```
+
+---
+
+### MOD-003j: Docstrings should include Examples section
+
+**Description:**
+
+Docstrings are strongly encouraged to have an `Examples` section that
+demonstrates basic construction and usage of the model. These example sections
+serve as both documentation and tests, as our CI system automatically tests
+these code sections for correctness when present.
+
+Examples should be executable Python code showing typical use cases, including
+model instantiation, input preparation, and forward pass execution. The examples
+should use realistic tensor shapes and demonstrate key features of the model.
+
+**Rationale:**
+
+Example sections provide immediate value to users by showing concrete usage
+patterns. By automatically testing these examples in CI, we ensure that
+documentation stays synchronized with code and that examples remain correct as
+the codebase evolves.
+
+**Example:**
+
+```python
+class MyEncoder(Module):
+    r"""
+    A simple encoder network.
+
+    Parameters
+    ----------
+    input_dim : int
+        Dimension of input features.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from physicsnemo.models import MyEncoder
+    >>> model = MyEncoder(input_dim=784, output_dim=128)
+    >>> x = torch.randn(32, 784)
+    >>> output = model(x)
+    >>> output.shape
+    torch.Size([32, 128])
+    """
+    pass
+```
+
+**Anti-pattern:**
+
+```python
+# Not wrong, but discouraged - no Examples section
+class MyEncoder(Module):
+    r"""
+    Parameters
+    ----------
+    input_dim : int
+        Dimension of input features.
+    """
+    pass
+```
+
+---
+
+### MOD-003k: Add high-level comments for complex tensor operations
+
+**Description:**
+
+Model code that involves complex tensor operations should include high-level
+comments that explain what blocks of code accomplish semantically. One-line
+comments every few lines of tensor operations is sufficient.
+
+Comments should focus on high-level semantic explanations rather than low-level
+syntactic details. For example, use "Compute the encodings" instead of "Doing a
+concatenation followed by a linear projection, followed by a nonlinear
+activation". The goal is to give a high-level overview of what a block of tensor
+operations accomplishes.
+
+When multiple tensor operations are chained, it is welcomed to add short inline
+comments with the tensor shapes of computed tensors, e.g.:
+
+```python
+x = torch.cat([y, z], dim=1)  # (B, 2*C_in, H, W)
+```
+
+The symbols chosen in the comments should be consistent with the docstring
+(possibly shortened versions of dimension names for explicitness).
+
+**Rationale:**
+
+High-level comments make complex tensor manipulation code more understandable
+without cluttering it with excessive detail. Shape annotations help developers
+track tensor dimensions through complex operations, catching shape mismatches
+early. Consistency with docstring notation creates a unified mental model.
+
+**Example:**
+
+```python
+def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    """Process input with context conditioning."""
+    # Encode input features
+    h = self.encoder(x)  # (B, C_enc, H, W)
+
+    # Combine with context information
+    c = self.context_proj(context)  # (B, C_enc)
+    c = c[:, :, None, None].expand(-1, -1, h.shape[2], h.shape[3])  # (B, C_enc, H, W)
+    h = torch.cat([h, c], dim=1)  # (B, 2*C_enc, H, W)
+
+    # Apply attention mechanism
+    h = self.attention(h)  # (B, 2*C_enc, H, W)
+
+    # Decode to output
+    out = self.decoder(h)  # (B, C_out, H, W)
+
+    return out
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: No comments
+def forward(self, x: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    h = self.encoder(x)
+    c = self.context_proj(context)
+    c = c[:, :, None, None].expand(-1, -1, h.shape[2], h.shape[3])
+    h = torch.cat([h, c], dim=1)
+    return self.decoder(self.attention(h))
+
+# WRONG: Too low-level, syntactic comments
+def forward(self, x, context):
+    # Pass x through encoder layer
+    h = self.encoder(x)
+    # Project context using linear layer
+    c = self.context_proj(context)
+    # Add two None dimensions and expand
+    c = c[:, :, None, None].expand(-1, -1, h.shape[2], h.shape[3])
+```
+
+---
+
+### MOD-004: Model code is not self-contained
+
+**Description:**
+
+All utility functions for a model class should be organized together with the
+model class in a clear and logical structure. Acceptable patterns include:
+
+1. A single self-contained file: `physicsnemo/<models or nn>/model_name.py`
+2. A subdirectory: `physicsnemo/<models or nn>/model_name/` containing:
+   - `model_name.py` with the main model class
+   - Additional modules for utility functions specific to this model
+
+What should be avoided is a flat organization where model files and their
+utility files are all mixed together in `physicsnemo/<models or nn>/`, making it
+unclear which utilities belong to which models.
+
+The only exception is when a utility function is used across multiple models. In
+that case, the shared utility should be placed in an appropriate shared module.
 
 **Rationale:**
 
@@ -631,44 +1078,53 @@ refactored or removed.
 **Example:**
 
 ```python
-# Good: Utility function in the same file as the model
-# File: physicsnemo/models/my_transformer.py
+# Good Pattern 1: Single self-contained file
+# File: physicsnemo/models/my_simple_model.py
 
 def _compute_attention_mask(seq_length: int) -> torch.Tensor:
-    """Helper function specific to MyTransformer."""
+    """Helper function specific to MySimpleModel."""
     mask = torch.triu(torch.ones(seq_length, seq_length), diagonal=1)
     return mask.masked_fill(mask == 1, float('-inf'))
 
-class MyTransformer(Module):
-    """A transformer model."""
+class MySimpleModel(Module):
+    """A simple model with utilities in same file."""
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         mask = _compute_attention_mask(x.shape[1])
         return self._apply_attention(x, mask)
+
+# Good Pattern 2: Subdirectory organization
+# File: physicsnemo/models/my_complex_model/my_complex_model.py
+from physicsnemo.models.my_complex_model.utils import helper_function
+
+class MyComplexModel(Module):
+    """A complex model with utilities in subdirectory."""
+    pass
+
+# File: physicsnemo/models/my_complex_model/utils.py
+def helper_function(x):
+    """Utility specific to MyComplexModel."""
+    pass
 ```
 
 **Anti-pattern:**
 
 ```python
-# WRONG: Utility function in separate file
-# File: physicsnemo/models/my_transformer_utils.py
-def _compute_attention_mask(seq_length: int) -> torch.Tensor:
-    """Should be in my_transformer.py, not in a separate utils file."""
-    mask = torch.triu(torch.ones(seq_length, seq_length), diagonal=1)
-    return mask.masked_fill(mask == 1, float('-inf'))
-
+# WRONG: Flat organization with utilities mixed in main directory
 # File: physicsnemo/models/my_transformer.py
-from physicsnemo.models.my_transformer_utils import _compute_attention_mask  # WRONG
+from physicsnemo.models.my_transformer_utils import _compute_mask  # WRONG
 
 class MyTransformer(Module):
-    """A transformer model."""
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mask = _compute_attention_mask(x.shape[1])
-        return self._apply_attention(x, mask)
+    pass
+
+# File: physicsnemo/models/my_transformer_utils.py (WRONG: mixed with other models)
+# File: physicsnemo/models/other_model.py
+# File: physicsnemo/models/other_model_utils.py (WRONG: utilities scattered)
+# All mixed together in flat structure - unclear organization!
 ```
 
 ---
 
-### MOD-005: Tensor shape validation
+### MOD-005: Invalid or missing tensor shape validation logic
 
 **Description:**
 
@@ -776,7 +1232,7 @@ def forward(self, x: torch.Tensor) -> torch.Tensor:
 
 ---
 
-### MOD-006: Jaxtyping annotations
+### MOD-006: Invalid or missing jaxtyping tensor annotations in public function signature
 
 **Description:**
 
@@ -846,39 +1302,29 @@ def forward(
 
 ---
 
-### MOD-007: Backward compatibility
+### MOD-007a: Cannot add required parameters without defaults
 
 **Description:**
 
-For any model in `physicsnemo/nn` or `physicsnemo/models`, it is strictly
-forbidden to change the signature of `__init__`, any public method, or any
-public attribute without maintaining backward compatibility. This includes:
-- Adding new required parameters
-- Removing parameters
-- Renaming parameters
-- Changing parameter types
-- Changing return types
+For any model in `physicsnemo/nn` or `physicsnemo/models`, adding new required
+parameters (parameters without default values) to `__init__` or any public
+method is strictly forbidden. This breaks backward compatibility.
 
-If a signature change is absolutely necessary, the developer must:
-1. Add a backward compatibility mapping in the model class
-2. Increment the model version number
-3. Maintain support for the old API for at least 2 release cycles
-4. Add deprecation warnings for the old API
+New parameters must have default values to ensure existing code and checkpoints
+continue to work. If a new parameter is truly required, increment the model
+version number using `__model_checkpoint_version__` and add appropriate
+versioning support.
 
 **Rationale:**
 
-PhysicsNeMo is used in production environments and research code where
-unexpected API changes can break critical workflows. Maintaining backward
-compatibility ensures that users can upgrade to new versions without their code
-breaking. Version numbers and compatibility mappings provide a clear migration
-path when changes are necessary.
+Adding required parameters breaks all existing code that instantiates the model,
+and breaks loading of old checkpoints. This violates PhysicsNeMo's commitment to
+backward compatibility and would disrupt user workflows.
 
 **Example:**
 
 ```python
-from typing import Any, Dict, Optional
-
-# Good: Adding optional parameter with default value (backward compatible)
+# Good: Adding parameter with default value (backward compatible)
 class MyModel(Module):
     __model_checkpoint_version__ = "2.0"
     __supported_model_checkpoint_version__ = {
@@ -889,20 +1335,61 @@ class MyModel(Module):
         self,
         input_dim: int,
         output_dim: int,
-        dropout: float = 0.0,  # New parameter with default
-        new_feature: bool = False  # New parameter with default
+        dropout: float = 0.0,  # New parameter with default - backward compatible
+        new_feature: bool = False  # New parameter with default - backward compatible
     ):
         super().__init__(meta=MyModelMetaData())
-        # ... implementation
+```
 
-# Good: Proper backward compatibility when parameter must be renamed
+**Anti-pattern:**
+
+```python
+# WRONG: Adding required parameter without default
+class MyModel(Module):
+    __model_checkpoint_version__ = "2.0"
+
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        new_param: int  # WRONG: No default! Breaks old checkpoints
+    ):
+        super().__init__(meta=MyModelMetaData())
+```
+
+---
+
+### MOD-007b: Cannot remove or rename parameters without compat mapper
+
+**Description:**
+
+For any model in `physicsnemo/nn` or `physicsnemo/models`, removing or renaming
+parameters is strictly forbidden without proper backward compatibility support.
+
+If a parameter must be renamed or removed, the developer must:
+1. Increment `__model_checkpoint_version__`
+2. Add the old version to `__supported_model_checkpoint_version__` dict
+3. Implement `_backward_compat_arg_mapper` classmethod to handle the mapping
+4. Maintain support for the old API for at least 2 release cycles
+
+**Rationale:**
+
+Removing or renaming parameters breaks existing checkpoints and user code.
+Proper version management and argument mapping ensures old checkpoints can still
+be loaded and users have time to migrate to the new API.
+
+**Example:**
+
+```python
+from typing import Any, Dict
+
+# Good: Proper backward compatibility for parameter rename
 class MyModel(Module):
     __model_checkpoint_version__ = "2.0"
     __supported_model_checkpoint_version__ = {
         "1.0": (
-            "Loading MyModel checkpoint from version 1.0 (current is 2.0). "
-            "Parameter 'hidden_dim' has been renamed to 'hidden_size'. "
-            "Consider re-saving to upgrade to version 2.0."
+            "Loading checkpoint from version 1.0 (current is 2.0). "
+            "Parameter 'hidden_dim' renamed to 'hidden_size'."
         )
     }
 
@@ -910,8 +1397,7 @@ class MyModel(Module):
     def _backward_compat_arg_mapper(
         cls, version: str, args: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Map arguments from older versions to current version format."""
-        # Call parent class method first
+        """Map arguments from older versions."""
         args = super()._backward_compat_arg_mapper(version, args)
 
         if version == "1.0":
@@ -919,7 +1405,7 @@ class MyModel(Module):
             if "hidden_dim" in args:
                 args["hidden_size"] = args.pop("hidden_dim")
 
-            # Remove deprecated parameters that are no longer used
+            # Remove deprecated parameters
             if "legacy_param" in args:
                 _ = args.pop("legacy_param")
 
@@ -928,56 +1414,82 @@ class MyModel(Module):
     def __init__(
         self,
         input_dim: int,
-        output_dim: int,
-        hidden_size: int = 128,  # New name (was 'hidden_dim' in v1.0)
+        hidden_size: int = 128,  # Renamed from 'hidden_dim'
     ):
         super().__init__(meta=MyModelMetaData())
-        self.hidden_size = hidden_size
-        # ... implementation
 ```
 
 **Anti-pattern:**
 
 ```python
-# WRONG: Changing parameter name without backward compatibility
+# WRONG: Renaming without backward compat
 class MyModel(Module):
     __model_checkpoint_version__ = "2.0"
     # Missing: __supported_model_checkpoint_version__ and _backward_compat_arg_mapper
 
-    def __init__(self, input_dim: int, hidden_size: int):  # Renamed from hidden_dim
+    def __init__(self, input_dim: int, hidden_size: int):  # Renamed!
         super().__init__(meta=MyModelMetaData())
-        # WRONG: Old checkpoints with 'hidden_dim' will fail to load!
+        # WRONG: Old checkpoints with 'hidden_dim' will fail!
 
-# WRONG: Adding required parameter without default
-class MyModel(Module):
-    __model_checkpoint_version__ = "2.0"
-
-    def __init__(self, input_dim: int, output_dim: int, new_param: int):  # No default!
-        super().__init__(meta=MyModelMetaData())
-        # WRONG: Old checkpoints without 'new_param' will fail to load!
-
-# WRONG: Not incrementing version when making breaking changes
-class MyModel(Module):
-    __model_checkpoint_version__ = "1.0"  # Should be "2.0"!
-
-    @classmethod
-    def _backward_compat_arg_mapper(cls, version: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        # WRONG: Making breaking changes but not updating version number
-        if "hidden_dim" in args:
-            args["hidden_size"] = args.pop("hidden_dim")
-        return args
-
-# WRONG: Not calling super() in _backward_compat_arg_mapper
+# WRONG: Not calling super()
 class MyModel(Module):
     @classmethod
     def _backward_compat_arg_mapper(cls, version: str, args: Dict[str, Any]) -> Dict[str, Any]:
         # WRONG: Missing super()._backward_compat_arg_mapper(version, args)
-        if version == "1.0":
-            if "hidden_dim" in args:
-                args["hidden_size"] = args.pop("hidden_dim")
+        if "hidden_dim" in args:
+            args["hidden_size"] = args.pop("hidden_dim")
         return args
+```
 
-# WRONG: Changing return type without compatibility
+---
+
+### MOD-007c: Cannot change return types of public methods
+
+**Description:**
+
+For any model in `physicsnemo/nn` or `physicsnemo/models`, changing the return
+type of any public method (including `forward`) is strictly forbidden. This
+includes:
+- Changing from returning a single value to returning a tuple
+- Changing from a tuple to a single value
+- Changing the number of elements in a returned tuple
+- Changing the type of returned values
+
+If a return type change is absolutely necessary, create a new method with a
+different name and deprecate the old method following MOD-002b.
+
+**Rationale:**
+
+Changing return types is a breaking change that silently breaks user code. Users
+who unpack return values or depend on specific return structures will experience
+runtime errors. Unlike parameter changes (which can be managed with versioning),
+return type changes affect runtime behavior and are harder to detect.
+
+**Example:**
+
+```python
+# Good: Keeping consistent return type
+class MyModel(Module):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Always returns single tensor."""
+        return self.process(x)
+
+# Good: If new return is needed, add new method
+class MyModel(Module):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Returns output tensor."""
+        output, loss = self._forward_with_loss(x)
+        return output
+
+    def forward_with_loss(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """New method for returning both output and loss."""
+        return self._forward_with_loss(x)
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Changing return type
 class MyModel(Module):
     __model_checkpoint_version__ = "2.0"
 
@@ -988,52 +1500,94 @@ class MyModel(Module):
 
 ---
 
-### MOD-008: Minimal CI testing requirements
+### MOD-008a: Model missing constructor/attributes tests
 
 **Description:**
 
-Every model in a module file `my_model_name.py` in `physicsnemo/nn` or
-`physicsnemo/models` must have corresponding tests in
-`test/models/test_<my_model_name>.py`. Tests should roughly follow a similar
-template and, three types of tests are required:
+Every model in `physicsnemo/nn` or `physicsnemo/models` must have tests that
+verify model instantiation and all public attributes (excluding buffers and
+parameters).
 
-1. **Constructor and attribute tests**: Verify model instantiation and all
-   public attributes (excluding buffers and parameters).
-
-2. **Non-regression test with reference data**: Instantiate a model, run
-   forward pass, and compare outputs against reference data saved in a `.pth`
-   file.
-
-3. **Non-regression test from checkpoint**: Load a model from a checkpoint file
-   (`.mdlus`) and verify outputs match reference data.
-
-Additional requirements:
-- All tests must use `pytest` parameterization syntax
-- At least 2 configurations must be tested: one with all default arguments, one
-  with non-default arguments. More variations specific to some relevant
-  use-cases are also encouraged.
-- Test tensors must have realistic shapes (e.g. no singleton dimensions) and
-  should be as meaningful and representative of actual use cases as possible.
-- All public methods must have the same non-regression tests as the forward
-  method
-- Simply checking output shapes is NOT sufficient - actual values must be
-  compared
-- **Critical:** Per MOD-002, it is forbidden to move a model out of the
-  experimental stage/directory without these tests
+These tests should:
+- Use `pytest` parameterization to test at least 2 configurations
+- Test one configuration with all default arguments
+- Test another configuration with non-default arguments
+- Verify all public attributes have expected values
 
 **Rationale:**
 
-Comprehensive tests ensure model correctness and prevent regressions as code
-evolves. Non-regression tests with reference data catch subtle numerical changes
-that could break reproducibility. Checkpoint tests verify serialization and
-deserialization work correctly. Parameterized tests ensure models work across
-different configurations. These tests are required before models can graduate
-from experimental to production status.
+Constructor tests ensure the model can be instantiated correctly with various
+configurations and that all attributes are properly initialized. This catches
+issues early in the development cycle.
 
 **Example:**
 
 ```python
-# Good: Following the test_layers_unet_block.py template
+@pytest.mark.parametrize(
+    "config",
+    ["default", "custom"],
+    ids=["with_defaults", "with_custom_args"]
+)
+def test_my_model_constructor(config):
+    """Test model constructor and attributes."""
+    if config == "default":
+        model = MyModel(input_dim=64, output_dim=32)
+        assert model.hidden_dim == 128  # Default value
+        assert model.dropout == 0.0  # Default value
+    else:
+        model = MyModel(
+            input_dim=64,
+            output_dim=32,
+            hidden_dim=256,
+            dropout=0.1
+        )
+        assert model.hidden_dim == 256
+        assert model.dropout == 0.1
+
+    # Test common attributes
+    assert model.input_dim == 64
+    assert model.output_dim == 32
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Only testing default configuration
+def test_my_model_bad():
+    model = MyModel(input_dim=64, output_dim=32)
+    # Only tests defaults
+```
+
+---
+
+### MOD-008b: Model missing non-regression test with reference data
+
+**Description:**
+
+Every model must have non-regression tests that:
+1. Instantiate the model with reproducible random parameters
+2. Run forward pass with test data
+3. Compare outputs against reference data saved in a `.pth` file
+
+Requirements:
+- Use `pytest` parameterization to test multiple configurations
+- Test tensors must have realistic shapes (no singleton dimensions except batch)
+- Test data should be meaningful and representative of actual use cases
+- Compare actual tensor values, not just shapes
+- All public methods (not just forward) need similar non-regression tests
+
+**Critical:** Per MOD-002a, models cannot move out of experimental without these
+tests.
+
+**Rationale:**
+
+Non-regression tests with reference data catch subtle numerical changes that
+could break reproducibility. Simply checking output shapes is insufficient to
+detect algorithmic changes or numerical instabilities.
+
+**Example:**
+
+```python
 import pytest
 import torch
 from physicsnemo.models import MyModel
@@ -1049,14 +1603,9 @@ def _instantiate_model(cls, seed: int = 0, **kwargs):
     return model
 
 @pytest.mark.parametrize("device", ["cuda:0", "cpu"])
-@pytest.mark.parametrize(
-    "config",
-    ["default", "custom"],
-    ids=["with_defaults", "with_custom_args"]
-)
+@pytest.mark.parametrize("config", ["default", "custom"])
 def test_my_model_non_regression(device, config):
     """Test model forward pass against reference output."""
-    # Setup model configuration
     if config == "default":
         model = _instantiate_model(MyModel, input_dim=64, output_dim=32)
     else:
@@ -1064,58 +1613,19 @@ def test_my_model_non_regression(device, config):
             MyModel,
             input_dim=64,
             output_dim=32,
-            hidden_dim=256,
-            dropout=0.1
+            hidden_dim=256
         )
 
     model = model.to(device)
-
-    # Test constructor and attributes
-    assert model.input_dim == 64
-    assert model.output_dim == 32
-    if config == "custom":
-        assert model.hidden_dim == 256
-        assert model.dropout == 0.1
 
     # Load reference data (meaningful shapes, no singleton dimensions)
     data = torch.load(f"test/models/data/my_model_{config}_v1.0.pth")
     x = data["x"].to(device)  # Shape: (4, 64), not (1, 64)
     out_ref = data["out"].to(device)
 
-    # Run forward and compare
+    # Run forward and compare values
     out = model(x)
     assert torch.allclose(out, out_ref, atol=1e-5, rtol=1e-5)
-
-@pytest.mark.parametrize("device", ["cuda:0", "cpu"])
-def test_my_model_from_checkpoint(device):
-    """Test loading model from checkpoint and verify outputs."""
-    model = physicsnemo.Module.from_checkpoint(
-        "test/models/data/my_model_default_v1.0.mdlus"
-    ).to(device)
-
-    # Test attributes
-    assert model.input_dim == 64
-    assert model.output_dim == 32
-
-    # Load reference and verify
-    data = torch.load("test/models/data/my_model_default_v1.0.pth")
-    x = data["x"].to(device)
-    out_ref = data["out"].to(device)
-    out = model(x)
-    assert torch.allclose(out, out_ref, atol=1e-5, rtol=1e-5)
-
-@pytest.mark.parametrize("device", ["cuda:0", "cpu"])
-def test_my_model_public_method_non_regression(device):
-    """Test public method compute_loss against reference."""
-    model = _instantiate_model(MyModel, input_dim=64, output_dim=32).to(device)
-
-    data = torch.load("test/models/data/my_model_loss_v1.0.pth")
-    pred = data["pred"].to(device)
-    target = data["target"].to(device)
-    loss_ref = data["loss"].to(device)
-
-    loss = model.compute_loss(pred, target)
-    assert torch.allclose(loss, loss_ref, atol=1e-6, rtol=1e-6)
 ```
 
 **Anti-pattern:**
@@ -1128,21 +1638,296 @@ def test_my_model_bad(device):
     out = model(x)
     assert out.shape == (4, 32)  # NOT SUFFICIENT!
 
-# WRONG: Using singleton dimensions in test data
+# WRONG: Using singleton dimensions
 def test_my_model_bad(device):
-    x = torch.randn(1, 1, 64)  # WRONG: Trivial shapes hide bugs
+    x = torch.randn(1, 1, 64)  # WRONG: Trivial shapes
+```
 
-# WRONG: No parameterization
-def test_my_model_bad():
-    model = MyModel(input_dim=64, output_dim=32)  # Only tests defaults
+---
 
+### MOD-008c: Model missing checkpoint loading test
+
+**Description:**
+
+Every model must have tests that load the model from a checkpoint file
+(`.mdlus`) using `physicsnemo.Module.from_checkpoint()` and verify that:
+1. The model loads successfully
+2. All public attributes have expected values
+3. Forward pass outputs match reference data
+
+This ensures the model's serialization and deserialization work correctly.
+
+**Critical:** Per MOD-002a, models cannot move out of experimental without these
+tests.
+
+**Rationale:**
+
+Checkpoint tests verify that the model's custom serialization logic works
+correctly and that saved models can be loaded in different environments. This is
+critical for reproducibility and for users who need to save and load trained
+models.
+
+**Example:**
+
+```python
+@pytest.mark.parametrize("device", ["cuda:0", "cpu"])
+def test_my_model_from_checkpoint(device):
+    """Test loading model from checkpoint and verify outputs."""
+    model = physicsnemo.Module.from_checkpoint(
+        "test/models/data/my_model_default_v1.0.mdlus"
+    ).to(device)
+
+    # Verify attributes after loading
+    assert model.input_dim == 64
+    assert model.output_dim == 32
+
+    # Load reference data and verify outputs
+    data = torch.load("test/models/data/my_model_default_v1.0.pth")
+    x = data["x"].to(device)
+    out_ref = data["out"].to(device)
+    out = model(x)
+    assert torch.allclose(out, out_ref, atol=1e-5, rtol=1e-5)
+```
+
+**Anti-pattern:**
+
+```python
 # WRONG: No checkpoint loading test
 # (Missing test_my_model_from_checkpoint entirely)
+```
 
-# WRONG: Public methods not tested
+---
+
+### MOD-009: Avoid string-based class selection in model constructors
+
+**Description:**
+
+Passing a string that represents a class name, which is then used to instantiate
+an internal submodule, should be avoided unless there are only a few choices (2
+or 3 maximum) for the class name.
+
+When there are more than 2-3 choices, the recommended practice is to pass an
+already instantiated instance of a submodule instead of a string primitive for
+dependency injection. This promotes better type safety, clearer APIs, and easier
+testing.
+
+**Rationale:**
+
+String-based class selection makes code harder to type-check, debug, and test.
+It obscures dependencies and makes it difficult for static analysis tools to
+understand the code. Direct instance injection provides better IDE support,
+type safety, and makes testing easier by allowing mock object injection.
+
+**Example:**
+
+```python
+# Good: Limited choices (2-3 max) - string selection acceptable
 class MyModel(Module):
-    def compute_loss(self, pred, target):  # No test for this method
-        return F.mse_loss(pred, target)
+    def __init__(
+        self,
+        activation: Literal["relu", "gelu"] = "relu"
+    ):
+        if activation == "relu":
+            self.act = nn.ReLU()
+        elif activation == "gelu":
+            self.act = nn.GELU()
+
+# Good: Many choices - use instance injection
+class MyModel(Module):
+    def __init__(
+        self,
+        encoder: Module,  # Pass instance, not string
+        decoder: Module   # Pass instance, not string
+    ):
+        self.encoder = encoder
+        self.decoder = decoder
+
+# Usage:
+model = MyModel(
+    encoder=MyCustomEncoder(dim=128),
+    decoder=MyCustomDecoder(dim=128)
+)
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: String selection with many choices
+class MyModel(Module):
+    def __init__(
+        self,
+        encoder_type: str = "transformer"  # Many possible values
+    ):
+        # String-based factory pattern with 10+ choices
+        if encoder_type == "transformer":
+            self.encoder = TransformerEncoder()
+        elif encoder_type == "cnn":
+            self.encoder = CNNEncoder()
+        elif encoder_type == "rnn":
+            self.encoder = RNNEncoder()
+        # ... many more options
+        # WRONG: Should accept encoder instance instead
+```
+
+---
+
+### MOD-010: Avoid splatted kwargs in model constructors
+
+**Description:**
+
+Passing splatted arguments like `**kwargs_for_submodules` should be avoided in
+model constructors as it might create conflicts in the names of these kwargs and
+makes the API unclear.
+
+Instead, it is recommended to pass non-splatted arguments in the form of a
+`Dict` when configuration for submodules needs to be passed through. This makes
+parameter passing explicit and avoids naming conflicts.
+
+**Rationale:**
+
+Splatted kwargs obscure the actual parameters being passed, make type checking
+impossible, and can lead to subtle bugs from name conflicts. Explicit dictionary
+parameters make the API clearer and enable better IDE support and error
+detection.
+
+**Example:**
+
+```python
+# Good: Explicit dict parameter
+class MyModel(Module):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        encoder_config: Optional[Dict[str, Any]] = None
+    ):
+        encoder_config = encoder_config or {}
+        self.encoder = Encoder(input_dim=input_dim, **encoder_config)
+
+# Usage:
+model = MyModel(
+    input_dim=64,
+    output_dim=32,
+    encoder_config={"hidden_dim": 128, "num_layers": 3}
+)
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Splatted kwargs
+class MyModel(Module):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        **encoder_kwargs  # WRONG: Unclear what's accepted
+    ):
+        self.encoder = Encoder(input_dim=input_dim, **encoder_kwargs)
+        # Risk of name conflicts, unclear API
+
+# Usage - unclear what parameters are valid:
+model = MyModel(input_dim=64, output_dim=32, hidden_dim=128, num_layers=3)
+# Are hidden_dim and num_layers for MyModel or Encoder? Unclear!
+```
+
+---
+
+### MOD-011: Use proper optional dependency handling
+
+**Description:**
+
+When a model requires optional dependencies (packages not installed by default),
+use the PhysicsNeMo APIs for dependency handling:
+
+1. **`check_min_version(package, version, hard_fail=False)`**: Use this function
+   to check if a package is installed and available without actually importing
+   it. Set `hard_fail=True` for hard requirements, `hard_fail=False` for soft
+   requirements. This is the primary method for handling optional dependencies.
+
+2. **`@require_version(package, version)`**: Use this decorator when core code
+   must always be available but certain features need to be protected against
+   older versions. This is rare and should only be used when you need to protect
+   specific methods or classes against version incompatibilities.
+
+3. **`pyproject.toml`**: This file is the one, only, and universal source of
+   truth for all dependencies in PhysicsNeMo. All optional dependencies must be
+   declared there.
+
+**Rationale:**
+
+Centralized dependency handling ensures consistent error messages and version
+checking across the codebase. Checking availability without importing prevents
+import errors and allows graceful degradation when optional packages are not
+available. Using `pyproject.toml` as the single source of truth prevents
+dependency specification from becoming scattered and inconsistent.
+
+**Example:**
+
+```python
+import torch
+from physicsnemo.core import Module
+from physicsnemo.core.version_check import check_min_version, require_version
+
+# Check optional dependency availability without importing
+APEX_AVAILABLE = check_min_version("apex", "0.1.0", hard_fail=False)
+
+class MyModel(Module):
+    def __init__(
+        self,
+        input_dim: int,
+        use_apex: bool = False
+    ):
+        super().__init__()
+        self.use_apex = use_apex
+
+        if use_apex and not APEX_AVAILABLE:
+            raise RuntimeError(
+                "apex is required for use_apex=True but is not installed. "
+                "Install with: pip install apex>=0.1.0"
+            )
+
+        if use_apex:
+            import apex  # Only import when actually needed
+            self.fused_layer = apex.FusedLayer()
+        else:
+            self.fused_layer = None
+
+# Using @require_version for protecting version-specific features
+class AdvancedModel(Module):
+    @require_version("torch", "2.4.0")
+    def use_device_mesh(self):
+        """This feature requires torch>=2.4.0."""
+        from torch.distributed.device_mesh import DeviceMesh
+        # Protected code that needs torch>=2.4.0
+```
+
+**Anti-pattern:**
+
+```python
+# WRONG: Direct import without checking availability
+import apex  # Will fail if apex not installed!
+
+class MyModel(Module):
+    def __init__(self, use_apex: bool = False):
+        if use_apex:
+            self.layer = apex.FusedLayer()  # Already failed at import!
+
+# WRONG: Try/except for dependency checking
+try:
+    import apex
+    APEX_AVAILABLE = True
+except ImportError:
+    APEX_AVAILABLE = False
+# Use check_min_version instead!
+
+# WRONG: Hardcoded version strings in multiple places
+if version.parse(apex.__version__) < version.parse("0.1.0"):
+    raise ImportError("apex>=0.1.0 required")
+# Should use check_min_version or require_version!
+
+# WRONG: Not declaring dependency in pyproject.toml
+# All optional dependencies must be in pyproject.toml!
 ```
 
 ---

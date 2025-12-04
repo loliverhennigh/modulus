@@ -39,7 +39,6 @@ from physicsnemo.models.diffusion.utils import _recursive_property
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "DhariwalUNet"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

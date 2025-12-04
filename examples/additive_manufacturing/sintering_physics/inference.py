@@ -48,7 +48,7 @@ from omegaconf import DictConfig
 from utils import _combine_std, _read_metadata, Stats, cast
 
 from physicsnemo.distributed.manager import DistributedManager
-from physicsnemo.launch.logging import (
+from physicsnemo.utils.logging import (
     LaunchLogger,
     PythonLogger,
     RankZeroLoggingWrapper,

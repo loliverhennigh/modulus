@@ -29,7 +29,6 @@ network_module = importlib.import_module("physicsnemo.models.diffusion")
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "UNet"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

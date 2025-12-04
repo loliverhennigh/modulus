@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import warnings
 from importlib.metadata import EntryPoint, entry_points
-from typing import List, Union
+from typing import TYPE_CHECKING, Dict, List, Union
 
-from .base import RegisterableModule
+if TYPE_CHECKING:
+    from physicsnemo.core.module import Module
 
 # NOTE: This is for backport compatibility, some entry points seem to be using this old class
 # Exact cause of this is unknown but it seems to be related to multiple versions
@@ -52,8 +53,8 @@ class ModelRegistry:
         return obj
 
     @staticmethod
-    def _construct_registry() -> dict:
-        registry = {}
+    def _construct_registry() -> Dict[str, type["Module"] | EntryPoint]:
+        registry: Dict[str, type["Module"] | EntryPoint] = {}
         entrypoints = entry_points(group="physicsnemo.models")
         for entry_point in entrypoints:
             registry[entry_point.name] = entry_point
@@ -75,9 +76,7 @@ class ModelRegistry:
 
         return registry
 
-    def register(
-        self, model: type[RegisterableModule], name: Union[str, None] = None
-    ) -> None:
+    def register(self, model: type["Module"], name: Union[str, None] = None) -> None:
         """
         Registers a physicsnemo model class in the model registry under the provided name. If no name
         is provided, the model's name (from its `__name__` attribute) is used. If the
@@ -88,35 +87,76 @@ class ModelRegistry:
         model : physicsnemo.core.Module
             The model class to be registered.
         name : str, optional
-            The name to register the model under. If None, the model's name is used.
+            The name to register the model under. If None, the model class name
+            is used.
 
         Raises
         ------
         ValueError
             If the provided name is already in use in the registry.
+
+        Examples
+        --------
+        Example 1: Register a model class using its default name (from ``__name__``):
+
+        >>> from physicsnemo.core import Module, ModelRegistry
+        >>> # Define a custom model class
+        >>> class MyCustomModel(Module):
+        ...     def __init__(self, hidden_size):
+        ...         super().__init__()
+        ...         self.hidden_size = hidden_size
+        ...
+        ...     def forward(self, x):
+        ...         return x
+        >>> # Get the registry instance
+        >>> registry = ModelRegistry()
+        >>> # Register the model without specifying a name
+        >>> # The class name 'MyCustomModel' will be used automatically
+        >>> registry.register(MyCustomModel)
+        >>> # Retrieve the model class from the registry
+        >>> ModelClass = registry.factory('MyCustomModel')
+        >>> # Instantiate the model
+        >>> model = ModelClass(hidden_size=128)
+
+        Example 2: Register a model class with a custom name:
+
+        >>> from physicsnemo.core import Module, ModelRegistry
+        >>> # Define a custom model class
+        >>> class MyCustomModel(Module):
+        ...     def __init__(self, hidden_size):
+        ...         super().__init__()
+        ...         self.hidden_size = hidden_size
+        ...
+        ...     def forward(self, x):
+        ...         return x
+        >>> # Get the registry instance
+        >>> registry = ModelRegistry()
+        >>> # Register the model with a custom name
+        >>> registry.register(AdvancedModel, name='my_advanced_model_v1')
+        >>> # Retrieve the model class from the registry using the custom name
+        >>> ModelClass = registry.factory('my_advanced_model_v1')
+        >>> # Instantiate the model
+        >>> model = ModelClass(hidden_size=128)
+
         """
 
-        # Check if model is a physicsnemo module
-        if not issubclass(model, RegisterableModule):
-            raise ValueError(
-                f"Only subclasses of physicsnemo.core.Module can be registered. "
-                f"Provided model is of type {type(model)}"
-            )
-
-        # If no name provided, use the model's name
+        # If no name provided, use the model class name
         if name is None:
             name = model.__name__
 
         # Check if name already in use
         if name in self._model_registry:
-            raise ValueError(f"Name {name} already in use")
+            raise ValueError(
+                f"Name {name} already in use.\n"
+                f"Current registered models are: {sorted(self.list_models())}"
+            )
 
         # Add this class to the dict of model registry
         self._model_registry[name] = model
 
-    def factory(self, name: str) -> RegisterableModule:
+    def factory(self, name: str) -> type["Module"]:
         """
-        Returns a registered model given its name.
+        Returns a registered model class given its name.
 
         Parameters
         ----------
@@ -140,7 +180,10 @@ class ModelRegistry:
                 model = model.load()
             return model
 
-        raise KeyError(f"No model is registered under the name {name}")
+        raise KeyError(
+            f"No model is registered under the name {name}.\n"
+            f"Current registered models are: {sorted(self.list_models())}"
+        )
 
     def list_models(self) -> List[str]:
         """

@@ -20,21 +20,16 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh
-
-from physicsnemo.core.version_check import check_module_requirements
-from physicsnemo.distributed.utils import compute_split_shapes
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-
-from torch.distributed.tensor._dtensor_spec import (  # noqa: E402
+from torch.distributed.tensor._dtensor_spec import (
     DTensorSpec,
     TensorMeta,
 )
-from torch.distributed.tensor.placement_types import (  # noqa: E402
+from torch.distributed.tensor.placement_types import (
     Placement,
     Shard,
 )
+
+from physicsnemo.distributed.utils import compute_split_shapes
 
 
 @dataclass(kw_only=True)

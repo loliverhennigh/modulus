@@ -17,10 +17,6 @@
 # File for common tools in shard patching
 from collections.abc import Iterable
 
-from physicsnemo.core.version_check import check_module_requirements
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
 
 class UndeterminedShardingError(Exception):
     """Exception raised when operator strategy cannot be determined from input sharding."""

@@ -15,20 +15,15 @@
 # limitations under the License.
 
 import torch
-
-from physicsnemo.core.version_check import check_module_requirements
-from physicsnemo.utils.profiling import profile
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-from torch.distributed.tensor.placement_types import (  # noqa: E402
+from torch.distributed.tensor.placement_types import (
     Shard,
 )
 
-from physicsnemo.domain_parallel import ShardTensor  # noqa: E402
-from physicsnemo.domain_parallel.shard_utils.patch_core import (  # noqa: E402
+from physicsnemo.domain_parallel import ShardTensor
+from physicsnemo.domain_parallel.shard_utils.patch_core import (
     MissingShardPatch,
 )
+from physicsnemo.utils.profiling import profile
 
 
 def compute_local_padding_and_output_shape(

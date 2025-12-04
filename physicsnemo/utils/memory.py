@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import os
 
 import torch
@@ -54,7 +55,10 @@ DISABLE_RMM = srt2bool(os.environ.get("PHYSICSNEMO_DISABLE_RMM", False))
 def _setup_unified_gpu_memory():
     # Skip if RMM is disabled
     if RMM_AVAILABLE and not DISABLE_RMM:
-        import rmm
+        rmm = importlib.import_module("rmm")
+        rmm_torch_allocator = importlib.import_module(
+            "rmm.allocators.torch"
+        ).rmm_torch_allocator
 
         # First, determine the local rank so that we allocate on the right device.
         # These are meant to be tested in the same order as DistributedManager
@@ -91,15 +95,18 @@ def _setup_unified_gpu_memory():
         )
 
         # Set PyTorch allocator if available
-        from rmm.allocators.torch import rmm_torch_allocator
+        # from rmm.allocators.torch import rmm_torch_allocator
 
         if torch.cuda.is_available():
             torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
 
         # Set CuPy allocator if available
         if CUPY_AVAILABLE:
-            import cupy
-            from rmm.allocators.cupy import rmm_cupy_allocator
+            cupy = importlib.import_module("cupy")
+            # from rmm.allocators.cupy import rmm_cupy_allocator
+            rmm_cupy_allocator = importlib.import_module(
+                "rmm.allocators.torch"
+            ).rmm_cupy_allocator
 
             cupy.cuda.set_allocator(rmm_cupy_allocator)
 

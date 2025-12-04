@@ -43,7 +43,9 @@ def validate_domino(
     if file_name is None:
         file_name = model.meta.name + "_output.pth"
     file_name = (
-        Path(__file__).parents[1].resolve() / Path("data") / Path(file_name.lower())
+        Path(__file__).parents[1].resolve()
+        / Path("domino/data")
+        / Path(file_name.lower())
     )
     # If file does not exist, we will create it then error
     # Model should then reproduce it on next pytest run

@@ -42,7 +42,6 @@ class CustomModel(torch.nn.Module):
 class CustomMetaData(ModelMetaData):
     """Custom User Metadata for Model"""
 
-    name: str = "FullyConnected"
     # Optimization
     jit: bool = True
     cuda_graphs: bool = True

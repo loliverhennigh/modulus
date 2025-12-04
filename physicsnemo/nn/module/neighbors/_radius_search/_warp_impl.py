@@ -27,9 +27,9 @@ from typing import List
 
 import torch
 
-from physicsnemo.core.version_check import check_min_version
+from physicsnemo.core.version_check import check_version_spec
 
-WARP_AVAILABLE = check_min_version("warp", "0.6.0", hard_fail=False)
+WARP_AVAILABLE = check_version_spec("warp", "0.6.0", hard_fail=False)
 
 if WARP_AVAILABLE:
     import warp as wp

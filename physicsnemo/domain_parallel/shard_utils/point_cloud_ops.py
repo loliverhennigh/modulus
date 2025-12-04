@@ -19,25 +19,20 @@ from typing import Any, Tuple, Union
 import torch
 import torch.distributed as dist
 import warp as wp
-
-from physicsnemo.core.version_check import check_module_requirements
-from physicsnemo.nn.neighbors._radius_search._warp_impl import radius_search_impl
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-from torch.distributed.tensor.placement_types import (  # noqa: E402
+from torch.distributed.tensor.placement_types import (
     Replicate,
     Shard,
 )
 
-from physicsnemo.domain_parallel import ShardTensor, ShardTensorSpec  # noqa: E402
-from physicsnemo.domain_parallel.shard_utils.patch_core import (  # noqa: E402
+from physicsnemo.domain_parallel import ShardTensor, ShardTensorSpec
+from physicsnemo.domain_parallel.shard_utils.patch_core import (
     MissingShardPatch,
 )
-from physicsnemo.domain_parallel.shard_utils.ring import (  # noqa: E402
+from physicsnemo.domain_parallel.shard_utils.ring import (
     RingPassingConfig,
     perform_ring_iteration,
 )
+from physicsnemo.nn.neighbors._radius_search._warp_impl import radius_search_impl
 
 wp.config.quiet = True
 

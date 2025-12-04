@@ -31,7 +31,6 @@ registry = ModelRegistry()
 class MMetaData(ModelMetaData):
     """Custom User Metadata for Model"""
 
-    name: str = "M"
     # Optimization    jit: bool = True
     cuda_graphs: bool = True
     amp: bool = True
@@ -62,7 +61,6 @@ class M(physicsnemo.core.Module):
 class M1MetaData(ModelMetaData):
     """Custom User Metadata for Model"""
 
-    name: str = "M1"
     # Optimization    jit: bool = True
     cuda_graphs: bool = True
     amp: bool = True
@@ -91,7 +89,6 @@ class M1(physicsnemo.core.Module):
 class TorchModelMetaData(ModelMetaData):
     """Custom User Metadata for Model"""
 
-    name: str = "TorchModel"
     # Optimization    jit: bool = True
     cuda_graphs: bool = True
     amp: bool = True
@@ -163,6 +160,10 @@ def test_save_load(device, override):
 @pytest.mark.parametrize("device", ["cuda:0", "cpu"], ids=["gpu", "cpu"])
 @pytest.mark.parametrize("override", [True, False], ids=["override", "no_override"])
 def test_load_from_checkpoint(device, override):
+    # CJA - Had to add this, the model was still registered here ...
+    # I think its becauses the tests aren't completing, yet, so the clear
+    # never happens at the bottom.  Delete eventually.
+    registry.__clear_registry__()
     file_name: str = str(
         Path(__file__).parents[0].resolve()
         / Path("data")

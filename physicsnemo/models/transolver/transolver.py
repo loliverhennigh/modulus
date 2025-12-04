@@ -30,22 +30,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+import importlib
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-try:
-    import transformer_engine.pytorch as te
-
-    TE_AVAILABLE = True
-except ImportError:
-    TE_AVAILABLE = False
-
 import physicsnemo  # noqa: F401 for docs
 from physicsnemo.core.meta import ModelMetaData
 from physicsnemo.core.module import Module
+from physicsnemo.core.version_check import check_version_spec
 
 from .Embedding import timestep_embedding
 
@@ -55,6 +50,13 @@ from .Physics_Attention import (
     PhysicsAttentionStructuredMesh2D,
     PhysicsAttentionStructuredMesh3D,
 )
+
+TE_AVAILABLE = check_version_spec("transformer_engine", hard_fail=False)
+if TE_AVAILABLE:
+    te = importlib.import_module("transformer_engine.pytorch")
+else:
+    te = None
+
 
 ACTIVATION = {
     "gelu": nn.GELU,
@@ -123,6 +125,7 @@ class Transolver_block(nn.Module):
         slice_num=32,
         spatial_shape: tuple[int, ...] | None = None,
         use_te=True,
+        plus: bool = False,
     ):
         super().__init__()
 
@@ -145,6 +148,7 @@ class Transolver_block(nn.Module):
                 dropout=dropout,
                 slice_num=slice_num,
                 use_te=use_te,
+                plus=plus,
             )
         else:
             if len(spatial_shape) == 2:
@@ -156,6 +160,7 @@ class Transolver_block(nn.Module):
                     dropout=dropout,
                     slice_num=slice_num,
                     use_te=use_te,
+                    plus=plus,
                 )
             elif len(spatial_shape) == 3:
                 self.Attn = PhysicsAttentionStructuredMesh3D(
@@ -166,6 +171,7 @@ class Transolver_block(nn.Module):
                     dropout=dropout,
                     slice_num=slice_num,
                     use_te=use_te,
+                    plus=plus,
                 )
             else:
                 raise Exception(
@@ -212,7 +218,6 @@ class Transolver_block(nn.Module):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "Transolver"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -323,6 +328,7 @@ class Transolver(Module):
         structured_shape: None | tuple[int] = None,
         use_te: bool = True,
         time_input: bool = False,
+        plus: bool = False,
     ) -> None:
         super().__init__(meta=MetaData())
         self.__name__ = "Transolver"
@@ -405,6 +411,7 @@ class Transolver(Module):
                     spatial_shape=structured_shape,
                     last_layer=(_ == n_layers - 1),
                     use_te=use_te,
+                    plus=plus,
                 )
                 for _ in range(n_layers)
             ]

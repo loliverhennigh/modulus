@@ -34,7 +34,6 @@ from physicsnemo.nn import get_activation
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "One2ManyRNN"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

@@ -19,14 +19,13 @@ import os
 import pytest
 import torch
 
-from physicsnemo.core.version_check import check_module_requirements
+from physicsnemo.core.version_check import check_version_spec
 from physicsnemo.distributed import (
     DistributedManager,
 )
 
-try:
-    check_module_requirements("device_mesh")
-except ImportError:
+DEVICE_MESH_AVAILABLE = check_version_spec("torch", "2.4.0", hard_fail=False)
+if not DEVICE_MESH_AVAILABLE:
     pytest.skip(
         "Skipping test because device_mesh is not available",
         allow_module_level=True,

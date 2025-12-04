@@ -412,7 +412,7 @@ def test_HEALPixRecUNet_forward(
     assert common.validate_forward_accuracy(
         model,
         (inputs,),
-        file_name="dlwp_healpix.pth",
+        file_name="models/dlwp_healpix/data/dlwp_healpix.pth",
         rtol=1e-2,
     )
 
@@ -441,7 +441,7 @@ def test_HEALPixRecUNet_forward(
     assert common.validate_forward_accuracy(
         model,
         (inputs,),
-        file_name="dlwp_healpix_const.pth",
+        file_name="models/dlwp_healpix/data/dlwp_healpix_const.pth",
         rtol=1e-2,
     )
 
@@ -466,7 +466,7 @@ def test_HEALPixRecUNet_forward(
     assert common.validate_forward_accuracy(
         model,
         (inputs,),
-        file_name="dlwp_healpix_decoder.pth",
+        file_name="models/dlwp_healpix/data/dlwp_healpix_decoder.pth",
         rtol=1e-2,
     )
 

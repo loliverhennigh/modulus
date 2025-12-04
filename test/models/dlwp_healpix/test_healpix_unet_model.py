@@ -305,7 +305,7 @@ def test_HEALPixUNet_forward(
     assert common.validate_forward_accuracy(
         model,
         (inputs,),
-        file_name="dlwp_healpix_unet.pth",
+        file_name="models/dlwp_healpix/data/dlwp_healpix_unet.pth",
         rtol=1e-2,
     )
 
@@ -329,7 +329,7 @@ def test_HEALPixUNet_forward(
     assert common.validate_forward_accuracy(
         model,
         (inputs,),
-        file_name="dlwp_healpix_unet_const.pth",
+        file_name="models/dlwp_healpix/data/dlwp_healpix_unet_const.pth",
         rtol=1e-2,
     )
 
@@ -353,7 +353,7 @@ def test_HEALPixUNet_forward(
     assert common.validate_forward_accuracy(
         model,
         (inputs,),
-        file_name="dlwp_healpix_unet_decoder.pth",
+        file_name="models/dlwp_healpix/data/dlwp_healpix_unet_decoder.pth",
         rtol=1e-2,
     )
 
@@ -377,7 +377,7 @@ def test_HEALPixUNet_forward(
     assert common.validate_forward_accuracy(
         model,
         (inputs,),
-        file_name="dlwp_healpix_unet_no_decoder_no_const.pth",
+        file_name="models/dlwp_healpix/data/dlwp_healpix_unet_no_decoder_no_const.pth",
         rtol=1e-2,
     )
 

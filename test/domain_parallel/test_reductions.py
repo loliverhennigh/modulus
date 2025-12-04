@@ -30,28 +30,11 @@ ShardTensor addresses both of these, and these tests are meant to trigger it.
 """
 
 import pytest
-
-from physicsnemo.core.version_check import check_module_requirements
-
-try:
-    check_module_requirements("physicsnemo.distributed.shard_tensor")
-    ST_AVAILABLE = True
-except ImportError:
-    pytest.skip(
-        "Skipping test because physicsnemo.distributed.shard_tensor is not available",
-        allow_module_level=True,
-    )
-
-
-if ST_AVAILABLE:
-    from torch.distributed.tensor.placement_types import Shard
-
-    from physicsnemo.domain_parallel import scatter_tensor
-
-
 import torch
+from torch.distributed.tensor.placement_types import Shard
 
 from physicsnemo.distributed import DistributedManager
+from physicsnemo.domain_parallel import scatter_tensor
 
 
 @pytest.mark.multigpu_static

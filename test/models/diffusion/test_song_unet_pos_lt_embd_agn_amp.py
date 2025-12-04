@@ -336,7 +336,7 @@ def test_song_unet_positional_embedding_indexing_no_patches(device):
     assert pos_embed.shape == (B, N_pos + lt_channels, H, W)
     assert common.validate_tensor_accuracy(
         pos_embed,
-        file_name="songunet_pos_lt_embd_pos_embed_indexing_no_patches_corrdiff.pth",
+        file_name="models/diffusion/data/songunet_pos_lt_embd_pos_embed_indexing_no_patches_corrdiff.pth",
     )
     # TODO: add non-regression tests for other architectures
 
@@ -364,7 +364,7 @@ def test_song_unet_positional_embedding_indexing_with_patches(device):
     assert pos_embed.shape == (P * B, N_pos + lt_channels, H_p, W_p)
     assert common.validate_tensor_accuracy(
         pos_embed,
-        file_name="songunet_pos_lt_embd_pos_embed_indexing_with_patches_corrdiff.pth",
+        file_name="models/diffusion/data/songunet_pos_lt_embd_pos_embed_indexing_with_patches_corrdiff.pth",
     )
     # TODO: add non-regression tests for other architectures
 

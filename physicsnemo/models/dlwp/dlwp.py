@@ -184,7 +184,6 @@ def _cubed_non_conv_wrapper(faces, layer):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "DLWP"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = True

@@ -21,7 +21,6 @@ import pytest
 
 from physicsnemo.core.version_check import (
     check_version_spec,
-    ensure_available,
     get_installed_version,
     require_version_spec,
 )
@@ -45,23 +44,15 @@ def test_get_installed_version_not_found():
         assert get_installed_version("nonexistent_package") is None
 
 
-def test_check_version_spec_success():
-    """check_version_spec returns True when requirement is satisfied"""
-    with patch(
-        "physicsnemo.core.version_check.get_installed_version", return_value="2.6.0"
-    ):
-        assert check_version_spec("torch", ">=2.5,<3.0") is True
-
-
 def test_check_version_spec_failure_hard():
     """check_version_spec raises ImportError when requirement is not met and hard_fail=True"""
     with patch(
         "physicsnemo.core.version_check.get_installed_version", return_value="2.5.0"
     ):
         with pytest.raises(ImportError) as excinfo:
-            check_version_spec("torch", ">=2.6.0", hard_fail=True)
+            check_version_spec("torch", "2.6.0", hard_fail=True)
     msg = str(excinfo.value)
-    assert "torch >=2.6.0 is required" in msg
+    assert "torch 2.6.0 is required" in msg
     assert "found 2.5.0" in msg
 
 
@@ -70,7 +61,7 @@ def test_check_version_spec_failure_soft():
     with patch(
         "physicsnemo.core.version_check.get_installed_version", return_value="2.5.0"
     ):
-        assert check_version_spec("torch", ">=2.6.0", hard_fail=False) is False
+        assert check_version_spec("torch", "2.6.0", hard_fail=False) is False
 
 
 def test_check_version_spec_custom_error_message():
@@ -80,7 +71,7 @@ def test_check_version_spec_custom_error_message():
     ):
         with pytest.raises(ImportError) as excinfo:
             check_version_spec(
-                "torch", ">=2.6.0", error_msg="Custom error", hard_fail=True
+                "torch", "2.6.0", error_msg="Custom error", hard_fail=True
             )
     assert "Custom error" in str(excinfo.value)
 
@@ -91,7 +82,7 @@ def test_check_version_spec_package_not_found_hard():
         "physicsnemo.core.version_check.get_installed_version", return_value=None
     ):
         with pytest.raises(ImportError) as excinfo:
-            check_version_spec("torch", ">=2.0.0", hard_fail=True)
+            check_version_spec("torch", "2.0.0", hard_fail=True)
     assert "Package 'torch' is required but not installed." in str(excinfo.value)
 
 
@@ -100,14 +91,14 @@ def test_check_version_spec_package_not_found_soft():
     with patch(
         "physicsnemo.core.version_check.get_installed_version", return_value=None
     ):
-        assert check_version_spec("torch", ">=2.0.0", hard_fail=False) is False
+        assert check_version_spec("torch", "2.0.0", hard_fail=False) is False
 
 
 def test_require_version_spec_success():
     """Decorator allows execution when requirement is met"""
     with patch("physicsnemo.core.version_check.check_version_spec", return_value=True):
 
-        @require_version_spec("torch", ">=2.5.0")
+        @require_version_spec("torch", "2.5.0")
         def fn():
             return "ok"
 
@@ -121,25 +112,10 @@ def test_require_version_spec_failure():
         side_effect=ImportError("not satisfied"),
     ):
 
-        @require_version_spec("torch", ">=2.6.0")
+        @require_version_spec("torch", "2.6.0")
         def fn():
             return "ok"
 
         with pytest.raises(ImportError) as excinfo:
             fn()
     assert "not satisfied" in str(excinfo.value)
-
-
-def test_ensure_available_success():
-    """ensure_available returns True when requirement passes"""
-    with patch("physicsnemo.core.version_check.check_version_spec", return_value=True):
-        assert ensure_available("torch", ">=2.0.0") is True
-
-
-def test_ensure_available_soft_failure():
-    """ensure_available returns False when requirement fails and hard_fail=False"""
-    with patch(
-        "physicsnemo.core.version_check.check_version_spec",
-        side_effect=ImportError("bad"),
-    ):
-        assert ensure_available("torch", ">=3.0.0", hard_fail=False) is False

@@ -28,7 +28,6 @@ from physicsnemo.core.meta import ModelMetaData
 class tEDMPrecondSuperResMetaData(ModelMetaData):
     """tEDMPrecondSuperRes meta data"""
 
-    name: str = "tEDMPrecondSuperRes"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

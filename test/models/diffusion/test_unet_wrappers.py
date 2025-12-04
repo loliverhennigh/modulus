@@ -243,7 +243,7 @@ def test_unet_backward_compat(device):
         file_name=(
             str(
                 Path(__file__).parents[1].resolve()
-                / Path("data")
+                / Path("diffusion/data")
                 / Path("diffusion_unet_0.1.0.mdlus")
             )
         )

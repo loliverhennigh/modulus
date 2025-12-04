@@ -17,7 +17,7 @@
 import pytest
 import torch
 
-from physicsnemo.core.version_check import check_min_version
+from physicsnemo.core.version_check import check_version_spec
 from physicsnemo.nn.neighbors import knn
 from physicsnemo.nn.neighbors._knn._cuml_impl import knn_impl as knn_cuml
 from physicsnemo.nn.neighbors._knn._scipy_impl import knn_impl as knn_scipy
@@ -36,11 +36,11 @@ def test_knn(device: str, k: int, backend: str, dtype: torch.dtype):
     """
 
     if backend == "cuml":
-        if not check_min_version("cuml", "24.0.0", hard_fail=False):
+        if not check_version_spec("cuml", "24.0.0", hard_fail=False):
             pytest.skip("cuml not available")
 
     elif backend == "scipy":
-        if not check_min_version("scipy", "1.7.0", hard_fail=False):
+        if not check_version_spec("scipy", "1.7.0", hard_fail=False):
             pytest.skip("scipy not available")
 
     # Skip cuml tests on CPU as it's not supported
@@ -112,7 +112,7 @@ def test_knn_torch_compile_no_graph_break(device):
     queries = torch.randn(13, 3, device=device)
     k = 5
 
-    if not check_min_version("cuml", "24.0.0", hard_fail=False):
+    if not check_version_spec("cuml", "24.0.0", hard_fail=False):
         backend = "torch"
     else:
         backend = "auto"
@@ -148,11 +148,11 @@ def test_opcheck(device):
     k = 5
 
     if device == "cuda":
-        if not check_min_version("cuml", "24.0.0", hard_fail=False):
+        if not check_version_spec("cuml", "24.0.0", hard_fail=False):
             pytest.skip("cuml not available")
         op = knn_cuml
     else:
-        if not check_min_version("scipy", "1.7.0", hard_fail=False):
+        if not check_version_spec("scipy", "1.7.0", hard_fail=False):
             pytest.skip("scipy not available")
         op = knn_scipy
 
@@ -165,10 +165,10 @@ def test_knn_comparison(device):
     queries = torch.randn(21, 3, device=device)
     k = 5
 
-    if not check_min_version("cuml", "24.0.0", hard_fail=False):
+    if not check_version_spec("cuml", "24.0.0", hard_fail=False):
         if device == "cuda":
             pytest.skip("cuml not available")
-    if not check_min_version("scipy", "1.7.0", hard_fail=False):
+    if not check_version_spec("scipy", "1.7.0", hard_fail=False):
         if device == "cuda":
             pytest.skip("scipy not available")
 

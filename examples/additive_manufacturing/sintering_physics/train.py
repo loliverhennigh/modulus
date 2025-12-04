@@ -51,7 +51,7 @@ from utils import (
 )
 
 from physicsnemo.distributed.manager import DistributedManager
-from physicsnemo.launch.logging import (
+from physicsnemo.utils.logging import (
     LaunchLogger,
     PythonLogger,
     RankZeroLoggingWrapper,

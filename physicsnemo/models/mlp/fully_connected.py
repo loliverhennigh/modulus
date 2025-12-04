@@ -28,7 +28,6 @@ from physicsnemo.nn import FCLayer, get_activation
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "FullyConnected"
     # Optimization
     jit: bool = True
     cuda_graphs: bool = True

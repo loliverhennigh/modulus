@@ -24,13 +24,6 @@ should agree with the local computations.
 import pytest
 import torch
 
-# from physicsnemo.core.version_check import check_module_requirements
-# ST_AVAILABLE = check_module_requirements("physicsnemo.distributed.shard_tensor")
-# if not ST_AVAILABLE:
-#     pytest.skip(
-#         "Skipping test because physicsnemo.distributed.shard_tensor is not available",
-#         allow_module_level=True,
-#     )
 from physicsnemo.domain_parallel import ShardTensor
 from test.domain_parallel.test_redistribute import shard_tensor_factory
 

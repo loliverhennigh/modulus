@@ -441,7 +441,6 @@ class Block(nn.Module):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "ModAFNO"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
     cuda_graphs: bool = True

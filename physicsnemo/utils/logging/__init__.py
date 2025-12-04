@@ -15,4 +15,4 @@
 # limitations under the License.
 
 from .console import PythonLogger, RankZeroLoggingWrapper
-# from .launch import LaunchLogger
+from .launch import LaunchLogger

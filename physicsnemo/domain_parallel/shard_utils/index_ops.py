@@ -17,23 +17,18 @@
 from typing import Any, Tuple
 
 import torch
-
-from physicsnemo.core.version_check import check_module_requirements
-
-check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-from torch.distributed.tensor.placement_types import (  # noqa: E402
+from torch.distributed.tensor.placement_types import (
     Replicate,
     Shard,
 )
 
-from physicsnemo.domain_parallel import ShardTensor  # noqa: E402
-from physicsnemo.domain_parallel._shard_tensor_spec import (  # noqa: E402
+from physicsnemo.domain_parallel import ShardTensor
+from physicsnemo.domain_parallel._shard_tensor_spec import (
     ShardTensorSpec,
     TensorMeta,
     _stride_from_contiguous_shape_C_style,
 )
-from physicsnemo.domain_parallel.shard_utils.patch_core import (  # noqa: E402
+from physicsnemo.domain_parallel.shard_utils.patch_core import (
     MissingShardPatch,
 )
 

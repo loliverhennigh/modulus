@@ -31,7 +31,6 @@ from physicsnemo.nn import (
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "Fengwu"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
     cuda_graphs: bool = True

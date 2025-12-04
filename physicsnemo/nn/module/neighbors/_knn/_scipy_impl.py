@@ -18,9 +18,9 @@ import importlib
 
 import torch
 
-from physicsnemo.core.version_check import check_min_version
+from physicsnemo.core.version_check import check_version_spec
 
-SCIPY_AVAILABLE = check_min_version("scipy", "1.7.0", hard_fail=False)
+SCIPY_AVAILABLE = check_version_spec("scipy", "1.7.0", hard_fail=False)
 
 if SCIPY_AVAILABLE:
     KDTree = importlib.import_module("scipy.spatial").KDTree

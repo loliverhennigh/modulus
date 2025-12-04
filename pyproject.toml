@@ -193,17 +193,6 @@ gnns = [
 healpix = [
     "earth2grid",
 ]
-dynamic = ["version"]
-
-[project.urls]
-Homepage = "https://github.com/NVIDIA/physicsnemo"
-Documentation = "https://docs.nvidia.com/physicsnemo/index.html#core"
-Issues = "https://github.com/NVIDIA/physicsnemo/issues"
-Changelog = "https://github.com/NVIDIA/physicsnemo/blob/main/CHANGELOG.md"
-
-[tool.setuptools]
-packages = ["physicsnemo"]
-
 
 [tool.ruff]
 # Enable flake8/pycodestyle (`E`), Pyflakes (`F`), flake8-bandit (`S`),

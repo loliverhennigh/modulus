@@ -14,8 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .function import Function
 from .meta import ModelMetaData
 from .module import Module
 from .registry import ModelRegistry
 
-__all__ = ["ModelMetaData", "Module", "ModelRegistry"]
+__all__ = ["ModelMetaData", "Module", "ModelRegistry", "Function"]

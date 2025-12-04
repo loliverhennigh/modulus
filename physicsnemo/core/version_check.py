@@ -45,6 +45,21 @@ extra_info = {
 }
 
 
+def check_min_version(
+    distribution_name: str,
+    min_version: str,
+    *,
+    hard_fail: bool = True,
+) -> bool:
+    """Backwards-compatible helper that checks ``package >= min_version``."""
+
+    return ensure_available(
+        distribution_name,
+        spec=f">={min_version}",
+        hard_fail=hard_fail,
+    )
+
+
 @functools.lru_cache(maxsize=None)
 def get_installed_version(distribution_name: str) -> Optional[str]:
     """

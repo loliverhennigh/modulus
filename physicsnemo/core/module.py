@@ -33,6 +33,7 @@ from typing import Any, Dict, Optional, Set, Union
 
 import torch
 
+from physicsnemo.core.benchmark import BenchmarkMixin
 from physicsnemo.core.base import RegisterableModule
 from physicsnemo.core.filesystem import _download_cached, _get_fs
 from physicsnemo.core.meta import ModelMetaData
@@ -68,7 +69,7 @@ def _load_state_dict_with_logging(
     return missing_keys, unexpected_keys
 
 
-class Module(RegisterableModule):
+class Module(RegisterableModule, BenchmarkMixin):
     """The base class for all network models in PhysicsNeMo.
 
     This should be used as a direct replacement for torch.nn.module and provides

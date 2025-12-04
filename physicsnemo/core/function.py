@@ -14,8 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backward-compatible proxy to the reorganized nn.module.utils package."""
+from __future__ import annotations
 
-from physicsnemo.nn.module.utils import *  # noqa: F401,F403
+import torch
+from torch.autograd import Function as TorchAutogradFunction
 
-__all__ = [name for name in globals().keys() if not name.startswith("_")]
+from physicsnemo.core.benchmark import BenchmarkMixin
+
+class Function(TorchAutogradFunction, BenchmarkMixin):
+    """Base class for PhysicsNeMo custom autograd functions."""
+
+    @classmethod
+    def _benchmark_forward(cls, values, *rest):
+        cls.apply(values, *rest)
+
+
+__all__ = ["Function"]

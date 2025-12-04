@@ -13,7 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Neural network building blocks for PhysicsNeMo."""
 
 # Make physicsnemo.nn.Module an available import like torch.nn.Module
 from physicsnemo.core import Module
@@ -67,5 +66,3 @@ from .module.transformer_layers import (
 )
 from .module.weight_fact import WeightFactLinear
 from .module.weight_norm import WeightNormLinear
-# from physicsnemo.nn.module import FiniteDifferenceNd
-from physicsnemo.nn.module.finite_difference import FiniteDifferenceNd

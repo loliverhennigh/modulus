@@ -1,7 +1,71 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Neural network building blocks for PhysicsNeMo."""
 
+# Make physicsnemo.nn.Module an available import like torch.nn.Module
 from physicsnemo.core import Module
+
+from .module.activations import (
+    CappedGELU,
+    CappedLeakyReLU,
+    Identity,
+    SquarePlus,
+    Stan,
+    get_activation,
+)
+from .module.ball_query import BQWarp
+from .module.conv_layers import ConvBlock, CubeEmbedding
+from .module.dgm_layers import DGMLayer
+from .module.fourier_layers import (
+    FourierFilter,
+    FourierLayer,
+    FourierMLP,
+    GaborFilter,
+    fourier_encode,
+)
+from .module.fully_connected_layers import (
+    Conv1dFCLayer,
+    Conv2dFCLayer,
+    Conv3dFCLayer,
+    ConvNdFCLayer,
+    ConvNdKernel1Layer,
+    FCLayer,
+)
+from .module.kan_layers import KolmogorovArnoldNetwork
+from .module.mlp_layers import Mlp
+from .module.resample_layers import (
+    DownSample2D,
+    DownSample3D,
+    UpSample2D,
+    UpSample3D,
+)
+from .module.siren_layers import SirenLayer, SirenLayerType
+from .module.spectral_layers import (
+    SpectralConv1d,
+    SpectralConv2d,
+    SpectralConv3d,
+    SpectralConv4d,
+)
+from .module.transformer_layers import (
+    DecoderLayer,
+    EncoderLayer,
+    FuserLayer,
+    SwinTransformer,
+)
+from .module.weight_fact import WeightFactLinear
+from .module.weight_norm import WeightNormLinear
 # from physicsnemo.nn.module import FiniteDifferenceNd
 from physicsnemo.nn.module.finite_difference import FiniteDifferenceNd
-
-__all__ = ["Module", "FiniteDifferenceNd"]

@@ -193,7 +193,6 @@ gnns = [
 healpix = [
     "earth2grid",
 ]
-<<<<<<< HEAD
 dynamic = ["version"]
 
 [project.urls]

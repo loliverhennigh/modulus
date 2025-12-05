@@ -9,9 +9,9 @@ When creating tests for models, rule MOD-008a must be followed. Explicitly refer
 
 **Description:**
 
-Every model in `physicsnemo/nn` or `physicsnemo/models` must have tests that
-verify model instantiation and all public attributes (excluding buffers and
-parameters).
+Every model in `physicsnemo/nn/module` or `physicsnemo/models` must have tests
+that verify model instantiation and all public attributes (excluding buffers
+and parameters).
 
 These tests should:
 - Use `pytest` parameterization to test at least 2 configurations

@@ -9,10 +9,11 @@ When deprecating a model class, rule MOD-002b must be followed. Explicitly refer
 
 **Description:**
 
-For a model class in the pre-deprecation stage in `physicsnemo/nn` or
-`physicsnemo/models`, the developer should start planning its deprecation. This
-is done by adding a warning message to the model class, indicating that the
-model class is deprecated and will be removed in a future release.
+For a model class in the pre-deprecation stage in `physicsnemo/nn/module`
+(exposed via `physicsnemo.nn`) or `physicsnemo/models`, the developer should
+start planning its deprecation. This is done by adding a warning message to the
+model class, indicating that the model class is deprecated and will be removed
+in a future release.
 
 The warning message should be a clear and concise message that explains why the
 model class is being deprecated and what the user should do instead. The

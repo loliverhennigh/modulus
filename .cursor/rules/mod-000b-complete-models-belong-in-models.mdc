@@ -1,5 +1,5 @@
 ---
-description: Complete models composed of multiple layers should be placed in physicsnemo/models, not physicsnemo/nn. These are domain-specific or modality-specific models.
+description: Complete models composed of multiple layers should be placed in physicsnemo/models, not physicsnemo/nn/module (exposed via physicsnemo.nn). These are domain-specific or modality-specific models.
 alwaysApply: false
 ---
 
@@ -46,9 +46,9 @@ from physicsnemo.models.transformer import TransformerModel
 **Anti-pattern:**
 
 ```python
-# WRONG: Complete model placed in physicsnemo/nn/
-# File: physicsnemo/nn/transformer.py
+# WRONG: Complete model placed in physicsnemo/nn/module/
+# File: physicsnemo/nn/module/transformer.py
 class TransformerModel(Module):
-    """Should be in physicsnemo/models/ not physicsnemo/nn/"""
+    """Should be in physicsnemo/models/ not physicsnemo/nn/module/"""
     pass
 ```

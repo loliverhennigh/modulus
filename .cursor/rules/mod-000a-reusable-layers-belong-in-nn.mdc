@@ -1,20 +1,19 @@
 ---
-description: Reusable layers and building blocks should be placed in physicsnemo/nn, not physicsnemo/models. Examples include FullyConnected, attention layers, and UNetBlock.
+description: Reusable layers and building blocks should be placed in physicsnemo/nn/module (exposed via physicsnemo.nn), not physicsnemo/models. Examples include FullyConnected, attention layers, and UNetBlock.
 alwaysApply: false
 ---
 
-When creating or refactoring reusable layer code, rule MOD-000a must be followed. Explicitly reference "Following rule MOD-000a, which states that reusable layers should go in physicsnemo/nn..." when explaining placement decisions.
+When creating or refactoring reusable layer code, rule MOD-000a must be followed. Explicitly reference "Following rule MOD-000a, which states that reusable layers should go in physicsnemo/nn/module (and be re-exported through physicsnemo.nn)..." when explaining placement decisions.
 
 ## MOD-000a: Reusable layers/blocks belong in physicsnemo.nn
 
 **Description:**
 
 Reusable layers that are the building blocks of more complex architectures
-should go into `physicsnemo/nn`. Those include for instance `FullyConnected`,
+should go into `physicsnemo/nn/module`. Those include for instance `FullyConnected`,
 various variants of attention layers, `UNetBlock` (a block of a U-Net), etc.
-
-All layers that are directly exposed to the user should be imported in
-`physicsnemo/nn/__init__.py`, such that they can be used as follows:
+Implementations live in the `module/` subpackage but are re-exported from
+`physicsnemo/nn/__init__.py` so the public import path stays stable:
 
 ```python
 from physicsnemo.nn import MyLayer
@@ -33,13 +32,13 @@ and promotes code reuse across different models.
 **Example:**
 
 ```python
-# Good: Reusable layer in physicsnemo/nn/attention.py
+# Good: Reusable layer in physicsnemo/nn/module/attention_layers.py
 class MultiHeadAttention(Module):
     """A reusable attention layer that can be used in various architectures."""
     pass
 
 # Good: Import in physicsnemo/nn/__init__.py
-from physicsnemo.nn.attention import MultiHeadAttention
+from physicsnemo.nn.module.attention_layers import MultiHeadAttention
 
 # Good: Example-specific layer in examples/weather/utils/nn.py
 class WeatherSpecificLayer(Module):
@@ -53,6 +52,6 @@ class WeatherSpecificLayer(Module):
 # WRONG: Reusable layer placed in physicsnemo/models/
 # File: physicsnemo/models/attention.py
 class MultiHeadAttention(Module):
-    """Should be in physicsnemo/nn/ not physicsnemo/models/"""
+    """Should be in physicsnemo/nn/module/ not physicsnemo/models/"""
     pass
 ```

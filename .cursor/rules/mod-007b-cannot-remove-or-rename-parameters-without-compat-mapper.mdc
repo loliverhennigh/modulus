@@ -9,8 +9,9 @@ When removing or renaming parameters in production models, rule MOD-007b must be
 
 **Description:**
 
-For any model in `physicsnemo/nn` or `physicsnemo/models`, removing or renaming
-parameters is strictly forbidden without proper backward compatibility support.
+For any model in `physicsnemo/nn/module` or `physicsnemo/models`, removing or
+renaming parameters is strictly forbidden without proper backward compatibility
+support.
 
 If a parameter must be renamed or removed, the developer must:
 1. Increment `__model_checkpoint_version__`

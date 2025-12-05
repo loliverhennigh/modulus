@@ -9,9 +9,9 @@ When modifying public method return types, rule MOD-007c must be strictly follow
 
 **Description:**
 
-For any model in `physicsnemo/nn` or `physicsnemo/models`, changing the return
-type of any public method (including `forward`) is strictly forbidden. This
-includes:
+For any model in `physicsnemo/nn/module` or `physicsnemo/models`, changing the
+return type of any public method (including `forward`) is strictly forbidden.
+This includes:
 - Changing from returning a single value to returning a tuple
 - Changing from a tuple to a single value
 - Changing the number of elements in a returned tuple

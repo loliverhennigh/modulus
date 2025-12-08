@@ -32,6 +32,7 @@ def apply_parameter_encoding(
     global_params_values: torch.Tensor,
     global_params_reference: torch.Tensor,
 ) -> torch.Tensor:
+
     processed_parameters = []
     for k in range(global_params_values.shape[1]):
         param = torch.unsqueeze(global_params_values[:, k, :], 1)

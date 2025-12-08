@@ -899,17 +899,15 @@ class DoMINODataPipe(Dataset):
         """
 
         # This is a step to make sure we can apply to sharded outputs:
+        volume_spec = None
         if volume_fields is not None and isinstance(volume_fields, ShardTensor):
             volume_spec = volume_fields._spec
             volume_fields = ShardTensor.to_local(volume_fields)
-        else:
-            volume_spec = None
 
+        surface_spec = None
         if surface_fields is not None and isinstance(surface_fields, ShardTensor):
             surface_spec = surface_fields._spec
             surface_fields = ShardTensor.to_local(surface_fields)
-        else:
-            surface_spec = None
 
         if volume_fields is not None:
             if self.config.scaling_type == "mean_std_scaling":
@@ -964,6 +962,17 @@ class DoMINODataPipe(Dataset):
             return len(self.dataset)
         else:
             return 0
+
+    @property
+    def filenames(self) -> list[str]:
+        """
+        Expose the underlying dataset filenames for convenience.
+        """
+        if self.dataset is None:
+            return []
+        if hasattr(self.dataset, "_filenames"):
+            return list(self.dataset._filenames)
+        return list(getattr(self.dataset, "filenames", []))
 
     def __getitem__(self, idx):
         """
@@ -1206,10 +1215,12 @@ class CachedDoMINODataset(Dataset):
 def create_domino_dataset(
     cfg: DictConfig,
     phase: Literal["train", "val", "test"],
-    keys_to_read: list[str],
-    keys_to_read_if_available: dict[str, torch.Tensor],
-    vol_factors: list[float],
-    surf_factors: list[float],
+    keys_to_read: list[str] | None = None,
+    keys_to_read_if_available: dict[str, torch.Tensor] | None = None,
+    vol_factors: list[float] | None = None,
+    surf_factors: list[float] | None = None,
+    volume_variable_names: list[str] | None = None,
+    surface_variable_names: list[str] | None = None,
     normalize_coordinates: bool = True,
     sample_in_bbox: bool = True,
     sampling: bool = True,
@@ -1219,15 +1230,41 @@ def create_domino_dataset(
     model_type = cfg.model.model_type
     if phase == "train":
         input_path = cfg.data.input_dir
-        dataloader_cfg = cfg.train.dataloader
+        dataloader_cfg = cfg.train.get("dataloader", None)
     elif phase == "val":
         input_path = cfg.data.input_dir_val
-        dataloader_cfg = cfg.val.dataloader
+        dataloader_cfg = cfg.val.get("dataloader", None)
     elif phase == "test":
         input_path = cfg.eval.test_path
         dataloader_cfg = None
     else:
         raise ValueError(f"Invalid phase {phase}")
+
+    if keys_to_read is None:
+        include_surface = model_type in {"surface", "combined"} or (
+            surface_variable_names is not None and len(surface_variable_names) > 0
+        )
+        include_volume = model_type in {"volume", "combined"} or (
+            volume_variable_names is not None and len(volume_variable_names) > 0
+        )
+
+        keys_to_read = [
+            "global_params_values",
+            "global_params_reference",
+            "stl_coordinates",
+            "stl_faces",
+            "stl_centers",
+            "stl_areas",
+        ]
+        if include_surface:
+            keys_to_read.extend(
+                ["surface_mesh_centers", "surface_normals", "surface_areas", "surface_fields"]
+            )
+        if include_volume:
+            keys_to_read.extend(["volume_mesh_centers", "volume_fields"])
+
+    if keys_to_read_if_available is None:
+        keys_to_read_if_available = {}
 
     if cfg.data_processor.use_cache:
         return CachedDoMINODataset(

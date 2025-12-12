@@ -100,7 +100,8 @@ if WARP_AVAILABLE:
         torch.cumsum(torch_result_count, dim=0, out=torch_offset[1:])
 
         # Create a pinned buffer on CPU to receive the count
-        pinned_buffer = torch.zeros(1, dtype=torch.int32, pin_memory=True)
+        pin_memory = torch.cuda.is_available()
+        pinned_buffer = torch.zeros(1, dtype=torch.int32, pin_memory=pin_memory)
         # Copy the last element to pinned memory
         pinned_buffer.copy_(torch_offset[-1:])
         total_count = pinned_buffer.item()
@@ -278,6 +279,14 @@ if WARP_AVAILABLE:
         if points.device != queries.device:
             raise ValueError("points and queries must be on the same device")
 
+        input_dtype = points.dtype
+
+        # Warp supports only fp32, so we have to cast:
+        if points.dtype != torch.float32:
+            points = points.to(torch.float32)
+        if queries.dtype != torch.float32:
+            queries = queries.to(torch.float32)
+
         N_queries = len(queries)
 
         # Compute follows data.
@@ -321,7 +330,7 @@ if WARP_AVAILABLE:
                         f"Total found neighbors is too large: {total_count} >= 2**31 - 1"
                     )
 
-                return gather_neighbors(
+                indices, points, distances, num_neighbors = gather_neighbors(
                     grid,
                     points.device,
                     wp_points,
@@ -392,6 +401,8 @@ if WARP_AVAILABLE:
                 )
 
         # Handle the matrix of return values:
+        points = points.to(input_dtype)
+        distances = distances.to(input_dtype)
         return indices, points, distances, num_neighbors
 
     # This is to enable torch.compile:

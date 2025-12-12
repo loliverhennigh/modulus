@@ -361,8 +361,8 @@ class Module(torch.nn.Module, BenchmarkMixin):
 
         Examples
         --------
-        >>> from physicsnemo.models import Module
-        >>> from physicsnemo.registry import ModelRegistry
+        >>> from physicsnemo.core.module import Module
+        >>> from physicsnemo.core.registry import ModelRegistry
         >>> registry = ModelRegistry()
         >>> model_entry = registry.factory('FullyConnected')
         >>> fcn = model_entry(**{'in_features': 10})
@@ -647,7 +647,7 @@ class Module(torch.nn.Module, BenchmarkMixin):
         """
         Utility method for loading the model weights from a '.mdlus'
         checkpoint file. Unlike
-        :meth:`~physicsnemo.models.module.Module.from_checkpoint`, this method
+        :meth:`~physicsnemo.core.module.Module.from_checkpoint`, this method
         *does not* instantiate the model, but rather loads the ``state_dict`` for an
         already instantiated model.
 

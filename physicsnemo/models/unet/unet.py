@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
@@ -22,13 +23,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 
-try:
-    from transformer_engine import pytorch as te
-except ImportError:
-    te = None
+from physicsnemo.core.meta import ModelMetaData
+from physicsnemo.core.module import Module
+from physicsnemo.core.version_check import check_version_spec
 
-from physicsnemo.models.meta import ModelMetaData
-from physicsnemo.models.module import Module
+TE_AVAILABLE = check_version_spec("transformer_engine", "0.10.0", hard_fail=False)
+
+if TE_AVAILABLE:
+    te = importlib.import_module("transformer_engine.pytorch")
+else:
+    te = None
 
 
 class ReshapedLayerNorm(te.LayerNorm if te else nn.LayerNorm):
@@ -520,7 +524,6 @@ class DecoderBlock(nn.Module):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "UNet"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = True
@@ -613,9 +616,12 @@ class UNet(Module):
         )
 
         # Construct the decoder
-        decoder_feature_maps = feature_map_channels[::-1][
-            1:
-        ]  # Reverse and discard the first channel
+        if num_conv_blocks > 1:
+            decoder_feature_maps = feature_map_channels[::-1][
+                1:
+            ]  # Reverse and discard the first channel
+        else:
+            decoder_feature_maps = feature_map_channels[::-1]
         self.decoder = DecoderBlock(
             out_channels=out_channels,
             feature_map_channels=decoder_feature_maps,

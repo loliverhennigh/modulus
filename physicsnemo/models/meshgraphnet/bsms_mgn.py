@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -14,39 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import warnings
 from dataclasses import dataclass
-from types import NoneType
-from typing import Iterable, List, Optional, TypeAlias
+from typing import Iterable, List, Optional
 
 from torch import Tensor
 
-try:
-    import dgl  # noqa: F401 for docs
-    from dgl import DGLGraph
-
-    warnings.warn(
-        "DGL version of MeshGraphNet will soon be deprecated. "
-        "Please use PyG version instead.",
-        DeprecationWarning,
-    )
-except ImportError:
-    warnings.warn(
-        "Note: This only applies if you're using DGL.\n"
-        "MeshGraphNet (DGL version) requires the DGL library.\n"
-        "Install it with your preferred CUDA version from:\n"
-        "https://www.dgl.ai/pages/start.html\n"
-    )
-    DGLGraph: TypeAlias = NoneType
-
-from physicsnemo.models.gnn_layers.bsms import BistrideGraphMessagePassing
+from physicsnemo.core.meta import ModelMetaData
 from physicsnemo.models.meshgraphnet import MeshGraphNet
-from physicsnemo.models.meta import ModelMetaData
+from physicsnemo.nn.gnn_layers.bsms import BistrideGraphMessagePassing
+from physicsnemo.nn.gnn_layers.utils import GraphType
 
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "BiStrideMeshGraphNet"
     # Optimization, no JIT as DGLGraph causes trouble
     jit: bool = False
     cuda_graphs: bool = False
@@ -168,7 +148,7 @@ class BiStrideMeshGraphNet(MeshGraphNet):
         self,
         node_features: Tensor,
         edge_features: Tensor,
-        graph: DGLGraph,
+        graph: GraphType,
         ms_edges: Iterable[Tensor] = (),
         ms_ids: Iterable[Tensor] = (),
         **kwargs,
@@ -177,7 +157,7 @@ class BiStrideMeshGraphNet(MeshGraphNet):
         node_features = self.node_encoder(node_features)
         x = self.processor(node_features, edge_features, graph)
 
-        node_pos = graph.ndata["pos"]
+        node_pos = graph.pos
         ms_edges = [es.to(node_pos.device).squeeze(0) for es in ms_edges]
         ms_ids = [ids.squeeze(0) for ids in ms_ids]
         for _ in range(self.bistride_unet_levels):

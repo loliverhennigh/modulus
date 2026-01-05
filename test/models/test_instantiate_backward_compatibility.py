@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -19,7 +19,7 @@ import math
 
 import pytest
 
-import physicsnemo
+import physicsnemo.core
 
 
 @pytest.mark.parametrize(
@@ -64,4 +64,4 @@ import physicsnemo
 )
 def test_instantiate_backward_compatibility(model):
     """Test instantiation of a model from a dictionary coming from modulus namespace."""
-    model = physicsnemo.models.Module.instantiate(model)
+    model = physicsnemo.core.Module.instantiate(model)

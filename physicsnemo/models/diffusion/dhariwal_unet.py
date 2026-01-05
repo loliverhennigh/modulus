@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -21,16 +21,16 @@ import numpy as np
 import torch
 from torch.nn.functional import silu
 
-from physicsnemo.models.diffusion import (
+from physicsnemo.core.meta import ModelMetaData
+from physicsnemo.core.module import Module
+from physicsnemo.models.diffusion.layers import (
     Conv2d,
-    GroupNorm,
     Linear,
     PositionalEmbedding,
     UNetBlock,
+    get_group_norm,
 )
 from physicsnemo.models.diffusion.utils import _recursive_property
-from physicsnemo.models.meta import ModelMetaData
-from physicsnemo.models.module import Module
 
 # ------------------------------------------------------------------------------
 # Backbone architectures
@@ -39,7 +39,6 @@ from physicsnemo.models.module import Module
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "DhariwalUNet"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -265,7 +264,7 @@ class DhariwalUNet(Module):
                     attention=(res in attn_resolutions),
                     **block_kwargs,
                 )
-        self.out_norm = GroupNorm(num_channels=cout)
+        self.out_norm = get_group_norm(num_channels=cout)
         self.out_conv = Conv2d(
             in_channels=cout, out_channels=out_channels, kernel=3, **init_zero
         )

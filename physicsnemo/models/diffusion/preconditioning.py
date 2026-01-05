@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -15,21 +15,21 @@
 # limitations under the License.
 
 """
-Preconditioning schemes used in the paper"Elucidating the Design Space of 
+Preconditioning schemes used in the paper"Elucidating the Design Space of
 Diffusion-Based Generative Models".
 """
 
 import importlib
 import warnings
 from dataclasses import dataclass
-from typing import List, Literal, Tuple, Union
+from typing import Any, List, Literal, Tuple, Union
 
 import numpy as np
 import torch
 
+from physicsnemo.core.meta import ModelMetaData
+from physicsnemo.core.module import Module
 from physicsnemo.models.diffusion.utils import _wrapped_property
-from physicsnemo.models.meta import ModelMetaData
-from physicsnemo.models.module import Module
 
 network_module = importlib.import_module("physicsnemo.models.diffusion")
 
@@ -38,7 +38,6 @@ network_module = importlib.import_module("physicsnemo.models.diffusion")
 class VPPrecondMetaData(ModelMetaData):
     """VPPrecond meta data"""
 
-    name: str = "VPPrecond"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -221,7 +220,6 @@ class VPPrecond(Module):
 class VEPrecondMetaData(ModelMetaData):
     """VEPrecond meta data"""
 
-    name: str = "VEPrecond"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -350,7 +348,6 @@ class VEPrecond(Module):
 class iDDPMPrecondMetaData(ModelMetaData):
     """iDDPMPrecond meta data"""
 
-    name: str = "iDDPMPrecond"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -524,7 +521,6 @@ class iDDPMPrecond(Module):
 class EDMPrecondMetaData(ModelMetaData):
     """EDMPrecond meta data"""
 
-    name: str = "EDMPrecond"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -693,7 +689,6 @@ class EDMPrecond(Module):
 class EDMPrecondSuperResolutionMetaData(ModelMetaData):
     """EDMPrecondSuperResolution meta data"""
 
-    name: str = "EDMPrecondSuperResolution"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False
@@ -722,7 +717,7 @@ class EDMPrecondSuperResolution(Module):
     Parameters
     ----------
     img_resolution : Union[int, Tuple[int, int]]
-        Spatial resolution `(H, W)` of the image. If a single int is provided,
+        Spatial resolution :math:`(H, W)` of the image. If a single int is provided,
         the image is assumed to be square.
     img_in_channels : int
         Number of input channels in the low-resolution input image.
@@ -797,7 +792,7 @@ class EDMPrecondSuperResolution(Module):
         sigma_data: float = 0.5,
         sigma_min=0.0,
         sigma_max=float("inf"),
-        **model_kwargs: dict,
+        **model_kwargs: Any,
     ):
         super().__init__(meta=EDMPrecondSuperResolutionMetaData)
 
@@ -852,7 +847,8 @@ class EDMPrecondSuperResolution(Module):
         ValueError
             If `value` is not a boolean.
         """
-        if not isinstance(value, bool):
+        # NOTE: allow 0/1 values for older checkpoints
+        if not (isinstance(value, bool) or value in [0, 1]):
             raise ValueError(
                 f"`use_fp16` must be a boolean, but got {type(value).__name__}."
             )
@@ -904,7 +900,7 @@ class EDMPrecondSuperResolution(Module):
         img_lr: torch.Tensor,
         sigma: torch.Tensor,
         force_fp32: bool = False,
-        **model_kwargs: dict,
+        **model_kwargs: Any,
     ) -> torch.Tensor:
         """
         Forward pass of the EDMPrecondSuperResolution model wrapper.
@@ -1002,7 +998,6 @@ class EDMPrecondSuperResolution(Module):
 class EDMPrecondSRMetaData(ModelMetaData):
     """EDMPrecondSR meta data"""
 
-    name: str = "EDMPrecondSR"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = False

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -22,9 +22,9 @@ import torch as th
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
+from physicsnemo.core.meta import ModelMetaData
+from physicsnemo.core.module import Module
 from physicsnemo.models.dlwp_healpix_layers import HEALPixFoldFaces, HEALPixUnfoldFaces
-from physicsnemo.models.meta import ModelMetaData
-from physicsnemo.models.module import Module
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 class MetaData(ModelMetaData):
     """Metadata for the DLWP HEALPix UNet Model"""
 
-    name: str = "DLWP_HEALPixUNet"
     # Optimization
     jit: bool = False
     cuda_graphs: bool = True
@@ -161,7 +160,6 @@ class HEALPixUNet(Module):
         )
 
     def _compute_coupled_channels(self, couplings):
-
         c_channels = 0
         for c in couplings:
             c_channels += len(c["params"]["variables"]) * len(
@@ -228,9 +226,7 @@ class HEALPixUNet(Module):
                             step * self.input_time_dim, (step + 1) * self.input_time_dim
                         ),
                         ...,
-                    ].flatten(
-                        self.channel_dim, self.channel_dim + 1
-                    ),  # DI
+                    ].flatten(self.channel_dim, self.channel_dim + 1),  # DI
                 ]
                 res = th.cat(result, dim=self.channel_dim)
 
@@ -263,9 +259,7 @@ class HEALPixUNet(Module):
                     :,
                     slice(step * self.input_time_dim, (step + 1) * self.input_time_dim),
                     ...,
-                ].flatten(
-                    self.channel_dim, self.channel_dim + 1
-                ),  # DI
+                ].flatten(self.channel_dim, self.channel_dim + 1),  # DI
                 inputs[2].expand(
                     *tuple([inputs[0].shape[0]] + len(inputs[2].shape) * [-1])
                 ),  # constants

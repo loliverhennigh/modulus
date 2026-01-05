@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -23,10 +23,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import physicsnemo  # noqa: F401 for docs
-import physicsnemo.models.layers.fft as fft
+import physicsnemo.nn.fft as fft
+from physicsnemo.core.meta import ModelMetaData
+from physicsnemo.core.module import Module
 from physicsnemo.models.afno.afno import AFNO2DLayer, AFNOMlp, PatchEmbed
-from physicsnemo.models.meta import ModelMetaData
-from physicsnemo.models.module import Module
 
 from .modembed import ModEmbedNet
 
@@ -267,13 +267,13 @@ class ModAFNO2DLayer(AFNO2DLayer):
                 o1_im * scale_re + o1_re * scale_im + shift_im,
             )
 
-        o1_real[
-            :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-        ] = F.relu(o1_re)
+        o1_real[:, total_modes - kept_modes : total_modes + kept_modes, :kept_modes] = (
+            F.relu(o1_re)
+        )
 
-        o1_imag[
-            :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-        ] = F.relu(o1_im)
+        o1_imag[:, total_modes - kept_modes : total_modes + kept_modes, :kept_modes] = (
+            F.relu(o1_im)
+        )
 
         o2[
             :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes, ..., 0
@@ -441,7 +441,6 @@ class Block(nn.Module):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "ModAFNO"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
     cuda_graphs: bool = True

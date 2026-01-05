@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,18 +20,17 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from ..layers import (
+from physicsnemo.core.meta import ModelMetaData
+from physicsnemo.core.module import Module
+from physicsnemo.nn import (
     DecoderLayer,
     EncoderLayer,
     FuserLayer,
 )
-from ..meta import ModelMetaData
-from ..module import Module
 
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "Fengwu"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
     cuda_graphs: bool = True

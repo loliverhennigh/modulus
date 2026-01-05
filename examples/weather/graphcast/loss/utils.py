@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -17,7 +17,7 @@
 import torch
 from torch import Tensor
 
-from physicsnemo.utils.graphcast.graph_utils import deg2rad
+from physicsnemo.models.graphcast.utils.graph_utils import deg2rad
 
 
 def normalized_grid_cell_area(lat: Tensor, unit="deg") -> Tensor:

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -29,10 +29,13 @@ import hydra
 import torch
 from omegaconf import DictConfig
 from training_loop import training_loop
-from physicsnemo.utils.diffusion.utils import EasyDict, construct_class_by_name
+from physicsnemo.models.diffusion.training_utils import (
+    EasyDict,
+    construct_class_by_name,
+)
 
 from physicsnemo.distributed import DistributedManager
-from physicsnemo.launch.logging import PythonLogger, RankZeroLoggingWrapper
+from physicsnemo.utils.logging import PythonLogger, RankZeroLoggingWrapper
 
 try:
     from apex.optimizers import FusedAdam

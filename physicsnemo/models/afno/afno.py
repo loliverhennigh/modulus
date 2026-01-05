@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -23,10 +23,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import physicsnemo  # noqa: F401 for docs
-import physicsnemo.models.layers.fft as fft
-
-from ..meta import ModelMetaData
-from ..module import Module
+import physicsnemo.nn.fft as fft
+from physicsnemo.core.meta import ModelMetaData
+from physicsnemo.core.module import Module
 
 Tensor = torch.Tensor
 
@@ -173,44 +172,52 @@ class AFNO2DLayer(nn.Module):
         total_modes = H // 2 + 1
         kept_modes = int(total_modes * self.hard_thresholding_fraction)
 
-        o1_real[
-            :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-        ] = F.relu(
-            torch.einsum(
-                "nyxbi,bio->nyxbo",
-                x_real[
-                    :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-                ],
-                self.w1[0],
+        o1_real[:, total_modes - kept_modes : total_modes + kept_modes, :kept_modes] = (
+            F.relu(
+                torch.einsum(
+                    "nyxbi,bio->nyxbo",
+                    x_real[
+                        :,
+                        total_modes - kept_modes : total_modes + kept_modes,
+                        :kept_modes,
+                    ],
+                    self.w1[0],
+                )
+                - torch.einsum(
+                    "nyxbi,bio->nyxbo",
+                    x_imag[
+                        :,
+                        total_modes - kept_modes : total_modes + kept_modes,
+                        :kept_modes,
+                    ],
+                    self.w1[1],
+                )
+                + self.b1[0]
             )
-            - torch.einsum(
-                "nyxbi,bio->nyxbo",
-                x_imag[
-                    :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-                ],
-                self.w1[1],
-            )
-            + self.b1[0]
         )
 
-        o1_imag[
-            :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-        ] = F.relu(
-            torch.einsum(
-                "nyxbi,bio->nyxbo",
-                x_imag[
-                    :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-                ],
-                self.w1[0],
+        o1_imag[:, total_modes - kept_modes : total_modes + kept_modes, :kept_modes] = (
+            F.relu(
+                torch.einsum(
+                    "nyxbi,bio->nyxbo",
+                    x_imag[
+                        :,
+                        total_modes - kept_modes : total_modes + kept_modes,
+                        :kept_modes,
+                    ],
+                    self.w1[0],
+                )
+                + torch.einsum(
+                    "nyxbi,bio->nyxbo",
+                    x_real[
+                        :,
+                        total_modes - kept_modes : total_modes + kept_modes,
+                        :kept_modes,
+                    ],
+                    self.w1[1],
+                )
+                + self.b1[1]
             )
-            + torch.einsum(
-                "nyxbi,bio->nyxbo",
-                x_real[
-                    :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
-                ],
-                self.w1[1],
-            )
-            + self.b1[1]
         )
 
         o2[
@@ -388,7 +395,6 @@ class PatchEmbed(nn.Module):
 
 @dataclass
 class MetaData(ModelMetaData):
-    name: str = "AFNO"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
     cuda_graphs: bool = True

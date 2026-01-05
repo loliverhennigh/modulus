@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -23,7 +23,7 @@ import numpy as np
 from numba import jit, prange
 import xarray as xr
 
-from physicsnemo.utils.diffusion import convert_datetime_to_cftime
+from physicsnemo.models.diffusion.training_utils import convert_datetime_to_cftime
 
 from datasets.base import ChannelMetadata, DownscalingDataset
 

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -31,12 +31,12 @@ from torch.utils.data.distributed import DistributedSampler
 
 from physicsnemo.datapipes.gnn.vortex_shedding_dataset import VortexSheddingDataset
 from physicsnemo.distributed.manager import DistributedManager
-from physicsnemo.launch.logging import (
+from physicsnemo.utils.logging import (
     PythonLogger,
     RankZeroLoggingWrapper,
 )
-from physicsnemo.launch.logging.wandb import initialize_wandb
-from physicsnemo.launch.utils import load_checkpoint, save_checkpoint
+from physicsnemo.utils.logging.wandb import initialize_wandb
+from physicsnemo.utils import load_checkpoint, save_checkpoint
 from physicsnemo.models.meshgraphnet import MeshGraphNet
 
 
@@ -205,7 +205,7 @@ def main(cfg: DictConfig) -> None:
 
         epoch_loss /= len(trainer.dataloader)
         rank_zero_logger.info(
-            f"epoch: {epoch}, loss: {epoch_loss:10.3e}, time per epoch: {(time.time()-start):10.3e}"
+            f"epoch: {epoch}, loss: {epoch_loss:10.3e}, time per epoch: {(time.time() - start):10.3e}"
         )
         wandb.log({"loss": epoch_loss})
 

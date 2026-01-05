@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -280,7 +280,7 @@ class DistributedAFNONet(nn.Module):
         return x
 
 
-class DistributedAFNO(physicsnemo.Module):
+class DistributedAFNO(physicsnemo.core.Module):
     """Distributed Adaptive Fourier neural operator (AFNO) model.
 
     Note

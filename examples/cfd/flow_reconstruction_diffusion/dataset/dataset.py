@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -23,7 +23,7 @@ import zipfile
 import numpy as np
 import PIL.Image
 import torch
-from physicsnemo.utils.diffusion import EasyDict
+from physicsnemo.models.diffusion.training_utils import EasyDict
 
 try:
     import pyspng

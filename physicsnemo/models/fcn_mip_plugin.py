@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -24,9 +24,9 @@ import torch
 import xarray
 
 import physicsnemo  # noqa: F401 for docs
+from physicsnemo.core import filesystem
 from physicsnemo.models.dlwp import DLWP
 from physicsnemo.models.graphcast.graph_cast_net import GraphCastNet
-from physicsnemo.utils import filesystem
 from physicsnemo.utils.zenith_angle import cos_zenith_angle
 
 logger = logging.getLogger(__name__)
@@ -194,9 +194,7 @@ class _DLWPWrapper(torch.nn.Module):
                     self.latgrid,
                 ),
                 0,
-            ) - (
-                1 / np.pi
-            )  # subtract mean value
+            ) - (1 / np.pi)  # subtract mean value
             tisr = (
                 torch.tensor(tisr, dtype=dtype)
                 .to(device)

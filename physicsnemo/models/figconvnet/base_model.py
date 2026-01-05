@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -18,7 +18,7 @@ from typing import Any, Dict, Tuple
 
 import torch
 
-from physicsnemo.models.module import Module
+from physicsnemo.core.module import Module
 
 
 class BaseModel(Module):

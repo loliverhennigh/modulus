@@ -62,7 +62,9 @@ def parse_params(sim_name: str) -> Dict[str, float]:
 
     match = _NAME_RE.search(sim_name)
     if match is None:
-        raise ValueError(f"Simulation folder '{sim_name}' does not encode pressure/temp/runtime.")
+        raise ValueError(
+            f"Simulation folder '{sim_name}' does not encode pressure/temp/runtime."
+        )
     params: Dict[str, float] = {
         "pressure_bar": float(match.group("pressure")),
         "inlet_temperature_C": float(match.group("temperature")),
@@ -80,9 +82,14 @@ def parse_params(sim_name: str) -> Dict[str, float]:
 
 def list_steps(sim_dir: Path) -> List[Path]:
     """Return timestep folders in numeric order (sim_0, sim_1, ...)."""
+
     def key(path: Path) -> Tuple[int, str]:
         return int(path.name.split("_")[-1]), path.name
-    return sorted([p for p in sim_dir.iterdir() if p.is_dir() and p.name.startswith("sim_")], key=key)
+
+    return sorted(
+        [p for p in sim_dir.iterdir() if p.is_dir() and p.name.startswith("sim_")],
+        key=key,
+    )
 
 
 def gather_fields(mesh: pv.DataSet, specs: Sequence[Tuple[str, str]]) -> np.ndarray:
@@ -114,7 +121,9 @@ def pad_to_channels(data: np.ndarray, channels: int) -> Tuple[np.ndarray, np.nda
         return data[:, :channels], mask[:, :channels]
     pad = channels - data.shape[1]
     zeros = np.zeros((data.shape[0], pad), dtype=np.float32)
-    return np.concatenate([data, zeros], axis=1), np.concatenate([mask, np.zeros_like(zeros)], axis=1)
+    return np.concatenate([data, zeros], axis=1), np.concatenate(
+        [mask, np.zeros_like(zeros)], axis=1
+    )
 
 
 def process_sim(
@@ -132,7 +141,9 @@ def process_sim(
     # Get list of steps
     steps = list_steps(sim_dir)
     if len(steps) < 2:
-        raise RuntimeError(f"Simulation '{sim_dir}' must contain at least two timesteps.")
+        raise RuntimeError(
+            f"Simulation '{sim_dir}' must contain at least two timesteps."
+        )
 
     # Get initial step
     init = steps[0]
@@ -149,17 +160,24 @@ def process_sim(
     stl_faces = surface_mesh.faces.reshape(-1, 4)[:, 1:].astype(np.int32)
     normals = surface_mesh.cell_normals.astype(np.float32)
     normals /= np.linalg.norm(normals, axis=1, keepdims=True) + 1e-12
-    areas = surface_mesh.compute_cell_sizes(length=False, area=True, volume=False).cell_data["Area"].astype(
-        np.float32
+    areas = (
+        surface_mesh.compute_cell_sizes(length=False, area=True, volume=False)
+        .cell_data["Area"]
+        .astype(np.float32)
     )
     face_set = surface_mesh.cell_data.get("face_set")
 
     # Get volumes if needed
-    volume_regions = [p for p in init.glob("*.vtu") if not p.name.endswith(".boundaries.vtu")]
+    volume_regions = [
+        p for p in init.glob("*.vtu") if not p.name.endswith(".boundaries.vtu")
+    ]
     volume_centers = None
     if include_volume and volume_regions:
         volume_centers = np.concatenate(
-            [pv.read(region).cell_centers().points.astype(np.float32) for region in sorted(volume_regions)],
+            [
+                pv.read(region).cell_centers().points.astype(np.float32)
+                for region in sorted(volume_regions)
+            ],
             axis=0,
         )
 
@@ -172,13 +190,14 @@ def process_sim(
 
     # Process each step
     for step in steps[1 : usable_steps + 1]:
-
         # Get step tag
         tag = step.name
 
         # Get surface fields if needed
         if include_surface:
-            surf_mesh = pv.read(step / f"{tag}.boundaries.vtu").extract_geometry().triangulate()
+            surf_mesh = (
+                pv.read(step / f"{tag}.boundaries.vtu").extract_geometry().triangulate()
+            )
             vals = gather_fields(surf_mesh, surface_specs)
             if vals.shape[0] != stl_centers.shape[0]:
                 raise ValueError(f"Surface cell count mismatch in {step}")
@@ -191,13 +210,18 @@ def process_sim(
                 mesh = pv.read(step / name)
                 chunks.append(gather_fields(mesh, volume_specs))
             merged = np.concatenate(chunks, axis=0)
-            if volume_centers is not None and merged.shape[0] != volume_centers.shape[0]:
+            if (
+                volume_centers is not None
+                and merged.shape[0] != volume_centers.shape[0]
+            ):
                 raise ValueError(f"Volume cell count mismatch in {step}")
             volume_frames.append(merged)
 
     # Concatenate surface and volume fields
-    surface_fields = np.concatenate(surface_frames, axis=1) if surface_frames else np.zeros(
-        (stl_centers.shape[0], 0), dtype=np.float32
+    surface_fields = (
+        np.concatenate(surface_frames, axis=1)
+        if surface_frames
+        else np.zeros((stl_centers.shape[0], 0), dtype=np.float32)
     )
     volume_fields = np.concatenate(volume_frames, axis=1) if volume_frames else None
 
@@ -221,7 +245,9 @@ def process_sim(
     params = parse_params(sim_dir.name)
     global_values = np.array([params[k] for k in global_order], dtype=np.float32)
     global_values = np.expand_dims(global_values, -1)
-    global_reference_arr = np.expand_dims(np.array(global_reference, dtype=np.float32), -1)
+    global_reference_arr = np.expand_dims(
+        np.array(global_reference, dtype=np.float32), -1
+    )
 
     # Create sample for Domino datapipe format
     sample: Dict[str, np.ndarray] = {
@@ -274,7 +300,6 @@ def compute_stats(npz_dir: Path, stats_dir: Path) -> None:
     surf_max = surf_min = vol_max = vol_min = None
     for npz_path in sorted(npz_dir.glob("*.npz")):
         with np.load(npz_path) as data:
-
             # Compute statistics for surface fields
             if "surface_fields" in data:
                 arr = data["surface_fields"]
@@ -298,9 +323,15 @@ def compute_stats(npz_dir: Path, stats_dir: Path) -> None:
     # Save statistics
     stats_dir.mkdir(parents=True, exist_ok=True)
     if surf_max is not None:
-        np.save(stats_dir / "surface_scaling_factors.npy", np.stack([surf_max, surf_min]).astype(np.float32))
+        np.save(
+            stats_dir / "surface_scaling_factors.npy",
+            np.stack([surf_max, surf_min]).astype(np.float32),
+        )
     if vol_max is not None:
-        np.save(stats_dir / "volume_scaling_factors.npy", np.stack([vol_max, vol_min]).astype(np.float32))
+        np.save(
+            stats_dir / "volume_scaling_factors.npy",
+            np.stack([vol_max, vol_min]).astype(np.float32),
+        )
 
 
 def meta_from_existing_npz(
@@ -313,10 +344,24 @@ def meta_from_existing_npz(
     """Construct metadata from an existing processed npz without reprocessing raw data."""
     params = parse_params(sim_name)
     with np.load(npz_path) as data:
-        surface_pts = data["surface_mesh_centers"].shape[0] if "surface_mesh_centers" in data else 0
-        volume_pts = data["volume_mesh_centers"].shape[0] if "volume_mesh_centers" in data else 0
-        surface_ch = data["surface_fields"].shape[1] if include_surface and "surface_fields" in data else 0
-        volume_ch = data["volume_fields"].shape[1] if include_volume and "volume_fields" in data else 0
+        surface_pts = (
+            data["surface_mesh_centers"].shape[0]
+            if "surface_mesh_centers" in data
+            else 0
+        )
+        volume_pts = (
+            data["volume_mesh_centers"].shape[0] if "volume_mesh_centers" in data else 0
+        )
+        surface_ch = (
+            data["surface_fields"].shape[1]
+            if include_surface and "surface_fields" in data
+            else 0
+        )
+        volume_ch = (
+            data["volume_fields"].shape[1]
+            if include_volume and "volume_fields" in data
+            else 0
+        )
     return {
         "name": sim_name,
         "future_steps": future_steps,
@@ -330,7 +375,6 @@ def meta_from_existing_npz(
 
 @hydra.main(version_base="1.3", config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-
     # Get config values
     OmegaConf.set_struct(cfg, False)
     cfg_dict = OmegaConf.to_container(cfg, resolve=True)
@@ -350,17 +394,29 @@ def main(cfg: DictConfig) -> None:
 
     # Get data processing parameters
     future = int(data_cfg.get("future_steps", 1))
-    include_surface = str(model_cfg.get("model_type", "surface")).lower() in {"surface", "combined"}
-    include_volume = str(model_cfg.get("model_type", "surface")).lower() in {"volume", "combined"}
+    include_surface = str(model_cfg.get("model_type", "surface")).lower() in {
+        "surface",
+        "combined",
+    }
+    include_volume = str(model_cfg.get("model_type", "surface")).lower() in {
+        "volume",
+        "combined",
+    }
 
     # Get variable specifications
-    surface_specs = [(name, kind) for name, kind in var_cfg["surface"]["solution"].items()]
-    volume_specs = [(name, kind) for name, kind in var_cfg["volume"]["solution"].items()]
+    surface_specs = [
+        (name, kind) for name, kind in var_cfg["surface"]["solution"].items()
+    ]
+    volume_specs = [
+        (name, kind) for name, kind in var_cfg["volume"]["solution"].items()
+    ]
     config_globals = var_cfg.get("global_parameters", {})
     global_order = list(config_globals.keys())
-    global_reference = [config_globals[name].get("reference", 1.0) for name in global_order]
+    global_reference = [
+        config_globals[name].get("reference", 1.0) for name in global_order
+    ]
 
-    # Process simulations 
+    # Process simulations
     # NOTE: simulation name is repeated, ie, comb_20-noCoil_300bar_-40C_90s/comb_20-noCoil_300bar_-40C_90s/
     # TODO: remove duplicate simulation names
     metas = []
@@ -381,8 +437,7 @@ def main(cfg: DictConfig) -> None:
         num_val = max(1, min(total - 1, int(round(val_fraction * total))))
         # Evenly spaced selection across sorted list
         val_indices = set(
-            int(idx)
-            for idx in np.linspace(0, total - 1, num_val, dtype=int).tolist()
+            int(idx) for idx in np.linspace(0, total - 1, num_val, dtype=int).tolist()
         )
         train_set = set(i for i in range(total) if i not in val_indices)
         val_set = val_indices
@@ -394,7 +449,9 @@ def main(cfg: DictConfig) -> None:
     for sim_dir in train_dirs:
         out_path = train_dir / f"{sim_dir.name}.npz"
         if out_path.exists():
-            meta = meta_from_existing_npz(out_path, sim_dir.name, future, include_surface, include_volume)
+            meta = meta_from_existing_npz(
+                out_path, sim_dir.name, future, include_surface, include_volume
+            )
             meta["split"] = "train"
             metas.append(meta)
         else:
@@ -421,7 +478,9 @@ def main(cfg: DictConfig) -> None:
         iterable = pool.imap(_process_sim_wrapper, worker_args)
 
     try:
-        for sample, meta in tqdm(iterable, total=len(worker_args), desc="Processing train simulations"):
+        for sample, meta in tqdm(
+            iterable, total=len(worker_args), desc="Processing train simulations"
+        ):
             np.savez_compressed(train_dir / f"{meta['name']}.npz", **sample)
             meta = dict(meta)
             meta["split"] = "train"
@@ -436,7 +495,9 @@ def main(cfg: DictConfig) -> None:
     for sim_dir in val_dirs:
         out_path = val_dir / f"{sim_dir.name}.npz"
         if out_path.exists():
-            meta = meta_from_existing_npz(out_path, sim_dir.name, future, include_surface, include_volume)
+            meta = meta_from_existing_npz(
+                out_path, sim_dir.name, future, include_surface, include_volume
+            )
             meta["split"] = "val"
             metas.append(meta)
         else:
@@ -461,7 +522,9 @@ def main(cfg: DictConfig) -> None:
         val_iterable = val_pool.imap(_process_sim_wrapper, val_worker_args)
 
     try:
-        for sample, meta in tqdm(val_iterable, total=len(val_worker_args), desc="Processing val simulations"):
+        for sample, meta in tqdm(
+            val_iterable, total=len(val_worker_args), desc="Processing val simulations"
+        ):
             np.savez_compressed(val_dir / f"{meta['name']}.npz", **sample)
             meta = dict(meta)
             meta["split"] = "val"
@@ -473,11 +536,15 @@ def main(cfg: DictConfig) -> None:
 
     # Save metadata
     with (processed_root / "metadata.json").open("w", encoding="utf-8") as f:
-        json.dump({"samples": metas, "global_param_order": global_order or []}, f, indent=2)
+        json.dump(
+            {"samples": metas, "global_param_order": global_order or []}, f, indent=2
+        )
 
     # Compute statistics
     compute_stats(train_dir, stats_dir)
-    print(f"Wrote {len(metas)} samples to train={train_dir}, val={val_dir} and stats to {stats_dir}")
+    print(
+        f"Wrote {len(metas)} samples to train={train_dir}, val={val_dir} and stats to {stats_dir}"
+    )
 
 
 def _process_sim_wrapper(args):

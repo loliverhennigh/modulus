@@ -69,13 +69,17 @@ def write_surface_step(
     for name, arr in pred_fields.items():
         arr_np = np.asarray(arr)
         if arr_np.shape[0] != n_cells:
-            raise ValueError(f"Surface field '{name}' has {arr_np.shape[0]} cells, expected {n_cells}.")
+            raise ValueError(
+                f"Surface field '{name}' has {arr_np.shape[0]} cells, expected {n_cells}."
+            )
         mesh.cell_data[f"pred_{name}"] = arr_np
     if gt_fields is not None:
         for name, arr in gt_fields.items():
             arr_np = np.asarray(arr)
             if arr_np.shape[0] != n_cells:
-                raise ValueError(f"Surface field '{name}' has {arr_np.shape[0]} cells, expected {n_cells}.")
+                raise ValueError(
+                    f"Surface field '{name}' has {arr_np.shape[0]} cells, expected {n_cells}."
+                )
             mesh.cell_data[f"gt_{name}"] = arr_np
 
     # Save the mesh to a file
@@ -95,7 +99,6 @@ def write_volume_step(
     # Loop through all volume regions
     start = 0
     for region in region_names:
-
         # Read the volume mesh
         mesh_path = step_dir / region
         mesh = pv.read(mesh_path)
@@ -140,7 +143,9 @@ def main(cfg: DictConfig) -> None:
     include_surface = model_type in {"surface", "combined"}
     include_volume = model_type in {"volume", "combined"}
     if not include_surface and not include_volume:
-        raise ValueError("At least one of surface or volume predictions must be enabled.")
+        raise ValueError(
+            "At least one of surface or volume predictions must be enabled."
+        )
 
     # Get target steps
     target_steps = int(cfg.data.get("future_steps", 1))
@@ -148,7 +153,9 @@ def main(cfg: DictConfig) -> None:
     # Resolve paths
     raw_root = resolve_path(cfg.data.raw_dir)
     output_root = resolve_path(cfg.inference.output_dir)
-    stats_dir = resolve_path(cfg.inference.get("stats_dir", Path(cfg.data.processed_dir) / "stats"))
+    stats_dir = resolve_path(
+        cfg.inference.get("stats_dir", Path(cfg.data.processed_dir) / "stats")
+    )
     checkpoint_dir_cfg = cfg.inference.checkpoint or cfg.train.checkpoint_dir
     checkpoint_dir = resolve_path(checkpoint_dir_cfg)
     if not checkpoint_dir.exists():
@@ -158,16 +165,27 @@ def main(cfg: DictConfig) -> None:
         )
 
     # Get surface and volume specifications
-    surface_specs = list(cfg.variables.surface.solution.items()) if include_surface else []
+    surface_specs = (
+        list(cfg.variables.surface.solution.items()) if include_surface else []
+    )
     volume_specs = list(cfg.variables.volume.solution.items()) if include_volume else []
     global_params = cfg.variables.get("global_parameters", {})
     global_order = list(global_params.keys())
-    global_reference = [global_params[name].get("reference", 1.0) for name in global_order]
+    global_reference = [
+        global_params[name].get("reference", 1.0) for name in global_order
+    ]
 
     # Load scaling factors
-    volume_scaling, surface_scaling = load_scaling(stats_dir, include_surface, include_volume)
-    if cfg.model.normalization and ((include_surface and surface_scaling is None) or (include_volume and volume_scaling is None)):
-        raise FileNotFoundError(f"Missing scaling factors under {stats_dir}. Run preprocessing or disable normalization.")
+    volume_scaling, surface_scaling = load_scaling(
+        stats_dir, include_surface, include_volume
+    )
+    if cfg.model.normalization and (
+        (include_surface and surface_scaling is None)
+        or (include_volume and volume_scaling is None)
+    ):
+        raise FileNotFoundError(
+            f"Missing scaling factors under {stats_dir}. Run preprocessing or disable normalization."
+        )
 
     # Make data pipeline
     use_gpu = str(cfg.inference.device).lower() != "cpu" and torch.cuda.is_available()
@@ -197,8 +215,16 @@ def main(cfg: DictConfig) -> None:
     # Initialize model
     device = datapipe.output_device if use_gpu else torch.device("cpu")
     num_global_features = count_global_features(cfg, target_steps)
-    output_features_surf = count_variable_components(cfg.variables.surface.solution) * target_steps if include_surface else None
-    output_features_vol = count_variable_components(cfg.variables.volume.solution) * target_steps if include_volume else None
+    output_features_surf = (
+        count_variable_components(cfg.variables.surface.solution) * target_steps
+        if include_surface
+        else None
+    )
+    output_features_vol = (
+        count_variable_components(cfg.variables.volume.solution) * target_steps
+        if include_volume
+        else None
+    )
     model = DoMINO(
         input_features=3,
         output_features_vol=output_features_vol,
@@ -219,12 +245,15 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Running inference on {len(sim_dirs)} simulations found in {raw_root}")
 
     # Get surface and volume layouts
-    surface_layout = component_layout(cfg.variables.surface.solution) if include_surface else []
-    volume_layout = component_layout(cfg.variables.volume.solution) if include_volume else []
+    surface_layout = (
+        component_layout(cfg.variables.surface.solution) if include_surface else []
+    )
+    volume_layout = (
+        component_layout(cfg.variables.volume.solution) if include_volume else []
+    )
 
     # Process each simulation
     for sim_dir in sim_dirs:
-
         # Process simulation
         logger.info(f"Processing simulation '{sim_dir.name}'")
         sample, meta = process_sim(
@@ -262,7 +291,9 @@ def main(cfg: DictConfig) -> None:
                 pred_surf.squeeze(0).cpu().numpy(), surface_layout, usable_steps
             )
             surf_gt_steps = (
-                split_fields_by_step(gt_surf.squeeze(0).cpu().numpy(), surface_layout, usable_steps)
+                split_fields_by_step(
+                    gt_surf.squeeze(0).cpu().numpy(), surface_layout, usable_steps
+                )
                 if gt_surf is not None and cfg.inference.get("write_ground_truth", True)
                 else [None] * usable_steps
             )
@@ -274,7 +305,9 @@ def main(cfg: DictConfig) -> None:
                 pred_vol.squeeze(0).cpu().numpy(), volume_layout, usable_steps
             )
             vol_gt_steps = (
-                split_fields_by_step(gt_vol.squeeze(0).cpu().numpy(), volume_layout, usable_steps)
+                split_fields_by_step(
+                    gt_vol.squeeze(0).cpu().numpy(), volume_layout, usable_steps
+                )
                 if gt_vol is not None and cfg.inference.get("write_ground_truth", True)
                 else [None] * usable_steps
             )
@@ -315,10 +348,18 @@ def main(cfg: DictConfig) -> None:
             if include_surface:
                 surface_file = step_dir / f"{step_tag}.boundaries.vtu"
                 out_path = sim_out / "surface" / f"{step_tag}.vtp"
-                write_surface_step(surface_file, out_path, surf_pred_steps[idx], surf_gt_steps[idx])
+                write_surface_step(
+                    surface_file, out_path, surf_pred_steps[idx], surf_gt_steps[idx]
+                )
             if include_volume and region_names:
                 vol_out = sim_out / "volume"
-                write_volume_step(step_dir, region_names, vol_out, vol_pred_steps[idx], vol_gt_steps[idx])
+                write_volume_step(
+                    step_dir,
+                    region_names,
+                    vol_out,
+                    vol_pred_steps[idx],
+                    vol_gt_steps[idx],
+                )
 
         logger.info(f"Wrote inference results for '{sim_dir.name}' to {sim_out}")
 

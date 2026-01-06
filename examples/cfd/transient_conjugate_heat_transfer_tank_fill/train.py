@@ -73,7 +73,6 @@ def train_one_epoch(
 
     # Train on each batch
     for batch_idx, batch in enumerate(loader, start=1):
-
         # Convert batch to device
         batch = dict_to_device(batch, device)
 
@@ -82,7 +81,6 @@ def train_one_epoch(
 
         # Forward pass (with autocast if enabled)
         with autocast(enabled=use_amp):
-
             # Forward pass
             pred_vol, pred_surf = model(batch)
 
@@ -92,9 +90,13 @@ def train_one_epoch(
 
             # Compute surface and volume losses
             if pred_surf is not None and "surface_fields" in batch:
-                loss_surface = masked_mse(pred_surf, batch["surface_fields"], batch.get("surface_valid_mask"))
+                loss_surface = masked_mse(
+                    pred_surf, batch["surface_fields"], batch.get("surface_valid_mask")
+                )
             if pred_vol is not None and "volume_fields" in batch:
-                loss_volume = masked_mse(pred_vol, batch["volume_fields"], batch.get("volume_valid_mask"))
+                loss_volume = masked_mse(
+                    pred_vol, batch["volume_fields"], batch.get("volume_valid_mask")
+                )
 
             # Compute total loss
             loss = surf_weight * loss_surface + vol_weight * loss_volume
@@ -128,7 +130,9 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, use_amp: bool) -> Dict[str, float]:
+def evaluate(
+    model: torch.nn.Module, loader: DataLoader, device: torch.device, use_amp: bool
+) -> Dict[str, float]:
     """Evaluate the model on the validation set."""
 
     # Set model to evaluation mode
@@ -145,7 +149,6 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, u
 
         # Forward pass (with autocast if enabled)
         with autocast(enabled=use_amp):
-
             # Forward pass
             pred_vol, pred_surf = model(batch)
 
@@ -155,9 +158,13 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, u
 
             # Compute surface and volume losses
             if pred_surf is not None and "surface_fields" in batch:
-                loss_surface = masked_mse(pred_surf, batch["surface_fields"], batch.get("surface_valid_mask"))
+                loss_surface = masked_mse(
+                    pred_surf, batch["surface_fields"], batch.get("surface_valid_mask")
+                )
             if pred_vol is not None and "volume_fields" in batch:
-                loss_volume = masked_mse(pred_vol, batch["volume_fields"], batch.get("volume_valid_mask"))
+                loss_volume = masked_mse(
+                    pred_vol, batch["volume_fields"], batch.get("volume_valid_mask")
+                )
 
             # Compute total loss
             loss = loss_surface + loss_volume
@@ -171,7 +178,6 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, u
     for key in totals:
         totals[key] = totals[key] / max(1, num_batches)
     return totals
-
 
 
 @hydra.main(version_base="1.3", config_path="conf", config_name="config")
@@ -196,7 +202,9 @@ def main(cfg: DictConfig) -> None:
     include_surface = model_type in {"surface", "combined"}
     include_volume = model_type in {"volume", "combined"}
     if not include_surface and not include_volume:
-        raise ValueError("At least one of surface or volume predictions must be enabled.")
+        raise ValueError(
+            "At least one of surface or volume predictions must be enabled."
+        )
 
     # Get processed root directory
     processed_root = resolve(cfg.data.processed_dir)
@@ -217,7 +225,9 @@ def main(cfg: DictConfig) -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # Load scaling factors (compute if missing).
-    volume_scaling, surface_scaling = load_scaling(stats_dir, include_surface, include_volume)
+    volume_scaling, surface_scaling = load_scaling(
+        stats_dir, include_surface, include_volume
+    )
     if not include_volume:
         volume_scaling = None
     if not include_surface:
@@ -250,7 +260,9 @@ def main(cfg: DictConfig) -> None:
         writer = SummaryWriter(str(log_dir))
 
     # Get surface and volume variable names
-    surface_names = list(cfg.variables.surface.solution.keys()) if include_surface else []
+    surface_names = (
+        list(cfg.variables.surface.solution.keys()) if include_surface else []
+    )
     volume_names = list(cfg.variables.volume.solution.keys()) if include_volume else []
 
     # Create train and val datasets
@@ -288,7 +300,9 @@ def main(cfg: DictConfig) -> None:
     )
 
     # Create model
-    num_global_features = count_global_features(cfg, future_steps=max(num_future_steps, 1))
+    num_global_features = count_global_features(
+        cfg, future_steps=max(num_future_steps, 1)
+    )
     model = DoMINO(
         input_features=3,
         output_features_vol=volume_channels if include_volume else None,
@@ -308,7 +322,9 @@ def main(cfg: DictConfig) -> None:
         )
 
     # Initialize optimizer, scheduler, and gradient scaler
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr, weight_decay=cfg.train.weight_decay)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=cfg.train.lr, weight_decay=cfg.train.weight_decay
+    )
     target_lr = float(cfg.train.get("lr_min", cfg.train.lr))
     end_factor = target_lr / cfg.train.lr if cfg.train.lr > 0 else 1.0
     scheduler = torch.optim.lr_scheduler.LinearLR(
@@ -338,7 +354,6 @@ def main(cfg: DictConfig) -> None:
 
     # Training loop
     for epoch in range(start_epoch, cfg.train.epochs):
-
         # Set the epoch in the samplers
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)
@@ -368,7 +383,12 @@ def main(cfg: DictConfig) -> None:
 
         # Evaluate on the validation set
         if (epoch + 1) % cfg.train.val_interval == 0:
-            val_metrics = evaluate(model, val_dataset, device, use_amp=cfg.train.amp and device.type == "cuda")
+            val_metrics = evaluate(
+                model,
+                val_dataset,
+                device,
+                use_amp=cfg.train.amp and device.type == "cuda",
+            )
             logger.info(
                 f"Epoch {epoch + 1:03d} val | loss={val_metrics['loss']:.4e} "
                 f"(surf={val_metrics['loss_surface']:.4e}, vol={val_metrics['loss_volume']:.4e})"
@@ -385,19 +405,26 @@ def main(cfg: DictConfig) -> None:
             step = epoch + 1
             writer.add_scalars(
                 "loss",
-                {"train": train_metrics["loss"], **({"val": last_val_metrics["loss"]} if last_val_metrics else {})},
+                {
+                    "train": train_metrics["loss"],
+                    **({"val": last_val_metrics["loss"]} if last_val_metrics else {}),
+                },
                 step,
             )
             writer.add_scalar("loss_surface/train", train_metrics["loss_surface"], step)
             writer.add_scalar("loss_volume/train", train_metrics["loss_volume"], step)
             if last_val_metrics is not None:
-                writer.add_scalar("loss_surface/val", last_val_metrics["loss_surface"], step)
-                writer.add_scalar("loss_volume/val", last_val_metrics["loss_volume"], step)
+                writer.add_scalar(
+                    "loss_surface/val", last_val_metrics["loss_surface"], step
+                )
+                writer.add_scalar(
+                    "loss_volume/val", last_val_metrics["loss_volume"], step
+                )
             writer.flush()
 
         # Update learning rate
         scheduler.step()
-        
+
         # Save checkpoint
         if dist.rank == 0 and (epoch + 1) % checkpoint_interval == 0:
             save_checkpoint(

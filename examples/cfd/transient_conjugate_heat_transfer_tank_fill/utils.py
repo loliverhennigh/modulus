@@ -26,9 +26,10 @@ import torch
 from omegaconf import DictConfig
 
 
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
 # Path helpers
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
+
 
 def resolve_path(path_like: str | os.PathLike[str], base: Path | None = None) -> Path:
     """Resolve a path relative to a base directory (default: caller's dir)."""
@@ -39,9 +40,10 @@ def resolve_path(path_like: str | os.PathLike[str], base: Path | None = None) ->
     return path
 
 
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
 # Specs / shapes
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
+
 
 def count_variable_components(spec_map: Dict[str, str]) -> int:
     """Count the number of components in a variable specification."""
@@ -70,25 +72,32 @@ def component_layout(spec_map: Dict[str, str]) -> List[Tuple[str, int]]:
     return [(name, 3 if kind == "vector" else 1) for name, kind in spec_map.items()]
 
 
-def infer_shapes(sample_path: Path, cfg: DictConfig, include_surface: bool, include_volume: bool) -> Tuple[int, int, int]:
+def infer_shapes(
+    sample_path: Path, cfg: DictConfig, include_surface: bool, include_volume: bool
+) -> Tuple[int, int, int]:
     """Infer output channels and future steps from a sample npz."""
     surface_channels = volume_channels = future_steps = 0
     with np.load(sample_path) as data:
         if include_surface and "surface_fields" in data:
             surface_channels = int(data["surface_fields"].shape[1])
-            comp_surface = max(1, count_variable_components(cfg.variables.surface.solution))
+            comp_surface = max(
+                1, count_variable_components(cfg.variables.surface.solution)
+            )
             future_steps = surface_channels // comp_surface
         if include_volume and "volume_fields" in data:
             volume_channels = int(data["volume_fields"].shape[1])
-            comp_volume = max(1, count_variable_components(cfg.variables.volume.solution))
+            comp_volume = max(
+                1, count_variable_components(cfg.variables.volume.solution)
+            )
             if future_steps == 0:
                 future_steps = volume_channels // comp_volume
     return surface_channels, volume_channels, future_steps
 
 
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
 # Scaling helpers
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
+
 
 def load_scaling(
     stats_dir: Path,
@@ -103,18 +112,27 @@ def load_scaling(
     return vol, surf
 
 
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
 # Torch helpers
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
 
-def masked_mse(pred: torch.Tensor, target: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+
+def masked_mse(
+    pred: torch.Tensor, target: torch.Tensor, mask: Optional[torch.Tensor]
+) -> torch.Tensor:
     """Compute the masked mean squared error between predicted and target tensors."""
-    mask_t = torch.ones_like(target, dtype=pred.dtype) if mask is None else mask.to(dtype=pred.dtype)
+    mask_t = (
+        torch.ones_like(target, dtype=pred.dtype)
+        if mask is None
+        else mask.to(dtype=pred.dtype)
+    )
     denom = torch.clamp(mask_t.sum(), min=1.0)
     return ((pred - target) * mask_t).pow(2).sum() / denom
 
 
-def to_torch_sample(sample: Dict[str, np.ndarray], device: torch.device) -> Dict[str, torch.Tensor]:
+def to_torch_sample(
+    sample: Dict[str, np.ndarray], device: torch.device
+) -> Dict[str, torch.Tensor]:
     """Convert a sample dictionary to a dictionary of PyTorch tensors."""
     torch_sample: Dict[str, torch.Tensor] = {}
     for key, value in sample.items():
@@ -127,9 +145,10 @@ def to_torch_sample(sample: Dict[str, np.ndarray], device: torch.device) -> Dict
     return torch_sample
 
 
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
 # Inference helpers
-# ----------------------------------------------------------------------------- 
+# -----------------------------------------------------------------------------
+
 
 def split_fields_by_step(
     fields: np.ndarray,

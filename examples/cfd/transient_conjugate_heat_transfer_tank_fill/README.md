@@ -2,6 +2,8 @@
 
 This example trains and runs a DoMINO model on transient conjugate heat transfer simulations. Raw CFD solver dumps (VTU per timestep) are preprocessed into NPZs, then the model predicts surface and volume fields for multiple future timesteps in one shot. Inference can write VTKs for inspection.
 
+![Transient conjugate heat transfer tank filling](figs/tank_filling.gif)
+
 ## Data layout
 
 Raw simulations (per case) are laid out as:

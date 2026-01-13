@@ -5,7 +5,7 @@ simulations. Raw CFD solver dumps (VTU per timestep) are preprocessed into NPZs,
 then the model predicts surface and volume fields for multiple future timesteps
 in one shot. Inference can write VTKs for inspection.
 
-![Transient conjugate heat transfer tank filling](figs/tank_filling.gif)
+![Transient conjugate heat transfer tank filling](../../../docs/img/tank_filling.gif)
 
 ## Data layout
 
@@ -23,6 +23,9 @@ Raw simulations (per case) are laid out as:
 `process_data.py` traverses both levels of folders to find `sim_*` timesteps,
 packs each simulation into a single NPZ, and writes scaling stats to
 `<processed_dir>/stats`.
+
+The dataset used for this example is not yet available for public training but
+will be released soon.
 
 ## Simulation naming and global parameters
 
@@ -97,6 +100,9 @@ your dataset uses different naming or parameters, update `parse_params` in
 
 - `data.val_fraction` or `data.splits.train/val` controls the train/val
   split.
+- Multi-GPU Support: Compatible with `torchrun` or MPI for distributed training.
+- Inference runs on a single GPU per process; launch multiple processes or split
+  simulations to parallelize.
 - `train.resume: true/false` controls checkpoint loading; default is resume.
 - `train.amp: true` enables autocast + GradScaler on CUDA.
 - Normalization expects stats in `<processed_dir>/stats`; missing stats will

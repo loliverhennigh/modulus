@@ -91,6 +91,10 @@ similar to a steady-state prediction rather than an autoregressive rollout.
 
 ## Data layout
 
+Users can structure the data generated from their numerical solvers in the following schema to use this recipe on their own data.
+The dataset used for this example is not yet available for public training but
+will be released soon. 
+
 Raw simulations (per case) are laid out as:
 
 ```text
@@ -106,8 +110,6 @@ Raw simulations (per case) are laid out as:
 packs each simulation into a single NPZ, and writes scaling stats to
 `<processed_dir>/stats`.
 
-The dataset used for this example is not yet available for public training but
-will be released soon.
 
 ## Simulation naming and global parameters
 

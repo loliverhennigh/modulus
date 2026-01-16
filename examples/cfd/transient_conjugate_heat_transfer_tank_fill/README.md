@@ -1,4 +1,31 @@
-# Transient Conjugate Heat Transfer (DoMINO)
+# Gas Tank Filling - Transient Conjugate Heat Transfer 
+
+The simulation workload for "tank filling" falls into two distinct categories depending on the fluid: Liquid Filling (e.g., automotive fuel, water) or High-Pressure Gas Filling (e.g., Hydrogen/CNG).
+While both are "filling," the computational physics and workload challenges are completely different.
+1. Liquid Tank Filling (The "Free Surface" Workload)
+The primary challenge here is geometry and interface tracking. You are simulating a heavy fluid crashing into a light fluid, creating complex splashing, bubbling, and turbulence.
+•	The Core Physics:
+o	Multiphase Flow (VOF): Solvers use the Volume of Fluid (VOF) method to track the sharp interface between air and liquid. It solves a transport equation for the "volume fraction in every cell.
+o	Turbulence: Models like k-epsilon or LES (Large Eddy Simulation) are used to predict how the incoming jet breaks up.
+•	Computational Challenges:
+o	Transient (Time-Dependent): The simulation must run in tiny time increments to capture the fluid motion accurately.
+o	Adaptive Meshing: To see droplets and bubbles, the mesh must be incredibly fine at the liquid surface. Advanced solvers use Adaptive Mesh Refinement (AMR) to dynamically increase resolution.
+o	Courant Number Constraints: The simulation time-step is limited by the speed of the fluid. If the liquid moves too fast across a mesh cell, the simulation crashes, forcing the solver to take even smaller (more expensive) time steps.
+•	What Engineers Look For:
+o	Blowback/Splash-back: Does the fuel splash up the pipe and trigger the nozzle to shut off early?
+o	Air Entrapment: Does air get trapped in "pockets" inside the tank, preventing it from filling to 100% capacity?
+
+2. Gas/Hydrogen Tank Filling (The "Thermal" Workload)
+This is critical for the green energy industry (Hydrogen FCEVs). The challenge here is Thermodynamics, not splashing. Compressing gas into a tank generates massive amounts of heat (Heat of Compression + Joule-Thomson effect).
+•	The Core Physics:
+o	Compressible Flow: Density changes drastically as pressure rises.
+o	Real Gas Models: Solvers must use complex equations of state  to model how hydrogen behaves at high pressure.
+o	Conjugate Heat Transfer: The simulation must calculate how heat moves from the hot gas into the plastic liner through the carbon fiber wrapping to the outside air.
+•	Computational Challenges:
+o	Long Time Scales: Unlike a 3-second liquid splash, a hydrogen fill takes 3-5 minutes. Simulating this fully in 3D is very expensive.
+o	Fluid-Solid Coupling: The solver must solve fluid equations (inside) and solid thermal equations (tank wall) simultaneously.
+•	What Engineers Look For:
+o	Overheating: The tank temperature must safety limit for the tank materials. The simulation predicts if the fill rate is too fast, causing the gas to get too hot.
 
 This example trains and runs a DoMINO model on transient conjugate heat transfer
 simulations. Raw CFD solver dumps (VTU per timestep) are preprocessed into NPZs,

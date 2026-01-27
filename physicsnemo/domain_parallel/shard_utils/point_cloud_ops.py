@@ -32,7 +32,7 @@ from physicsnemo.domain_parallel.shard_utils.ring import (
     RingPassingConfig,
     perform_ring_iteration,
 )
-from physicsnemo.nn.neighbors._radius_search._warp_impl import radius_search_impl
+from physicsnemo.nn.functional.radius_search._warp_impl import radius_search_impl
 
 wp.config.quiet = True
 

@@ -20,7 +20,7 @@ from torch.distributed.tensor.placement_types import Replicate, Shard
 
 from physicsnemo.distributed import DistributedManager
 from physicsnemo.domain_parallel import scatter_tensor
-from physicsnemo.nn.neighbors import knn
+from physicsnemo.nn.functional import knn
 
 from .utils import numerical_shard_tensor_check
 

@@ -19,7 +19,7 @@ from typing import Any
 import torch
 
 from physicsnemo.domain_parallel import ShardTensor
-from physicsnemo.nn.sdf import signed_distance_field
+from physicsnemo.nn.functional import signed_distance_field
 
 
 def sharded_signed_distance_field(

@@ -63,7 +63,7 @@ def check_version_spec(
     hard_fail: bool = False,
 ) -> bool:
     """
-    Check whether the installed distribution satisfies a version requirement.
+    Check whether the installed distribution satisfies a PEP 440 version specifier.
 
     Args:
         distribution_name: Distribution (package) name as installed by pip

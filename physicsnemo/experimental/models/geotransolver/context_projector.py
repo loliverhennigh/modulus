@@ -348,11 +348,7 @@ class GeometricFeatureProcessor(nn.Module):
     See Also
     --------
     :class:`MultiScaleFeatureExtractor` : Uses multiple GeometricFeatureProcessor instances.
-<<<<<<< ours
-    :class:`~physicsnemo.nn.ball_query.BQWarp` : The ball query operation used internally.
-=======
     :class:`~physicsnemo.nn.BQWarp` : The ball query operation used internally.
->>>>>>> theirs
 
     Examples
     --------

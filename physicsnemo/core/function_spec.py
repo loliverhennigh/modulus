@@ -21,7 +21,7 @@ import importlib.util
 import re
 import warnings
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Sequence, Tuple
 
 import torch
 from packaging.requirements import Requirement
@@ -90,9 +90,11 @@ class FunctionSpec:
     3. Implement :meth:`make_inputs` and :meth:`compare` for benchmarking and
        correctness checks. These are optional for basic usage, but they are
        highly encouraged and required for benchmarking and validation
-       workflows. ``make_inputs`` should be a generator that yields
-       representative input tuples for the function, and ``compare`` should
-       validate that outputs from two implementations match.
+       workflows. ``make_inputs`` should be a generator that yields labeled
+       input cases (small, medium, large) in order. Each yielded item should be
+       ``(label, args, kwargs)`` so benchmark plots can use the label. The
+       ``compare`` method should validate that outputs from two implementations
+       match.
     4. Expose a functional entry point with :meth:`make_function`.
 
     Dispatch rules
@@ -179,8 +181,9 @@ class FunctionSpec:
             @classmethod
             def make_inputs(cls, device: torch.device | str = "cpu"):
                 device = torch.device(device)
-                for size in (1024, 4096):
-                    yield (torch.randn(size, device=device),)
+                yield ("small", (torch.randn(1024, device=device),), {})
+                yield ("medium", (torch.randn(4096, device=device),), {})
+                yield ("large", (torch.randn(16384, device=device),), {})
 
             @classmethod
             def compare(
@@ -279,12 +282,14 @@ class FunctionSpec:
         return decorator
 
     @classmethod
-    def make_inputs(cls, device: torch.device) -> Iterable[Tuple[torch.Tensor, ...]]:
-        """Generator for example inputs to the function.
-        This is used for benchmarking and testing.
-        Generated inputs should be representative of the function's
-        expected input and reasonable for code coverage as well
-        as benchmarking.
+    def make_inputs(
+        cls, device: torch.device
+    ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
+        """Generator for labeled inputs to the function.
+        This is used for benchmarking and testing. Generated inputs should be
+        representative of the function's expected input and reasonable for code
+        coverage as well as benchmarking. Yield cases in order (small, medium,
+        large) using ``(label, args, kwargs)`` tuples.
 
         Parameters
         ----------
@@ -293,8 +298,8 @@ class FunctionSpec:
 
         Returns
         -------
-        Iterable[Tuple[torch.Tensor, ...]]
-            Iterable of input tuples.
+        Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]
+            Iterable of labeled input cases.
         """
         raise NotImplementedError(f"{cls.__name__}.make_inputs must be implemented")
 

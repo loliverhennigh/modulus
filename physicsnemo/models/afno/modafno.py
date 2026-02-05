@@ -23,10 +23,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import physicsnemo  # noqa: F401 for docs
-import physicsnemo.nn.module.fft as fft
 from physicsnemo.core.meta import ModelMetaData
 from physicsnemo.core.module import Module
 from physicsnemo.models.afno.afno import AFNO2DLayer, AFNOMlp, PatchEmbed
+from physicsnemo.nn.functional import imag, irfft2, real, rfft2, view_as_complex
 
 from .modembed import ModEmbedNet
 
@@ -196,8 +196,8 @@ class ModAFNO2DLayer(AFNO2DLayer):
         x = x.float()
         B, H, W, C = x.shape
         # Using ONNX friendly FFT functions
-        x = fft.rfft2(x, dim=(1, 2), norm="ortho")
-        x_real, x_imag = fft.real(x), fft.imag(x)
+        x = rfft2(x, dim=(1, 2), norm="ortho")
+        x_real, x_imag = real(x), imag(x)
         x_real = x_real.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
         x_imag = x_imag.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
         o1_shape = (
@@ -316,7 +316,7 @@ class ModAFNO2DLayer(AFNO2DLayer):
         )
 
         x = F.softshrink(o2, lambd=self.sparsity_threshold)
-        x = fft.view_as_complex(x)
+        x = view_as_complex(x)
         # TODO(akamenev): replace the following branching with
         # a one-liner, something like x.reshape(..., -1).squeeze(-1),
         # but this currently fails during ONNX export.
@@ -325,7 +325,7 @@ class ModAFNO2DLayer(AFNO2DLayer):
         else:
             x = x.reshape(B, H, W // 2 + 1, C)
         # Using ONNX friendly FFT functions
-        x = fft.irfft2(x, s=(H, W), dim=(1, 2), norm="ortho")
+        x = irfft2(x, s=(H, W), dim=(1, 2), norm="ortho")
         x = x.type(dtype)
 
         return x + bias

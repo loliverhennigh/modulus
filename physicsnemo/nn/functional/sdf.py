@@ -251,8 +251,51 @@ class SignedDistanceField(FunctionSpec):
 
     @classmethod
     def make_inputs(cls, device: torch.device | str = "cpu"):
-        # TODO(ASV): Populate benchmark inputs in a follow-up PR.
-        raise NotImplementedError
+        device = torch.device(device)
+        mesh_vertices = torch.tensor(
+            [
+                (-0.5, -0.5, -0.5),
+                (0.5, -0.5, -0.5),
+                (0.5, 0.5, -0.5),
+                (-0.5, 0.5, -0.5),
+                (-0.5, -0.5, 0.5),
+                (0.5, -0.5, 0.5),
+                (0.5, 0.5, 0.5),
+                (-0.5, 0.5, 0.5),
+            ],
+            dtype=torch.float32,
+            device=device,
+        )
+        mesh_indices = torch.tensor(
+            [
+                (0, 1, 2),
+                (0, 2, 3),
+                (4, 6, 5),
+                (4, 7, 6),
+                (0, 4, 5),
+                (0, 5, 1),
+                (3, 2, 6),
+                (3, 6, 7),
+                (0, 3, 7),
+                (0, 7, 4),
+                (1, 5, 6),
+                (1, 6, 2),
+            ],
+            dtype=torch.int32,
+            device=device,
+        ).reshape(-1)
+        cases = [
+            ("small", 4096),
+            ("medium", 16384),
+            ("large", 65536),
+        ]
+        for label, num_points in cases:
+            input_points = torch.rand(num_points, 3, device=device) * 2.0 - 1.0
+            yield (
+                f"{label}-n{num_points}",
+                (mesh_vertices, mesh_indices, input_points),
+                {"max_dist": 2.0, "use_sign_winding_number": False},
+            )
 
     @classmethod
     def compare(

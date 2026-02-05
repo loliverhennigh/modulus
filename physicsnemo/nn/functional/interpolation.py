@@ -21,6 +21,8 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from physicsnemo.core.function_spec import FunctionSpec
+
 # TODO enum causes segmentation faults with current torch script. Go back to enum after torch script update
 """
 @enum.unique
@@ -267,7 +269,8 @@ def _gather_nd(params: Tensor, indices: Tensor) -> Tensor:
         out_shape = orig_shape[:-1] + list(params.shape)[m:]
     else:
         raise ValueError(
-            f"the last dimension of indices must less or equal to the rank of params. Got indices:{indices.shape}, params:{params.shape}. {m} > {n}"
+            "the last dimension of indices must less or equal to the rank of params. "
+            f"Got indices:{indices.shape}, params:{params.shape}. {m} > {n}"
         )
 
     indices = indices.reshape((num_samples, m)).transpose(0, 1).tolist()
@@ -397,7 +400,7 @@ def _grid_knn_idx(
 
 # TODO currently the `tolist` operation is not supported by torch script and when fixed torch script will be used
 # @torch.compile
-def interpolation(
+def _interpolation_impl(
     query_points: Tensor,
     context_grid: Tensor,
     grid: List[Tuple[float, float, int]],
@@ -457,7 +460,7 @@ def interpolation(
         torch.linspace(x[0] - k * dx_i, x[1] + k * dx_i, x[2] + 2 * k)
         for x, dx_i in zip(grid, dx)
     ]
-    meshgrid = torch.meshgrid(linspace)
+    meshgrid = torch.meshgrid(linspace, indexing="ij")
     meshgrid = torch.stack(meshgrid, dim=-1).to(device)
 
     # pad context grid by k to avoid cuts on corners
@@ -511,3 +514,80 @@ def interpolation(
     interpolated_points = product.sum(dim=2)
 
     return interpolated_points[0]
+
+
+class Interpolation(FunctionSpec):
+    """Interpolate values from a grid at query point locations.
+
+    Parameters
+    ----------
+    query_points: torch.Tensor
+        Points at which interpolation is to be performed.
+    context_grid: torch.Tensor
+        Source grid from which values are interpolated.
+    grid: list[tuple[float, float, int]]
+        Describes the grid's range and resolution.
+    interpolation_type: str, optional
+        Interpolation method name, by default ``"smooth_step_2"``.
+    mem_speed_trade: bool, optional
+        Trade-off between memory usage and speed.
+    implementation : {"torch"} or None
+        Implementation to use. When ``None``, dispatch selects the available
+        implementation.
+    """
+    #TODO: Add Warp implementation for significant speedup.
+
+    @FunctionSpec.register(name="torch", rank=0, baseline=True)
+    def torch_forward(
+        query_points: Tensor,
+        context_grid: Tensor,
+        grid: List[Tuple[float, float, int]],
+        interpolation_type: str = "smooth_step_2",
+        mem_speed_trade: bool = True,
+    ) -> Tensor:
+        return _interpolation_impl(
+            query_points,
+            context_grid,
+            grid,
+            interpolation_type=interpolation_type,
+            mem_speed_trade=mem_speed_trade,
+        )
+
+    @classmethod
+    def make_inputs(cls, device: torch.device | str = "cpu"):
+        device = torch.device(device)
+        cases = [
+            ("small", 16, 256),
+            ("medium", 32, 512),
+            ("large", 64, 1024),
+        ]
+        for label, grid_size, num_points in cases:
+            grid = [(-1.0, 2.0, grid_size)] * 3
+            linspace = [torch.linspace(x[0], x[1], x[2], device=device) for x in grid]
+            mesh_grid = torch.meshgrid(linspace, indexing="ij")
+            mesh_grid = torch.stack(mesh_grid, dim=0)
+            context_grid = torch.sin(
+                mesh_grid[0:1] + mesh_grid[1:2] ** 2 + mesh_grid[2:3] ** 3
+            )
+            query_points = torch.stack(
+                [
+                    torch.linspace(0.0, 1.0, num_points, device=device),
+                    torch.linspace(0.0, 1.0, num_points, device=device),
+                    torch.linspace(0.0, 1.0, num_points, device=device),
+                ],
+                axis=-1,
+            )
+            yield (
+                f"{label}-g{grid_size}-n{num_points}",
+                (query_points, context_grid, grid),
+                {"interpolation_type": "smooth_step_2", "mem_speed_trade": True},
+            )
+
+
+interpolation = Interpolation.make_function("interpolation")
+
+
+__all__ = [
+    "Interpolation",
+    "interpolation",
+]

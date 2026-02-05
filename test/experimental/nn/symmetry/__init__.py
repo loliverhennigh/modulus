@@ -13,21 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from .legacy import (  # noqa: F401
-    EDMPrecond,
-    EDMPrecondSR,
-    EDMPrecondSuperResolution,
-    VEPrecond,
-    VEPrecond_dfsr,
-    VEPrecond_dfsr_cond,
-    VPPrecond,
-    iDDPMPrecond,
-)
-from .preconditioners import (  # noqa: F401
-    BaseAffinePreconditioner,
-    EDMPreconditioner,
-    IDDPMPreconditioner,
-    VEPreconditioner,
-    VPPreconditioner,
-)
+#
+# This file contains code derived from `fairchem` found at
+# https://github.com/facebookresearch/fairchem.
+# Copyright (c) [2025] Meta, Inc. and its affiliates.
+# Licensed under MIT License.

@@ -1,13 +1,17 @@
 PhysicsNeMo Functionals
 =======================
 
-PhysicsNeMo functionals mirror the ``torch.nn.functional`` style: stateless
-operations that are easy to compose in model code and training loops. Many
-functionals are optimized for NVIDIA GPU computing and are designed to use accelerated
-implementations when available. Some functionals provide multiple
-implementations with preferred usage settings; if a preferred implementation is
-unavailable, dispatch falls back to another supported option and emits a
-fallback warning.
+PhysicsNeMo functionals follow the ``torch.nn.functional`` pattern: stateless
+operations designed for direct use in model code, training loops, and
+pre/post-processing pipelines. They are intended to be easy to compose and to
+behave consistently across CPU and GPU execution paths.
+
+Many functionals are optimized for NVIDIA GPUs and can dispatch to accelerated
+implementations when those backends are installed. For operations with multiple
+implementations, PhysicsNeMo selects a preferred implementation by default and
+falls back to another supported one when needed, emitting a warning so behavior
+is explicit. Functionals with multiple implementations have plots available
+in the documentation for performance comparisons.
 
 .. toctree::
    :maxdepth: 2

@@ -309,8 +309,10 @@ import missing_dep  # raises at import time
 **Description:**
 
 Implement `make_inputs` and `compare` for every functional. `make_inputs` should
-yield labeled inputs (small, medium, large) and `compare` should validate output
-consistency. Labels are used for benchmark plots and summaries.
+yield labeled inputs ordered from smaller to larger cases. Labels do not have to
+be exactly "small/medium/large", and you can provide more than three cases.
+`compare` should validate output consistency. Labels are used for benchmark
+plots and summaries.
 
 **Rationale:**
 
@@ -376,7 +378,7 @@ its `make_inputs` implementation yields labeled inputs.
 
 Centralizing the benchmark list keeps ASV configuration minimal and ensures
 every benchmarked functional provides the inputs and labels needed for
-consistent plotting (small/medium/large cases).
+consistent plotting across small-to-large cases.
 
 **Example:**
 

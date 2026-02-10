@@ -241,7 +241,7 @@ class DropPath(FunctionSpec):
         for label, batch, features in cases:
             x = torch.randn(batch, features, device=device)
             yield (
-                f"{label}-b{batch}-f{features}",
+                f"{label}-batch{batch}-features{features}-drop0p1-train",
                 (x,),
                 {"drop_prob": 0.1, "training": True, "scale_by_keep": True},
             )

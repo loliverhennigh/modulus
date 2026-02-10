@@ -15,37 +15,45 @@
 # limitations under the License.
 
 """ASV benchmarks for PhysicsNeMo functionals."""
+# TODO: This code will likely evolve with CI/CD integration.
 
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable, Tuple
+from typing import Any, Iterable
 
 import torch
 
 from benchmarks.physicsnemo.nn.functional.registry import FUNCTIONAL_SPECS
 
-_MIN_CASE_COUNT = 3
-
-
 def _resolve_device() -> torch.device:
+    """Resolve the device to benchmark on."""
+
+    # Allow the benchmark device to be overridden from the environment.
     device_name = os.getenv("PHYSICSNEMO_ASV_DEVICE")
     if device_name:
         return torch.device(device_name)
+
+    # Prefer CUDA when available; otherwise default to CPU.
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
 
 
 def _filter_specs(specs: Iterable[type]) -> list[type]:
+    """Filter the specs to the requested subset, this is mostly used for debugging locally."""
+
+    # Allow selecting a subset of functionals for quick benchmark iteration.
     spec_filter = os.getenv("PHYSICSNEMO_ASV_FUNCTIONALS")
     if not spec_filter:
         return list(specs)
 
+    # Parse comma-separated spec names into a normalized lookup set.
     requested = {name.strip().lower() for name in spec_filter.split(",") if name.strip()}
     if not requested:
         return list(specs)
 
+    # Keep only specs explicitly requested by name.
     selected = [spec for spec in specs if spec.__name__.lower() in requested]
     if not selected:
         available = ", ".join(sorted(spec.__name__ for spec in specs))
@@ -56,82 +64,62 @@ def _filter_specs(specs: Iterable[type]) -> list[type]:
     return selected
 
 
-def _normalize_case(
-    case: Tuple[str, Tuple[Any, ...], dict[str, Any]]
-    | Tuple[str, Tuple[Any, ...]]
-    | Tuple[str, Tuple[Any, ...], None]
-) -> tuple[str, tuple[Any, ...], dict[str, Any]]:
-    if len(case) == 2:
-        label, args = case
-        kwargs = {}
-    elif len(case) == 3:
-        label, args, kwargs = case
-        kwargs = {} if kwargs is None else kwargs
-    else:
-        raise ValueError(
-            "make_inputs must yield (label, args) or (label, args, kwargs)"
-        )
-    if not isinstance(label, str):
-        raise TypeError("make_inputs labels must be strings")
-    if not isinstance(args, tuple):
-        raise TypeError("make_inputs args must be a tuple")
-    if not isinstance(kwargs, dict):
-        raise TypeError("make_inputs kwargs must be a dict")
-    return label, args, kwargs
-
-
+# Resolve benchmark configuration and precompute all ASV parameter tuples.
 _DEVICE = _resolve_device()
 _PARAMS: list[tuple[str, str, int]] = []
-_SPEC_CASES: dict[str, list[tuple[str, tuple[Any, ...], dict[str, Any]]]] = {}
 _SELECTED_SPECS = _filter_specs(FUNCTIONAL_SPECS)
-_SPEC_LOOKUP = {spec.__name__: spec for spec in _SELECTED_SPECS}
+_WORK_ITEMS: dict[
+    tuple[str, str, int], tuple[type, str, tuple[Any, ...], dict[str, Any]]
+] = {}
 
+# Build the ASV parameter triples: (spec_name, implementation_name, case_index).
 for spec in _SELECTED_SPECS:
+
+    # Skip specs that currently have no dispatchable implementations.
     implementations = spec.available_implementations()
     if not implementations:
         continue
-    try:
-        cases = list(spec.make_inputs(device=_DEVICE))
-    except NotImplementedError as exc:
-        raise RuntimeError(
-            f"{spec.__name__}.make_inputs must be implemented before "
-            "adding the spec to benchmarks."
-        ) from exc
-    if len(cases) < _MIN_CASE_COUNT:
-        raise ValueError(
-            f"{spec.__name__}.make_inputs must yield at least {_MIN_CASE_COUNT} cases."
-        )
-    normalized_cases = [_normalize_case(case) for case in cases]
-    _SPEC_CASES[spec.__name__] = normalized_cases
+
+    # Materialize inputs once so ASV setup can index by case id.
+    # TODO: This is not ideal, we should keep make_inputs as a generator
+    cases = list(spec.make_inputs(device=_DEVICE))
+    if not cases:
+        continue
+
+    # Build ASV parameter triples and cache resolved work items for setup().
     for impl in implementations:
-        for case_index in range(len(normalized_cases)):
-            _PARAMS.append((spec.__name__, impl, case_index))
+        for case_index, case in enumerate(cases):
+            label, args, kwargs = case
+            key = (spec.__name__, impl, case_index)
+            _PARAMS.append(key)
+            _WORK_ITEMS[key] = (spec, label, args, kwargs)
 
 
 class FunctionalBenchmarks:
     """Benchmark registered FunctionSpec implementations with ASV."""
 
+    # ASV expects params to be a list of parameter axes.
     params = [_PARAMS]
     param_names = ["spec_impl_case"]
     timeout = 120
 
     def setup(self, spec_impl_case: tuple[str, str, int]) -> None:
-        spec_name, implementation, case_index = spec_impl_case
-        spec = _SPEC_LOOKUP[spec_name]
+        # Resolve the precomputed work item for this benchmark key.
+        spec, _, args, kwargs = _WORK_ITEMS[spec_impl_case]
 
-        cases = _SPEC_CASES[spec_name]
-        label, args, kwargs = cases[case_index]
-
+        # Cache resolved objects on self to minimize per-iteration overhead.
         self.spec = spec
-        self.implementation = implementation
+        self.implementation = spec_impl_case[1]
         self.args = args
         self.kwargs = kwargs
-        self.case_label = label
 
+        # Synchronize before timing so previous CUDA work is excluded.
         if _DEVICE.type == "cuda":
             torch.cuda.synchronize()
 
     def time_functional(self, spec_impl_case: tuple[str, str, int]) -> None:
+        # Dispatch to the selected implementation for the selected input case.
         self.spec.dispatch(*self.args, **self.kwargs, implementation=self.implementation)
+        # Synchronize to ensure the measured time includes kernel execution.
         if _DEVICE.type == "cuda":
             torch.cuda.synchronize()

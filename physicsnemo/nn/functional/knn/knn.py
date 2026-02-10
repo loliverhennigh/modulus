@@ -87,7 +87,7 @@ class KNN(FunctionSpec):
             points = torch.rand(num_points, 3, device=device)
             queries = torch.rand(num_queries, 3, device=device)
             yield (
-                f"{label}-p{num_points}-q{num_queries}-k{k}",
+                f"{label}-points{num_points}-queries{num_queries}-k{k}",
                 (points, queries, k),
                 {},
             )

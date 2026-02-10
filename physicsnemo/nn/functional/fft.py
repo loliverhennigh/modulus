@@ -370,7 +370,7 @@ class ViewAsComplex(FunctionSpec):
         ]
         for label, size in cases:
             signal = torch.randn(4, size, 2, device=device)
-            yield (f"{label}-n{size}", (signal,), {})
+            yield (f"{label}-batch4-length{size}-realimag2", (signal,), {})
 
 
 class Real(FunctionSpec):
@@ -407,7 +407,7 @@ class Real(FunctionSpec):
         for label, size in cases:
             signal = torch.randn(4, size, 2, device=device)
             complex_signal = torch.view_as_complex(signal)
-            yield (f"{label}-n{size}", (complex_signal,), {})
+            yield (f"{label}-batch4-length{size}-complex", (complex_signal,), {})
 
 
 class Imag(FunctionSpec):
@@ -444,7 +444,7 @@ class Imag(FunctionSpec):
         for label, size in cases:
             signal = torch.randn(4, size, 2, device=device)
             complex_signal = torch.view_as_complex(signal)
-            yield (f"{label}-n{size}", (complex_signal,), {})
+            yield (f"{label}-batch4-length{size}-complex", (complex_signal,), {})
 
 
 class RFFT(FunctionSpec):
@@ -489,7 +489,7 @@ class RFFT(FunctionSpec):
         ]
         for label, size in cases:
             signal = torch.randn(4, size, device=device)
-            yield (f"{label}-n{size}", (signal,), {"n": size})
+            yield (f"{label}-batch4-signal-length{size}", (signal,), {"n": size})
 
 
 class RFFT2(FunctionSpec):
@@ -534,7 +534,11 @@ class RFFT2(FunctionSpec):
         ]
         for label, height, width in cases:
             signal = torch.randn(4, height, width, device=device)
-            yield (f"{label}-h{height}-w{width}", (signal,), {"s": (height, width)})
+            yield (
+                f"{label}-batch4-height{height}-width{width}",
+                (signal,),
+                {"s": (height, width)},
+            )
 
 
 class IRFFT(FunctionSpec):
@@ -580,7 +584,11 @@ class IRFFT(FunctionSpec):
         for label, size in cases:
             signal = torch.randn(4, size, device=device)
             spectrum = torch.fft.rfft(signal)
-            yield (f"{label}-n{size}", (spectrum,), {"n": size})
+            yield (
+                f"{label}-batch4-spectrum-length{size}",
+                (spectrum,),
+                {"n": size},
+            )
 
 
 class IRFFT2(FunctionSpec):
@@ -626,7 +634,11 @@ class IRFFT2(FunctionSpec):
         for label, height, width in cases:
             signal = torch.randn(4, height, width, device=device)
             spectrum = torch.fft.rfft2(signal)
-            yield (f"{label}-h{height}-w{width}", (spectrum,), {"s": (height, width)})
+            yield (
+                f"{label}-batch4-spectrum-height{height}-width{width}",
+                (spectrum,),
+                {"s": (height, width)},
+            )
 
 
 rfft = RFFT.make_function("rfft")

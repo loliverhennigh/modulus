@@ -292,7 +292,7 @@ class SignedDistanceField(FunctionSpec):
         for label, num_points in cases:
             input_points = torch.rand(num_points, 3, device=device) * 2.0 - 1.0
             yield (
-                f"{label}-n{num_points}",
+                f"{label}-cube-query-points{num_points}",
                 (mesh_vertices, mesh_indices, input_points),
                 {"max_dist": 2.0, "use_sign_winding_number": False},
             )

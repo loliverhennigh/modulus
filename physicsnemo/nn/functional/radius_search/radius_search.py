@@ -126,7 +126,7 @@ class RadiusSearch(FunctionSpec):
             points = torch.rand(num_points, 3, device=device)
             queries = torch.rand(num_queries, 3, device=device)
             yield (
-                f"{label}-p{num_points}-q{num_queries}-r{radius}",
+                f"{label}-points{num_points}-queries{num_queries}-radius{radius}",
                 (points, queries, radius),
                 {
                     "max_points": max_points,

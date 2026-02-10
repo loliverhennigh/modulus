@@ -53,7 +53,11 @@ class WeightFact(FunctionSpec):
         ]
         for label, size in cases:
             w = torch.randn(size, size, device=device)
-            yield (f"{label}-n{size}", (w,), {"mean": 1.0, "stddev": 0.1})
+            yield (
+                f"{label}-weight-matrix{size}x{size}-mean1p0-std0p1",
+                (w,),
+                {"mean": 1.0, "stddev": 0.1},
+            )
 
 
 weight_fact = WeightFact.make_function("weight_fact")

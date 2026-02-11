@@ -88,13 +88,13 @@ class FunctionSpec:
        wins). Optionally set ``baseline=True`` for the reference implementation
        used in benchmarking. The decorator must be used inside the class body.
     3. Implement :meth:`make_inputs` and :meth:`compare` for benchmarking and
-       correctness checks. These are optional for basic usage, but they are
-       highly encouraged and required for benchmarking and validation
-       workflows. ``make_inputs`` should be a generator that yields labeled
-       input cases (small, medium, large) in order. Each yielded item should be
-       ``(label, args, kwargs)`` so benchmark plots can use the label. The
-       ``compare`` method should validate that outputs from two implementations
-       match.
+       correctness checks. These are optional for basic usage, but highly
+       encouraged and required for benchmarking/validation workflows.
+       ``make_inputs`` should yield ``(label, args, kwargs)`` items in roughly
+       increasing workload order (for example from smaller to larger cases).
+       Labels use a descriptive naming scheme that will be used for benchmarking
+       and plotting. ``compare`` should validate
+       that outputs from two implementations match.
     4. Expose a functional entry point with :meth:`make_function`.
 
     Dispatch rules
@@ -286,10 +286,14 @@ class FunctionSpec:
         cls, device: torch.device
     ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
         """Generator for labeled inputs to the function.
-        This is used for benchmarking and testing. Generated inputs should be
-        representative of the function's expected input and reasonable for code
-        coverage as well as benchmarking. Yield cases in order (small, medium,
-        large) using ``(label, args, kwargs)`` tuples.
+        This method is used for benchmarking and testing. Generated inputs
+        should be representative of expected usage and suitable for both code
+        coverage and performance measurement.
+
+        Yield each case as ``(label, args, kwargs)`` in roughly increasing
+        workload order (for example from smaller to larger inputs). Labels can
+        use any descriptive naming scheme and do not need to be exactly
+        ``small``/``medium``/``large``.
 
         Parameters
         ----------

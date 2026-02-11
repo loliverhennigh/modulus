@@ -21,8 +21,8 @@ from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
 
-from ._torch_impl import interpolation as interpolation_torch
-from ._warp_impl import interpolation as interpolation_warp
+from ._torch_impl import interpolation_torch
+from ._warp_impl import interpolation_warp
 
 
 class Interpolation(FunctionSpec):

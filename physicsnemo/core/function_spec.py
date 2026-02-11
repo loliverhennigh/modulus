@@ -291,9 +291,8 @@ class FunctionSpec:
         coverage and performance measurement.
 
         Yield each case as ``(label, args, kwargs)`` in roughly increasing
-        workload order (for example from smaller to larger inputs). Labels can
-        use any descriptive naming scheme and do not need to be exactly
-        ``small``/``medium``/``large``.
+        workload order (for example from smaller to larger inputs). Labels should
+        use a descriptive naming scheme.
 
         Parameters
         ----------

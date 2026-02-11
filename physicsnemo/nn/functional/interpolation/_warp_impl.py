@@ -25,12 +25,14 @@ from physicsnemo.core.version_check import check_version_spec
 
 WARP_AVAILABLE = check_version_spec("warp", "0.6.0", hard_fail=False)
 
+# Define interpolation identifiers used by both Python and Warp kernels.
 _INTERP_NEAREST = 0
 _INTERP_LINEAR = 1
 _INTERP_SMOOTH_1 = 2
 _INTERP_SMOOTH_2 = 3
 _INTERP_GAUSSIAN = 4
 
+# Map interpolation names to internal ids.
 _INTERP_NAME_TO_ID = {
     "nearest_neighbor": _INTERP_NEAREST,
     "linear": _INTERP_LINEAR,
@@ -39,6 +41,7 @@ _INTERP_NAME_TO_ID = {
     "gaussian": _INTERP_GAUSSIAN,
 }
 
+# Map interpolation ids to their neighborhood stride.
 _INTERP_ID_TO_STRIDE = {
     _INTERP_NEAREST: 1,
     _INTERP_LINEAR: 2,
@@ -48,10 +51,12 @@ _INTERP_ID_TO_STRIDE = {
 }
 
 if WARP_AVAILABLE:
+    # Import and initialize Warp once when available.
     wp = importlib.import_module("warp")
     wp.config.quiet = True
     wp.init()
 
+    # Define scalar basis functions used by linear and smooth interpolation modes.
     @wp.func
     def _smooth_step_1(x: wp.float32) -> wp.float32:
         return wp.clamp(3.0 * x * x - 2.0 * x * x * x, 0.0, 1.0)
@@ -68,6 +73,7 @@ if WARP_AVAILABLE:
             return _smooth_step_2(x)
         return x
 
+    # 1D interpolation kernels.
     @wp.kernel
     def _interp_1d_stride1(
         points: wp.array(dtype=wp.float32),
@@ -153,6 +159,7 @@ if WARP_AVAILABLE:
             for c in range(grid.shape[0]):
                 out[tid, c] = out[tid, c] * inv
 
+    # 2D interpolation kernels.
     @wp.kernel
     def _interp_2d_stride1(
         points: wp.array(dtype=wp.vec2f),
@@ -274,6 +281,7 @@ if WARP_AVAILABLE:
             for c in range(grid.shape[0]):
                 out[tid, c] = out[tid, c] * inv
 
+    # 3D interpolation kernels.
     @wp.kernel
     def _interp_3d_stride1(
         points: wp.array(dtype=wp.vec3f),
@@ -441,6 +449,217 @@ if WARP_AVAILABLE:
             for c in range(grid.shape[0]):
                 out[tid, c] = out[tid, c] * inv
 
+    # Launch helpers keep per-dimension kernel invocation logic in one place.
+    def _launch_1d(
+        query_points: torch.Tensor,
+        context_grid: torch.Tensor,
+        output: torch.Tensor,
+        start_vals: list[float],
+        dx_vals: list[float],
+        padded_sizes: list[int],
+        center_offset: float,
+        interp_id: int,
+        stride: int,
+        num_points: int,
+        wp_device,
+        wp_stream,
+    ) -> None:
+        points = query_points[:, 0].contiguous()
+        wp_points = wp.from_torch(points, dtype=wp.float32)
+        wp_grid = wp.from_torch(context_grid.contiguous())
+        wp_out = wp.from_torch(output, return_ctype=True)
+        if stride == 1:
+            wp.launch(
+                _interp_1d_stride1,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    float(start_vals[0]),
+                    float(dx_vals[0]),
+                    int(padded_sizes[0]),
+                    float(center_offset),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+        elif stride == 2:
+            wp.launch(
+                _interp_1d_stride2,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    float(start_vals[0]),
+                    float(dx_vals[0]),
+                    int(padded_sizes[0]),
+                    int(interp_id),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+        else:
+            wp.launch(
+                _interp_1d_stride5,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    float(start_vals[0]),
+                    float(dx_vals[0]),
+                    int(padded_sizes[0]),
+                    float(center_offset),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+
+    def _launch_2d(
+        query_points: torch.Tensor,
+        context_grid: torch.Tensor,
+        output: torch.Tensor,
+        start_vals: list[float],
+        dx_vals: list[float],
+        padded_sizes: list[int],
+        center_offset: float,
+        interp_id: int,
+        stride: int,
+        num_points: int,
+        wp_device,
+        wp_stream,
+    ) -> None:
+        wp_points = wp.from_torch(query_points.contiguous(), dtype=wp.vec2f)
+        wp_grid = wp.from_torch(context_grid.contiguous())
+        wp_out = wp.from_torch(output, return_ctype=True)
+        origin = wp.vec2f(float(start_vals[0]), float(start_vals[1]))
+        spacing = wp.vec2f(float(dx_vals[0]), float(dx_vals[1]))
+        size = wp.vec2i(int(padded_sizes[0]), int(padded_sizes[1]))
+        if stride == 1:
+            wp.launch(
+                _interp_2d_stride1,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    origin,
+                    spacing,
+                    size,
+                    float(center_offset),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+        elif stride == 2:
+            wp.launch(
+                _interp_2d_stride2,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    origin,
+                    spacing,
+                    size,
+                    int(interp_id),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+        else:
+            wp.launch(
+                _interp_2d_stride5,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    origin,
+                    spacing,
+                    size,
+                    float(center_offset),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+
+    def _launch_3d(
+        query_points: torch.Tensor,
+        context_grid: torch.Tensor,
+        output: torch.Tensor,
+        start_vals: list[float],
+        dx_vals: list[float],
+        padded_sizes: list[int],
+        center_offset: float,
+        interp_id: int,
+        stride: int,
+        num_points: int,
+        wp_device,
+        wp_stream,
+    ) -> None:
+        wp_points = wp.from_torch(query_points.contiguous(), dtype=wp.vec3f)
+        wp_grid = wp.from_torch(context_grid.contiguous())
+        wp_out = wp.from_torch(output, return_ctype=True)
+        origin = wp.vec3f(float(start_vals[0]), float(start_vals[1]), float(start_vals[2]))
+        spacing = wp.vec3f(float(dx_vals[0]), float(dx_vals[1]), float(dx_vals[2]))
+        size = wp.vec3i(
+            int(padded_sizes[0]),
+            int(padded_sizes[1]),
+            int(padded_sizes[2]),
+        )
+        if stride == 1:
+            wp.launch(
+                _interp_3d_stride1,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    origin,
+                    spacing,
+                    size,
+                    float(center_offset),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+        elif stride == 2:
+            wp.launch(
+                _interp_3d_stride2,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    origin,
+                    spacing,
+                    size,
+                    int(interp_id),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+        else:
+            wp.launch(
+                _interp_3d_stride5,
+                dim=num_points,
+                inputs=[
+                    wp_points,
+                    wp_grid,
+                    wp_out,
+                    origin,
+                    spacing,
+                    size,
+                    float(center_offset),
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+
+    # Register the warp-backed interpolation op with torch custom ops.
     @torch.library.custom_op("physicsnemo::interpolation_warp", mutates_args=())
     def interpolation_impl(
         query_points: torch.Tensor,
@@ -449,6 +668,10 @@ if WARP_AVAILABLE:
         interp_id: int,
         mem_speed_trade: bool = True,
     ) -> torch.Tensor:
+        # Keep signature parity with the torch implementation API.
+        _ = mem_speed_trade
+
+        # Validate the tensor/device contract before launching any kernels.
         if query_points.device != context_grid.device:
             raise ValueError("query_points and context_grid must be on the same device")
 
@@ -457,6 +680,7 @@ if WARP_AVAILABLE:
                 "grid metadata must have shape (dims, 3) with (min, max, size)"
             )
 
+        # Normalize grid metadata to Python tuples for launch preparation.
         grid = grid_meta.to("cpu").tolist()
         grid = [(float(g[0]), float(g[1]), int(g[2])) for g in grid]
         dims = len(grid)
@@ -482,11 +706,13 @@ if WARP_AVAILABLE:
         if stride is None:
             raise ValueError(f"Unsupported interpolation id {interp_id}")
 
+        # Pad the source grid for non-nearest kernels to match neighborhood access.
         k = stride // 2
         padding = dims * (k, k)
         if k > 0:
             context_grid = F.pad(context_grid, padding)
 
+        # Normalize inputs to float32 for warp kernels and restore output dtype later.
         input_dtype = context_grid.dtype
         if input_dtype != torch.float32:
             context_grid = context_grid.to(torch.float32)
@@ -502,190 +728,69 @@ if WARP_AVAILABLE:
             dtype=torch.float32,
         )
 
+        # Precompute grid geometry used by all dimension-specific launches.
         dx_vals = [(g[1] - g[0]) / (g[2] - 1) for g in grid]
         start_vals = [g[0] - k * dx for g, dx in zip(grid, dx_vals)]
         padded_sizes = [size + 2 * k for size in grid_sizes]
         center_offset = 0.5 if stride % 2 == 1 else 0.0
 
+        # Resolve warp device/stream from torch inputs.
         wp_device, wp_stream = FunctionSpec.warp_launch_context(query_points)
 
+        # Launch the specialized interpolation kernel for the input dimensionality.
         with wp.ScopedStream(wp_stream):
             if dims == 1:
-                points = query_points[:, 0].contiguous()
-                wp_points = wp.from_torch(points, dtype=wp.float32)
-                wp_grid = wp.from_torch(context_grid.contiguous())
-                wp_out = wp.from_torch(output, return_ctype=True)
-                if stride == 1:
-                    wp.launch(
-                        _interp_1d_stride1,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            float(start_vals[0]),
-                            float(dx_vals[0]),
-                            int(padded_sizes[0]),
-                            float(center_offset),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
-                elif stride == 2:
-                    wp.launch(
-                        _interp_1d_stride2,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            float(start_vals[0]),
-                            float(dx_vals[0]),
-                            int(padded_sizes[0]),
-                            int(interp_id),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
-                else:
-                    wp.launch(
-                        _interp_1d_stride5,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            float(start_vals[0]),
-                            float(dx_vals[0]),
-                            int(padded_sizes[0]),
-                            float(center_offset),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
+                _launch_1d(
+                    query_points,
+                    context_grid,
+                    output,
+                    start_vals,
+                    dx_vals,
+                    padded_sizes,
+                    center_offset,
+                    interp_id,
+                    stride,
+                    num_points,
+                    wp_device,
+                    wp_stream,
+                )
             elif dims == 2:
-                wp_points = wp.from_torch(query_points.contiguous(), dtype=wp.vec2f)
-                wp_grid = wp.from_torch(context_grid.contiguous())
-                wp_out = wp.from_torch(output, return_ctype=True)
-                origin = wp.vec2f(float(start_vals[0]), float(start_vals[1]))
-                spacing = wp.vec2f(float(dx_vals[0]), float(dx_vals[1]))
-                size = wp.vec2i(int(padded_sizes[0]), int(padded_sizes[1]))
-                if stride == 1:
-                    wp.launch(
-                        _interp_2d_stride1,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            origin,
-                            spacing,
-                            size,
-                            float(center_offset),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
-                elif stride == 2:
-                    wp.launch(
-                        _interp_2d_stride2,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            origin,
-                            spacing,
-                            size,
-                            int(interp_id),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
-                else:
-                    wp.launch(
-                        _interp_2d_stride5,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            origin,
-                            spacing,
-                            size,
-                            float(center_offset),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
+                _launch_2d(
+                    query_points,
+                    context_grid,
+                    output,
+                    start_vals,
+                    dx_vals,
+                    padded_sizes,
+                    center_offset,
+                    interp_id,
+                    stride,
+                    num_points,
+                    wp_device,
+                    wp_stream,
+                )
             else:
-                wp_points = wp.from_torch(query_points.contiguous(), dtype=wp.vec3f)
-                wp_grid = wp.from_torch(context_grid.contiguous())
-                wp_out = wp.from_torch(output, return_ctype=True)
-                origin = wp.vec3f(
-                    float(start_vals[0]), float(start_vals[1]), float(start_vals[2])
+                _launch_3d(
+                    query_points,
+                    context_grid,
+                    output,
+                    start_vals,
+                    dx_vals,
+                    padded_sizes,
+                    center_offset,
+                    interp_id,
+                    stride,
+                    num_points,
+                    wp_device,
+                    wp_stream,
                 )
-                spacing = wp.vec3f(
-                    float(dx_vals[0]), float(dx_vals[1]), float(dx_vals[2])
-                )
-                size = wp.vec3i(
-                    int(padded_sizes[0]),
-                    int(padded_sizes[1]),
-                    int(padded_sizes[2]),
-                )
-                if stride == 1:
-                    wp.launch(
-                        _interp_3d_stride1,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            origin,
-                            spacing,
-                            size,
-                            float(center_offset),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
-                elif stride == 2:
-                    wp.launch(
-                        _interp_3d_stride2,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            origin,
-                            spacing,
-                            size,
-                            int(interp_id),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
-                else:
-                    wp.launch(
-                        _interp_3d_stride5,
-                        dim=num_points,
-                        inputs=[
-                            wp_points,
-                            wp_grid,
-                            wp_out,
-                            origin,
-                            spacing,
-                            size,
-                            float(center_offset),
-                        ],
-                        device=wp_device,
-                        stream=wp_stream,
-                    )
 
+        # Cast outputs back to the input grid dtype for API consistency.
         if input_dtype != torch.float32:
             output = output.to(input_dtype)
         return output
 
+    # Register fake tensor propagation for torch compile/fake mode.
     @interpolation_impl.register_fake
     def _(
         query_points: torch.Tensor,
@@ -701,7 +806,8 @@ if WARP_AVAILABLE:
             dtype=context_grid.dtype,
         )
 
-    def interpolation(
+    # Public warp entry point used by the interpolation FunctionSpec.
+    def interpolation_warp(
         query_points: torch.Tensor,
         context_grid: torch.Tensor,
         grid: List[Tuple[float, float, int]],
@@ -725,8 +831,9 @@ if WARP_AVAILABLE:
             mem_speed_trade,
         )
 else:
+    # Define a clear failure path when warp is unavailable.
 
-    def interpolation(
+    def interpolation_warp(
         query_points: torch.Tensor,
         context_grid: torch.Tensor,
         grid: List[Tuple[float, float, int]],

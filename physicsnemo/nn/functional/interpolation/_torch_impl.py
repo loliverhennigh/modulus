@@ -398,7 +398,7 @@ def _grid_knn_idx(
 
 # TODO currently the `tolist` operation is not supported by torch script and when fixed torch script will be used
 # @torch.compile
-def _interpolation_impl(
+def interpolation_torch(
     query_points: Tensor,
     context_grid: Tensor,
     grid: List[Tuple[float, float, int]],
@@ -512,19 +512,3 @@ def _interpolation_impl(
     interpolated_points = product.sum(dim=2)
 
     return interpolated_points[0]
-
-
-def interpolation(
-    query_points: Tensor,
-    context_grid: Tensor,
-    grid: List[Tuple[float, float, int]],
-    interpolation_type: str = "smooth_step_2",
-    mem_speed_trade: bool = True,
-) -> Tensor:
-    return _interpolation_impl(
-        query_points,
-        context_grid,
-        grid,
-        interpolation_type=interpolation_type,
-        mem_speed_trade=mem_speed_trade,
-    )

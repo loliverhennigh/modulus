@@ -72,9 +72,7 @@ class WeightFactLinear(nn.Module):
     def reset_parameters(self) -> None:
         """Factorize weights and reset bias"""
         nn.init.xavier_uniform_(self.weight)
-        g, v = weight_fact(
-            self.weight.detach(), mean=self.mean, stddev=self.stddev
-        )
+        g, v = weight_fact(self.weight.detach(), mean=self.mean, stddev=self.stddev)
         self.g = nn.Parameter(g)
         self.v = nn.Parameter(v)
         self.weight = None  # remove the weight parameter

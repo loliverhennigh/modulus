@@ -317,8 +317,7 @@ class SignedDistanceField(FunctionSpec):
             box_min = bbox_min - padding
             box_max = bbox_max + padding
             input_points = (
-                torch.rand(num_points, 3, device=device) * (box_max - box_min)
-                + box_min
+                torch.rand(num_points, 3, device=device) * (box_max - box_min) + box_min
             )
 
             num_triangles = int(mesh.cells.shape[0])

@@ -21,6 +21,6 @@ Specialized Layers
    :members:
    :show-inheritance:
 
-.. automodule:: physicsnemo.nn.module.healpix
+.. automodule:: physicsnemo.nn.module.hpx
    :members:
    :show-inheritance:

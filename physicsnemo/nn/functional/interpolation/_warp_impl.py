@@ -833,8 +833,7 @@ if WARP_AVAILABLE:
 
         # Rebuild grid metadata and interpolation mode for the torch reference call.
         grid = [
-            (float(g[0]), float(g[1]), int(g[2]))
-            for g in grid_meta.to("cpu").tolist()
+            (float(g[0]), float(g[1]), int(g[2])) for g in grid_meta.to("cpu").tolist()
         ]
         interpolation_type = _INTERP_ID_TO_NAME[ctx.interp_id]
 

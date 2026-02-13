@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -25,6 +25,15 @@ from .module.activations import (
     Stan,
     get_activation,
 )
+from .module.afno_layers import (
+    AFNO2DLayer,
+    AFNOMlp,
+    AFNOPatchEmbed,
+    ModAFNO2DLayer,
+    ModAFNOMlp,
+    PatchEmbed,  # Alias for backward compatibility
+    ScaleShiftMlp,
+)
 from .module.attention_layers import (
     AttentionOp,
     EarthAttention2D,
@@ -42,7 +51,13 @@ from .module.conv_layers import (
     TransposeConvLayer,
 )
 from .module.dgm_layers import DGMLayer
-from .module.embedding_layers import FourierEmbedding, PositionalEmbedding
+from .module.drop import DropPath
+from .module.embedding_layers import (
+    FourierEmbedding,
+    OneHotEmbedding,
+    PositionalEmbedding,
+    SinusoidalTimestepEmbedding,
+)
 from .module.fourier_layers import (
     FourierFilter,
     FourierLayer,
@@ -60,13 +75,16 @@ from .module.fully_connected_layers import (
     Linear,
 )
 from .module.group_norm import GroupNorm, get_group_norm
-from .module.healpix import (
+from .module.gumbel_softmax import GumbelSoftmax, gumbel_softmax
+from .module.hpx import (
     HEALPixAvgPool,
     HEALPixFoldFaces,
     HEALPixLayer,
     HEALPixMaxPool,
     HEALPixPadding,
     HEALPixPaddingv2,
+    HEALPixPatchDetokenizer,
+    HEALPixPatchTokenizer,
     HEALPixUnfoldFaces,
 )
 from .module.kan_layers import KolmogorovArnoldNetwork

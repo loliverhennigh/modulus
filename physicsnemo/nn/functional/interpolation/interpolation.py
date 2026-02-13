@@ -43,9 +43,15 @@ class Interpolation(FunctionSpec):
     implementation : {"warp", "torch"} or None
         Implementation to use. When ``None``, dispatch selects the available
         implementation.
+
+    Notes
+    -----
+    TODO: ``torch`` is the default dispatch implementation for now. The
+    Warp implementation will be promoted to the default after additional
+    validation and testing.
     """
 
-    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=0)
+    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=1)
     def warp_forward(
         query_points: Tensor,
         context_grid: Tensor,
@@ -61,7 +67,7 @@ class Interpolation(FunctionSpec):
             mem_speed_trade=mem_speed_trade,
         )
 
-    @FunctionSpec.register(name="torch", rank=1, baseline=True)
+    @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
         query_points: Tensor,
         context_grid: Tensor,

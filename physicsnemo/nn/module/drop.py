@@ -16,7 +16,7 @@
 
 from torch import nn
 
-from physicsnemo.nn.functional import drop_path as functional_drop_path
+from physicsnemo.nn.functional import drop_path
 
 
 class DropPath(nn.Module):
@@ -30,9 +30,7 @@ class DropPath(nn.Module):
         self.scale_by_keep = scale_by_keep
 
     def forward(self, x):
-        return functional_drop_path(
-            x, self.drop_prob, self.training, self.scale_by_keep
-        )
+        return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
 
     def extra_repr(self):
         return f"drop_prob={round(self.drop_prob, 3):0.3f}"

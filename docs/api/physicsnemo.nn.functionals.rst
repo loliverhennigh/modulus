@@ -21,4 +21,5 @@ in the documentation for performance comparisons.
    nn/functionals/neighbors
    nn/functionals/geometry
    nn/functionals/fourier_spectral
+   nn/functionals/regularization_parameterization
    nn/functionals/resampling_interpolation

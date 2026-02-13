@@ -41,6 +41,9 @@ _INTERP_NAME_TO_ID = {
     "gaussian": _INTERP_GAUSSIAN,
 }
 
+# Map interpolation ids back to their string names for autograd parity.
+_INTERP_ID_TO_NAME = {v: k for k, v in _INTERP_NAME_TO_ID.items()}
+
 # Map interpolation ids to their neighborhood stride.
 _INTERP_ID_TO_STRIDE = {
     _INTERP_NEAREST: 1,
@@ -603,7 +606,9 @@ if WARP_AVAILABLE:
         wp_points = wp.from_torch(query_points.contiguous(), dtype=wp.vec3f)
         wp_grid = wp.from_torch(context_grid.contiguous())
         wp_out = wp.from_torch(output, return_ctype=True)
-        origin = wp.vec3f(float(start_vals[0]), float(start_vals[1]), float(start_vals[2]))
+        origin = wp.vec3f(
+            float(start_vals[0]), float(start_vals[1]), float(start_vals[2])
+        )
         spacing = wp.vec3f(float(dx_vals[0]), float(dx_vals[1]), float(dx_vals[2]))
         size = wp.vec3i(
             int(padded_sizes[0]),
@@ -805,6 +810,57 @@ if WARP_AVAILABLE:
             device=query_points.device,
             dtype=context_grid.dtype,
         )
+
+    # Setup tensors and metadata required for custom-op backward.
+    def setup_interpolation_context(
+        ctx: torch.autograd.function.FunctionCtx, inputs: tuple, output: torch.Tensor
+    ) -> None:
+        query_points, context_grid, grid_meta, interp_id, mem_speed_trade = inputs
+        ctx.save_for_backward(query_points, context_grid, grid_meta)
+        ctx.interp_id = int(interp_id)
+        ctx.mem_speed_trade = bool(mem_speed_trade)
+
+    # Backward is computed with the torch implementation to keep gradient parity.
+    def backward_interpolation(
+        ctx: torch.autograd.function.FunctionCtx,
+        grad_output: torch.Tensor,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, None, None, None]:
+        from ._torch_impl import interpolation_torch
+
+        query_points, context_grid, grid_meta = ctx.saved_tensors
+        if grad_output is None:
+            return None, None, None, None, None
+
+        # Rebuild grid metadata and interpolation mode for the torch reference call.
+        grid = [
+            (float(g[0]), float(g[1]), int(g[2]))
+            for g in grid_meta.to("cpu").tolist()
+        ]
+        interpolation_type = _INTERP_ID_TO_NAME[ctx.interp_id]
+
+        # Re-run forward with autograd-enabled tensors, then differentiate.
+        query_points_ref = query_points.detach().requires_grad_(ctx.needs_input_grad[0])
+        context_grid_ref = context_grid.detach().requires_grad_(ctx.needs_input_grad[1])
+        with torch.enable_grad():
+            output_ref = interpolation_torch(
+                query_points_ref,
+                context_grid_ref,
+                grid,
+                interpolation_type=interpolation_type,
+                mem_speed_trade=ctx.mem_speed_trade,
+            )
+        grad_query, grad_grid = torch.autograd.grad(
+            output_ref,
+            (query_points_ref, context_grid_ref),
+            grad_outputs=grad_output,
+            allow_unused=True,
+        )
+        return grad_query, grad_grid, None, None, None
+
+    # Register custom-op backward.
+    interpolation_impl.register_autograd(
+        backward_interpolation, setup_context=setup_interpolation_context
+    )
 
     # Public warp entry point used by the interpolation FunctionSpec.
     def interpolation_warp(

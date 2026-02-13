@@ -17,15 +17,6 @@
 # Make physicsnemo.nn.Module an available import like torch.nn.Module
 from physicsnemo.core import Module
 
-from .healpix import (
-    HEALPixAvgPool,
-    HEALPixFoldFaces,
-    HEALPixLayer,
-    HEALPixMaxPool,
-    HEALPixPadding,
-    HEALPixPaddingv2,
-    HEALPixUnfoldFaces,
-)
 from .module.activations import (
     CappedGELU,
     CappedLeakyReLU,
@@ -69,6 +60,15 @@ from .module.fully_connected_layers import (
     Linear,
 )
 from .module.group_norm import GroupNorm, get_group_norm
+from .module.healpix import (
+    HEALPixAvgPool,
+    HEALPixFoldFaces,
+    HEALPixLayer,
+    HEALPixMaxPool,
+    HEALPixPadding,
+    HEALPixPaddingv2,
+    HEALPixUnfoldFaces,
+)
 from .module.kan_layers import KolmogorovArnoldNetwork
 from .module.mlp_layers import Mlp
 from .module.resample_layers import (

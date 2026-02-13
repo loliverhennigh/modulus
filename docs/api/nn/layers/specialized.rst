@@ -20,3 +20,7 @@ Specialized Layers
 .. automodule:: physicsnemo.nn.module.weight_fact
    :members:
    :show-inheritance:
+
+.. automodule:: physicsnemo.nn.module.healpix
+   :members:
+   :show-inheritance:

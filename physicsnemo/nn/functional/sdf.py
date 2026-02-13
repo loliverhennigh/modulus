@@ -229,7 +229,49 @@ else:
 
 
 class SignedDistanceField(FunctionSpec):
-    """Compute signed distance to a mesh with a Warp-backed implementation."""
+    """Compute the signed distance field (SDF) for a mesh and query points.
+
+    The mesh must be a surface mesh consisting of triangles. This functional
+    uses a Warp-backed implementation for accelerated execution.
+
+    Parameters
+    ----------
+    mesh_vertices : torch.Tensor
+        Coordinates of mesh vertices with shape ``(n_vertices, 3)``.
+    mesh_indices : torch.Tensor
+        Triangle connectivity indexing into ``mesh_vertices``. Expected shape is
+        ``(n_faces, 3)`` or a flattened equivalent.
+    input_points : torch.Tensor
+        Query points at which to evaluate the signed distance, with shape
+        ``(..., 3)``.
+    max_dist : float, optional
+        Maximum search distance for closest-point queries. Default is ``1e8``.
+    use_sign_winding_number : bool, optional
+        Whether to use winding-number-based sign computation. Default is
+        ``False``. When ``False``, the mesh should be watertight for reliable
+        signs.
+    implementation : str, optional
+        Explicit implementation name. Defaults to ``None``, which uses normal
+        dispatch (currently the Warp implementation).
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        A tuple ``(sdf, hit_points)`` where:
+        - ``sdf`` contains signed distances at each query point.
+        - ``hit_points`` contains the closest point on the mesh for each query.
+
+    Examples
+    --------
+    >>> mesh_vertices = torch.tensor(
+    ...     [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
+    ... )
+    >>> mesh_indices = torch.tensor([(0, 1, 2)])
+    >>> input_points = torch.tensor([(0.5, 0.5, 0.5)])
+    >>> sdf, hit_points = signed_distance_field(
+    ...     mesh_vertices, mesh_indices, input_points
+    ... )
+    """
 
     @FunctionSpec.register(
         name="warp", required_imports=("warp>=0.6.0",), rank=0, baseline=True
@@ -252,21 +294,34 @@ class SignedDistanceField(FunctionSpec):
     @classmethod
     def make_inputs(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
-        mesh_vertices = torch.tensor(
-            [
-                (-0.5, -0.5, -0.5),
-                (0.5, -0.5, -0.5),
-                (0.5, 0.5, -0.5),
-                (-0.5, 0.5, -0.5),
-                (-0.5, -0.5, 0.5),
-                (0.5, -0.5, 0.5),
-                (0.5, 0.5, 0.5),
-                (-0.5, 0.5, 0.5),
-            ],
-            dtype=torch.float32,
-            device=device,
+        # Build a dense grid of cubes in a 10x10x10 box for a larger benchmark mesh.
+        cubes_per_axis = 10
+        cube_size = 1.0
+        box_min = -5.0
+        origins_1d = box_min + torch.arange(cubes_per_axis, device=device) * cube_size
+        ox, oy, oz = torch.meshgrid(origins_1d, origins_1d, origins_1d, indexing="ij")
+        cube_origins = torch.stack((ox, oy, oz), dim=-1).reshape(-1, 3)
+        num_cubes = cube_origins.shape[0]
+
+        # Local cube vertices and triangle topology.
+        base_vertices = (
+            torch.tensor(
+                [
+                    (0.0, 0.0, 0.0),
+                    (1.0, 0.0, 0.0),
+                    (1.0, 1.0, 0.0),
+                    (0.0, 1.0, 0.0),
+                    (0.0, 0.0, 1.0),
+                    (1.0, 0.0, 1.0),
+                    (1.0, 1.0, 1.0),
+                    (0.0, 1.0, 1.0),
+                ],
+                dtype=torch.float32,
+                device=device,
+            )
+            * cube_size
         )
-        mesh_indices = torch.tensor(
+        base_triangles = torch.tensor(
             [
                 (0, 1, 2),
                 (0, 2, 3),
@@ -283,18 +338,34 @@ class SignedDistanceField(FunctionSpec):
             ],
             dtype=torch.int32,
             device=device,
-        ).reshape(-1)
+        )
+
+        # Expand local cube geometry across all cube origins.
+        mesh_vertices = (cube_origins[:, None, :] + base_vertices[None, :, :]).reshape(
+            -1, 3
+        )
+        vertex_offsets = (
+            torch.arange(num_cubes, device=device, dtype=torch.int32) * 8
+        ).view(-1, 1, 1)
+        mesh_indices = (base_triangles[None, :, :] + vertex_offsets).reshape(-1)
+        num_triangles = int(base_triangles.shape[0] * num_cubes)
+
+        # Sample query points around the cube volume.
+        query_extent = (cubes_per_axis * cube_size) / 2.0 + 1.0
         cases = [
             ("small", 4096),
             ("medium", 16384),
             ("large", 65536),
         ]
         for label, num_points in cases:
-            input_points = torch.rand(num_points, 3, device=device) * 2.0 - 1.0
+            input_points = (
+                torch.rand(num_points, 3, device=device) * (2.0 * query_extent)
+                - query_extent
+            )
             yield (
-                f"{label}-cube-query-points{num_points}",
+                f"{label}-cubes{num_cubes}-tris{num_triangles}-query-points{num_points}",
                 (mesh_vertices, mesh_indices, input_points),
-                {"max_dist": 2.0, "use_sign_winding_number": False},
+                {"max_dist": 10.0, "use_sign_winding_number": False},
             )
 
     @classmethod

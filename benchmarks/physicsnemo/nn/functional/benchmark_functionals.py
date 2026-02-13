@@ -26,6 +26,7 @@ import torch
 
 from benchmarks.physicsnemo.nn.functional.registry import FUNCTIONAL_SPECS
 
+
 def _resolve_device() -> torch.device:
     """Resolve the device to benchmark on."""
 
@@ -49,7 +50,9 @@ def _filter_specs(specs: Iterable[type]) -> list[type]:
         return list(specs)
 
     # Parse comma-separated spec names into a normalized lookup set.
-    requested = {name.strip().lower() for name in spec_filter.split(",") if name.strip()}
+    requested = {
+        name.strip().lower() for name in spec_filter.split(",") if name.strip()
+    }
     if not requested:
         return list(specs)
 
@@ -74,7 +77,6 @@ _WORK_ITEMS: dict[
 
 # Build the ASV parameter triples: (spec_name, implementation_name, case_index).
 for spec in _SELECTED_SPECS:
-
     # Skip specs that currently have no dispatchable implementations.
     implementations = spec.available_implementations()
     if not implementations:
@@ -119,7 +121,9 @@ class FunctionalBenchmarks:
 
     def time_functional(self, spec_impl_case: tuple[str, str, int]) -> None:
         # Dispatch to the selected implementation for the selected input case.
-        self.spec.dispatch(*self.args, **self.kwargs, implementation=self.implementation)
+        self.spec.dispatch(
+            *self.args, **self.kwargs, implementation=self.implementation
+        )
         # Synchronize to ensure the measured time includes kernel execution.
         if _DEVICE.type == "cuda":
             torch.cuda.synchronize()

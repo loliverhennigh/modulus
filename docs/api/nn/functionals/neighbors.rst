@@ -1,6 +1,9 @@
 Neighbor Functionals
 ====================
 
+KNN
+---
+
 .. autofunction:: physicsnemo.nn.functional.knn
 
 .. rubric:: Benchmarks (ASV)
@@ -8,6 +11,9 @@ Neighbor Functionals
 .. figure:: /nn/functional/knn/benchmark.png
    :alt: KNN benchmark comparison
    :width: 100%
+
+Radius Search
+-------------
 
 .. autofunction:: physicsnemo.nn.functional.radius_search
 

@@ -62,7 +62,9 @@ def _build_case_labels() -> dict[str, list[str]]:
     for spec in FUNCTIONAL_SPECS:
         if len(spec.available_implementations()) < 2:
             continue
-        labels[spec.__name__] = [label for label, _, _ in spec.make_inputs(device="cpu")]
+        labels[spec.__name__] = [
+            label for label, _, _ in spec.make_inputs(device="cpu")
+        ]
     return labels
 
 
@@ -85,8 +87,10 @@ def _build_params(
     params: list[tuple[str, str, int]] = []
     for spec_name, impls in spec_implementations.items():
         for impl_name in impls:
-            for case_index in range(len(case_labels[spec_name])):
-                params.append((spec_name, impl_name, case_index))
+            params.extend(
+                (spec_name, impl_name, case_index)
+                for case_index in range(len(case_labels[spec_name]))
+            )
     return params
 
 
@@ -132,13 +136,17 @@ def _entry_vectors(entry: Any) -> tuple[list[float | None], list[str]]:
         entry = entry.get("result", entry.get("results"))
 
     values = entry[0]
-    labels = entry[1] if len(entry) > 1 else [str(param) for param in _PARAMS[: len(values)]]
+    labels = (
+        entry[1] if len(entry) > 1 else [str(param) for param in _PARAMS[: len(values)]]
+    )
     if labels and isinstance(labels[0], list):
         labels = labels[0]
     return values, labels
 
 
-def _plot_benchmarks(values: list[float | None], labels: list[str], output_root: Path) -> None:
+def _plot_benchmarks(
+    values: list[float | None], labels: list[str], output_root: Path
+) -> None:
     # Import plotting dependency only for plotting.
     import matplotlib.pyplot as plt
 
@@ -148,6 +156,8 @@ def _plot_benchmarks(values: list[float | None], labels: list[str], output_root:
         if value is None:
             continue
         spec_name, impl_name, case_index = ast.literal_eval(label)
+        if spec_name not in _SPEC_CASE_LABELS:
+            continue
         case_label = _SPEC_CASE_LABELS[spec_name][case_index]
         data.setdefault(spec_name, {}).setdefault(case_label, {})[impl_name] = value
 
@@ -157,7 +167,9 @@ def _plot_benchmarks(values: list[float | None], labels: list[str], output_root:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Build case order and implementation order for this spec.
-        case_labels = [label for label in _SPEC_CASE_LABELS[spec_name] if label in case_map]
+        case_labels = [
+            label for label in _SPEC_CASE_LABELS[spec_name] if label in case_map
+        ]
         impl_names = sorted(
             {impl for impl_map in case_map.values() for impl in impl_map},
             key=lambda name: (_IMPL_ORDER.index(name) if name in _IMPL_ORDER else 99),
@@ -175,7 +187,9 @@ def _plot_benchmarks(values: list[float | None], labels: list[str], output_root:
         x_positions = list(range(len(case_labels)))
         for idx, impl_name in enumerate(impl_names):
             offsets = [x + idx * bar_width for x in x_positions]
-            y_values = [case_map[label].get(impl_name, float("nan")) for label in case_labels]
+            y_values = [
+                case_map[label].get(impl_name, float("nan")) for label in case_labels
+            ]
             ax.bar(
                 offsets,
                 y_values,
@@ -185,7 +199,9 @@ def _plot_benchmarks(values: list[float | None], labels: list[str], output_root:
             )
 
         # Configure axes and legend.
-        tick_positions = [x + bar_width * (len(impl_names) - 1) / 2 for x in x_positions]
+        tick_positions = [
+            x + bar_width * (len(impl_names) - 1) / 2 for x in x_positions
+        ]
         ax.set_xticks(tick_positions)
         ax.set_xticklabels(case_labels, rotation=20, ha="right")
         ax.set_ylabel("Time (s)")
@@ -195,7 +211,9 @@ def _plot_benchmarks(values: list[float | None], labels: list[str], output_root:
         ax.spines["right"].set_visible(False)
         ax.tick_params(axis="x", colors="#111111")
         ax.tick_params(axis="y", colors="#111111")
-        ax.legend(frameon=False, fontsize="small", loc="upper left", bbox_to_anchor=(1.02, 1))
+        ax.legend(
+            frameon=False, fontsize="small", loc="upper left", bbox_to_anchor=(1.02, 1)
+        )
 
         # Save figure to docs image path.
         fig.tight_layout()

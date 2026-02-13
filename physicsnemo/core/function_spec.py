@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
 import re
 import warnings
 from dataclasses import dataclass
@@ -355,6 +356,17 @@ class FunctionSpec:
         # Define the function
         def _function(*args, **kwargs):
             return cls.dispatch(*args, **kwargs)
+
+        # Resolve a representative implementation signature for docs/introspection.
+        # Prefer the lowest-rank registered implementation to reflect default dispatch.
+        impls = cls._get_impls()
+        if impls:
+            preferred_impl = min(impls.values(), key=lambda impl: impl.rank)
+            _function.__signature__ = inspect.signature(preferred_impl.func)
+            _function.__annotations__ = dict(
+                getattr(preferred_impl.func, "__annotations__", {})
+            )
+            _function.__wrapped__ = preferred_impl.func
 
         # Set the function attributes
         # This keeps things like docstrings for API documentation.

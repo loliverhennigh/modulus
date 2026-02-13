@@ -22,8 +22,6 @@ import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
 
-# Warp is a required dependency in v2.0+.
-
 # Define interpolation identifiers used by both Python and Warp kernels.
 _INTERP_NEAREST = 0
 _INTERP_LINEAR = 1

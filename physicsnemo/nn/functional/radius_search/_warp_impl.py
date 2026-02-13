@@ -42,8 +42,6 @@ from .kernels import (
 )
 from .utils import format_returns
 
-# Warp is a required dependency in v2.0+.
-
 wp.config.quiet = True
 
 wp.init()

@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import physicsnemo  # noqa: F401 for docs
-from physicsnemo.nn.functional import weight_fact as functional_weight_fact
+from physicsnemo.nn.functional import weight_fact
 
 Tensor = torch.Tensor
 
@@ -72,7 +72,7 @@ class WeightFactLinear(nn.Module):
     def reset_parameters(self) -> None:
         """Factorize weights and reset bias"""
         nn.init.xavier_uniform_(self.weight)
-        g, v = functional_weight_fact(
+        g, v = weight_fact(
             self.weight.detach(), mean=self.mean, stddev=self.stddev
         )
         self.g = nn.Parameter(g)

@@ -51,7 +51,7 @@ from .fully_connected_layers import (
     FCLayer,
 )
 from .group_norm import GroupNorm, get_group_norm
-from .healpix import (
+from .hpx import (
     HEALPixAvgPool,
     HEALPixFoldFaces,
     HEALPixLayer,

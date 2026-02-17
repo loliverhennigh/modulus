@@ -110,7 +110,7 @@ def test_pangu_constructor(device):
     torch.cuda.empty_cache()
 
 
-def test_pangu_checkpoint(device):
+def test_pangu_checkpoint(device, tmp_path):
     """Test Pangu checkpoint save/load."""
     model_kwds = {
         "img_size": (32, 32),
@@ -128,8 +128,34 @@ def test_pangu_checkpoint(device):
     invar_surface_mask = torch.randn(3, 32, 32).to(device)
     invar_upper_air = torch.randn(bsize, 5, 13, 32, 32).to(device)
     invar = model_1.prepare_input(invar_surface, invar_surface_mask, invar_upper_air)
-    assert common.validate_checkpoint(model_1, model_2, (invar,))
-    del model_1, model_2, invar
+
+    # Checkpoint roundtrip checks are run in eval mode to avoid stochastic-depth
+    # randomness in this architecture.
+    with torch.no_grad():
+        out_model_1 = model_1(invar)
+        out_model_2 = model_2(invar)
+    assert not common.compare_output(out_model_1, out_model_2, rtol=1e-5, atol=1e-5)
+
+    checkpoint_path = tmp_path / "pangu_checkpoint_roundtrip.mdlus"
+    model_1.save(str(checkpoint_path))
+
+    # Validate explicit load on an existing model instance.
+    model_2.load(str(checkpoint_path))
+    model_2.eval()
+    with torch.no_grad():
+        out_loaded = model_2(invar)
+    assert common.compare_output(out_model_1, out_loaded, rtol=1e-5, atol=1e-5)
+
+    # Validate class reconstruction via Module.from_checkpoint.
+    from_checkpoint = physicsnemo.Module.from_checkpoint(str(checkpoint_path)).to(
+        device
+    )
+    from_checkpoint.eval()
+    with torch.no_grad():
+        out_from_checkpoint = from_checkpoint(invar)
+    assert common.compare_output(out_model_1, out_from_checkpoint, rtol=1e-5, atol=1e-5)
+
+    del model_1, model_2, from_checkpoint, invar
     torch.cuda.empty_cache()
 
 

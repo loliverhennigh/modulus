@@ -18,6 +18,7 @@ import random
 
 import torch
 
+import physicsnemo
 from physicsnemo.models.fengwu import Fengwu
 from test import common
 
@@ -80,6 +81,12 @@ def test_fengwu_constructor(device):
         # Construct FC model
         model = Fengwu(**kw_args).to(device)
         model.eval()
+        assert model.img_size == kw_args["img_size"]
+        assert model.patch_size == kw_args["patch_size"]
+        assert model.pressure_level == kw_args["pressure_level"]
+        assert model.embed_dim == kw_args["embed_dim"]
+        assert model.surface_channels == 4
+        assert model.in_channels == 4 + 5 * kw_args["pressure_level"]
 
         bsize = random.randint(1, 5)
         invar_surface = torch.randn(
@@ -156,6 +163,75 @@ def test_fengwu_constructor(device):
             kw_args["img_size"][1],
         )
     del model, invar
+    torch.cuda.empty_cache()
+
+
+def test_fengwu_checkpoint(device):
+    """Test Fengwu checkpoint save/load."""
+    model_kwds = {
+        "img_size": (32, 32),
+        "pressure_level": 8,
+        "embed_dim": 96,
+        "patch_size": (4, 4),
+        "num_heads": (6, 12, 12, 6),
+        "window_size": (2, 6, 12),
+    }
+
+    model_1 = Fengwu(**model_kwds).to(device).eval()
+    model_2 = Fengwu(**model_kwds).to(device).eval()
+
+    bsize = random.randint(1, 2)
+    invar_surface = torch.randn(bsize, 4, 32, 32).to(device)
+    invar_z = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_r = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_u = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_v = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_t = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar = model_1.prepare_input(
+        invar_surface, invar_z, invar_r, invar_u, invar_v, invar_t
+    )
+
+    assert common.validate_checkpoint(model_1, model_2, (invar,))
+    del model_1, model_2, invar
+    torch.cuda.empty_cache()
+
+
+def test_fengwu_load_checkpoint(device, tmp_path):
+    """Test Fengwu loading from a saved checkpoint path."""
+    model_kwds = {
+        "img_size": (32, 32),
+        "pressure_level": 8,
+        "embed_dim": 96,
+        "patch_size": (4, 4),
+        "num_heads": (6, 12, 12, 6),
+        "window_size": (2, 6, 12),
+    }
+    model = Fengwu(**model_kwds).to(device).eval()
+    checkpoint_path = tmp_path / "fengwu_checkpoint.mdlus"
+    model.save(str(checkpoint_path))
+
+    loaded = physicsnemo.Module.from_checkpoint(str(checkpoint_path)).to(device).eval()
+    assert loaded.img_size == model_kwds["img_size"]
+    assert loaded.patch_size == model_kwds["patch_size"]
+    assert loaded.pressure_level == model_kwds["pressure_level"]
+    assert loaded.embed_dim == model_kwds["embed_dim"]
+
+    bsize = 2
+    invar_surface = torch.randn(bsize, 4, 32, 32).to(device)
+    invar_z = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_r = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_u = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_v = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar_t = torch.randn(bsize, model_kwds["pressure_level"], 32, 32).to(device)
+    invar = loaded.prepare_input(
+        invar_surface, invar_z, invar_r, invar_u, invar_v, invar_t
+    )
+
+    with torch.no_grad():
+        out_model = model(invar)
+        out_loaded = loaded(invar)
+    assert common.compare_output(out_model, out_loaded, rtol=1e-5, atol=1e-5)
+    del model, loaded, invar
     torch.cuda.empty_cache()
 
 

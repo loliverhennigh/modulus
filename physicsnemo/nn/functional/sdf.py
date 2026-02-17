@@ -123,7 +123,19 @@ def signed_distance_field_impl(
     """
 
     if input_points.shape[-1] != 3:
-        raise ValueError("Input points must be a tensor with last dimension of size 3")
+        raise ValueError("input_points must have last dimension of size 3")
+
+    # Accept either flattened indices or face-triplet connectivity.
+    if mesh_indices.ndim == 2:
+        if mesh_indices.shape[-1] != 3:
+            raise ValueError(
+                "mesh_indices with 2 dimensions must have shape (n_faces, 3)"
+            )
+        mesh_indices = mesh_indices.reshape(-1)
+    elif mesh_indices.ndim != 1:
+        raise ValueError(
+            "mesh_indices must be either 1D flattened indices or 2D (n_faces, 3)"
+        )
 
     input_shape = input_points.shape
 
@@ -143,7 +155,9 @@ def signed_distance_field_impl(
 
         # zero copy the vertices, indices, and input points to warp:
         wp_vertices = wp.from_torch(mesh_vertices.to(torch.float32), dtype=wp.vec3)
-        wp_indices = wp.from_torch(mesh_indices.to(torch.int32), dtype=wp.int32)
+        wp_indices = wp.from_torch(
+            mesh_indices.to(torch.int32).contiguous(), dtype=wp.int32
+        )
         wp_input_points = wp.from_torch(input_points.to(torch.float32), dtype=wp.vec3)
 
         # Convert output points:

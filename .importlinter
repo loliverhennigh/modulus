@@ -99,7 +99,7 @@ containers=
 layers = 
    generate
    samplers : metrics
-   noise_schedulers | multi_diffusion | preconditioners | denoisers
+   noise_schedulers | multi_diffusion | preconditioners | guidance
    utils
 
 [importlinter:contract:physicsnemo-external-imports]

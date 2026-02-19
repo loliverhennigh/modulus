@@ -32,6 +32,7 @@ from benchmarks.physicsnemo.nn.functional.registry import FUNCTIONAL_SPECS
 # Map each FunctionSpec to its docs output directory.
 _SPEC_OUTPUT_SLUG = {
     "DropPath": "drop_path",
+    "ElectricFieldUpdate": "electric_field_update",
     "KNN": "knn",
     "RFFT": "rfft",
     "RFFT2": "rfft2",

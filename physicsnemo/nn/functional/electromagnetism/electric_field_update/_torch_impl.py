@@ -72,6 +72,7 @@ def electric_field_update_torch(
     impressed_current_offset: torch.Tensor | Sequence[int] = (0, 0, 0),
     inplace: bool = False,
 ) -> torch.Tensor:
+    # Validate the shared API contract before computing any update terms.
     _validate_common_inputs(
         electric_field,
         magnetic_field,
@@ -81,6 +82,8 @@ def electric_field_update_torch(
         impressed_current,
         inplace,
     )
+
+    # Normalize spacing + offset metadata into canonical tensor/tuple formats.
     spacing_tensor = _as_spacing_tensor(
         spacing,
         device=electric_field.device,
@@ -96,6 +99,7 @@ def electric_field_update_torch(
         device=electric_field.device,
     )
 
+    # Compute periodic curl(H) on the Yee grid.
     hx = magnetic_field[0]
     hy = magnetic_field[1]
     hz = magnetic_field[2]
@@ -112,14 +116,17 @@ def electric_field_update_torch(
     curl_h_z = (hy - m_y_0_1_1) - (hx - m_x_1_0_1)
     curl_h = torch.stack((curl_h_x, curl_h_y, curl_h_z), dim=0)
 
+    # Evaluate either the no-current or impressed-current update expression.
     if impressed_current is None:
         updated = c_ee * electric_field + c_eh * curl_h
     else:
         j_imp = _impressed_current_full(electric_field, impressed_current, offset)
         updated = c_ee * electric_field + c_eh * curl_h + c_ej * j_imp
 
+    # Respect in-place mode by writing back into the input electric field tensor.
     if inplace:
         electric_field.copy_(updated)
         return electric_field
 
+    # Out-of-place mode returns the newly computed field tensor.
     return updated

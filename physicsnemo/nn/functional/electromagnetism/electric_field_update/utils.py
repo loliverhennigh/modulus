@@ -69,6 +69,7 @@ def _validate_common_inputs(
     impressed_current: torch.Tensor | None,
     inplace: bool,
 ) -> None:
+    # Validate core electric/magnetic tensor dtypes and shapes.
     if electric_field.dtype != torch.float32:
         raise TypeError("electric_field must be float32")
     if magnetic_field.dtype != torch.float32:
@@ -84,6 +85,7 @@ def _validate_common_inputs(
     if electric_field.device != magnetic_field.device:
         raise ValueError("electric_field and magnetic_field must be on the same device")
 
+    # Validate material inputs against scalar-or-field conventions.
     spatial_shape = tuple(electric_field.shape[1:])
     for material, name in ((eps, "eps"), (sigma_e, "sigma_e")):
         if isinstance(material, (int, float)):
@@ -109,12 +111,16 @@ def _validate_common_inputs(
         else:
             raise ValueError(f"{name} must have shape (nx, ny, nz) or (1, nx, ny, nz)")
 
+    # Validate spacing placement and explicitly disallow spacing gradients.
     if isinstance(spacing, torch.Tensor):
         if spacing.device != electric_field.device:
-            raise ValueError("spacing tensor must be on the same device as electric_field")
+            raise ValueError(
+                "spacing tensor must be on the same device as electric_field"
+            )
         if spacing.requires_grad:
             raise ValueError("spacing gradients are not supported")
 
+    # Validate impressed current tensor layout when present.
     if impressed_current is not None:
         if impressed_current.dtype != torch.float32:
             raise TypeError("impressed_current must be float32")
@@ -125,6 +131,7 @@ def _validate_common_inputs(
                 "impressed_current must be on the same device as electric_field"
             )
 
+    # In-place mode is only supported for non-differentiable inputs.
     if inplace:
         needs_grad = [
             electric_field.requires_grad,
@@ -178,6 +185,7 @@ def _material_coefficients(
     device: torch.device,
     expand_scalar_to_spatial: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    # Track whether each material input is scalar or spatial tensor-valued.
     eps_is_scalar = isinstance(eps, (int, float))
     sigma_is_scalar = isinstance(sigma_e, (int, float))
 
@@ -188,6 +196,7 @@ def _material_coefficients(
     sigma_y: torch.Tensor | float
     sigma_z: torch.Tensor | float
 
+    # Build Yee-centered eps components from either scalar or spatial input.
     if eps_is_scalar:
         eps_x = float(eps)
         eps_y = float(eps)
@@ -205,6 +214,7 @@ def _material_coefficients(
         eps_y = (eps_1_1_1 + eps_1_1_0 + eps_0_1_1 + eps_0_1_0) * 0.25
         eps_z = (eps_1_1_1 + eps_1_0_1 + eps_0_1_1 + eps_0_0_1) * 0.25
 
+    # Build Yee-centered sigma components from either scalar or spatial input.
     if sigma_is_scalar:
         sigma_x = float(sigma_e)
         sigma_y = float(sigma_e)
@@ -224,6 +234,7 @@ def _material_coefficients(
         sigma_y = (sigma_1_1_1 + sigma_1_1_0 + sigma_0_1_1 + sigma_0_1_0) * 0.25
         sigma_z = (sigma_1_1_1 + sigma_1_0_1 + sigma_0_1_1 + sigma_0_0_1) * 0.25
 
+    # Normalize to tensor form for unified coefficient math downstream.
     if eps_is_scalar and sigma_is_scalar:
         eps_tensor = torch.tensor(
             [eps_x, eps_y, eps_z],  # type: ignore[list-item]
@@ -237,16 +248,22 @@ def _material_coefficients(
         ).view(3, 1, 1, 1)
     else:
         if eps_is_scalar:
-            assert isinstance(sigma_x, torch.Tensor)
-            assert isinstance(sigma_y, torch.Tensor)
-            assert isinstance(sigma_z, torch.Tensor)
+            if not isinstance(sigma_x, torch.Tensor):
+                raise TypeError("internal error: sigma_x must be tensor")
+            if not isinstance(sigma_y, torch.Tensor):
+                raise TypeError("internal error: sigma_y must be tensor")
+            if not isinstance(sigma_z, torch.Tensor):
+                raise TypeError("internal error: sigma_z must be tensor")
             eps_x = torch.full_like(sigma_x, float(eps_x))
             eps_y = torch.full_like(sigma_y, float(eps_y))
             eps_z = torch.full_like(sigma_z, float(eps_z))
         if sigma_is_scalar:
-            assert isinstance(eps_x, torch.Tensor)
-            assert isinstance(eps_y, torch.Tensor)
-            assert isinstance(eps_z, torch.Tensor)
+            if not isinstance(eps_x, torch.Tensor):
+                raise TypeError("internal error: eps_x must be tensor")
+            if not isinstance(eps_y, torch.Tensor):
+                raise TypeError("internal error: eps_y must be tensor")
+            if not isinstance(eps_z, torch.Tensor):
+                raise TypeError("internal error: eps_z must be tensor")
             sigma_x = torch.full_like(eps_x, float(sigma_x))
             sigma_y = torch.full_like(eps_y, float(sigma_y))
             sigma_z = torch.full_like(eps_z, float(sigma_z))
@@ -254,6 +271,7 @@ def _material_coefficients(
         eps_tensor = torch.stack((eps_x, eps_y, eps_z), dim=0)  # type: ignore[arg-type]
         sigma_tensor = torch.stack((sigma_x, sigma_y, sigma_z), dim=0)  # type: ignore[arg-type]
 
+    # Compute FDTD coefficient tensors (c_ee, c_eh, c_ej).
     dt_tensor = torch.tensor(
         dt,
         device=eps_tensor.device,
@@ -266,6 +284,7 @@ def _material_coefficients(
     c_eh = (2.0 * dt_tensor) / (spacing_view * denom)
     c_ej = (-2.0 * dt_tensor) / denom
 
+    # Optionally expand scalar coefficients to full spatial tensors.
     if eps_is_scalar and sigma_is_scalar and expand_scalar_to_spatial:
         nx, ny, nz = spatial_shape
         c_ee = c_ee.expand(3, nx, ny, nz).contiguous()

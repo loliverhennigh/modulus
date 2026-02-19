@@ -459,9 +459,9 @@ def test_electric_field_update_inplace_matches_out_of_place(
         **kwargs_inplace,
     )
 
-    assert (
-        out_inplace.data_ptr() == electric_inplace.data_ptr()
-    ), f"in-place path did not return the input tensor for '{implementation}'"
+    assert out_inplace.data_ptr() == electric_inplace.data_ptr(), (
+        f"in-place path did not return the input tensor for '{implementation}'"
+    )
     torch.testing.assert_close(
         out_inplace,
         out_ref,
@@ -542,7 +542,14 @@ def test_electric_field_update_channel_dim_materials(
     assert isinstance(sigma_e, torch.Tensor)
 
     args_3d = args
-    args_4d = (args[0], args[1], eps.unsqueeze(0), sigma_e.unsqueeze(0), args[4], args[5])
+    args_4d = (
+        args[0],
+        args[1],
+        eps.unsqueeze(0),
+        sigma_e.unsqueeze(0),
+        args[4],
+        args[5],
+    )
 
     out_3d = ElectricFieldUpdate.dispatch(
         *args_3d,

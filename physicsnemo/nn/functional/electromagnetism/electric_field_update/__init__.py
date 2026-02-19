@@ -17,4 +17,3 @@
 from .electric_field_update import ElectricFieldUpdate, electric_field_update
 
 __all__ = ["ElectricFieldUpdate", "electric_field_update"]
-

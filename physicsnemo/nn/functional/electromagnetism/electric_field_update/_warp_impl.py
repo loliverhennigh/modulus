@@ -14,6 +14,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Warp implementation for the electric-field update functional.
+
+Kernel Summary
+==============
+
+| Kernel Name                                           | Purpose |
+|-------------------------------------------------------|---------|
+| ``_electric_field_update_kernel_scalar_scalar``       | Forward update for scalar ``eps`` and scalar ``sigma_e``. |
+| ``_electric_field_update_kernel_scalar_sigma_field``  | Forward update for scalar ``eps`` and spatial ``sigma_e`` field. |
+| ``_electric_field_update_kernel_eps_field_scalar``    | Forward update for spatial ``eps`` field and scalar ``sigma_e``. |
+| ``_electric_field_update_kernel_eps_field_sigma_field`` | Forward update for spatial ``eps`` and spatial ``sigma_e`` fields. |
+| ``_electric_field_update_backward_kernel_fields_no_current`` | Backward update for ``electric_field`` and ``magnetic_field`` grads (no impressed current). |
+| ``_electric_field_update_backward_kernel_fields_with_current`` | Backward update for ``electric_field``, ``magnetic_field``, and optional impressed-current grads. |
+| ``_electric_field_update_backward_kernel_full_no_current`` | Backward update including material-field grads (``eps``/``sigma_e``) without impressed current. |
+| ``_electric_field_update_backward_kernel_full_with_current`` | Full backward update including material-field grads and impressed-current grads. |
+"""
+
 from __future__ import annotations
 
 from typing import Sequence
@@ -714,8 +731,6 @@ def _electric_field_update_backward_kernel_fields_no_current(
         sigma_field, sigma_scalar, sigma_is_scalar, i, j, k, i_prev, j_prev, k_prev
     )
 
-    curl = _curl_h(magnetic_field, i, j, k, i_prev, j_prev, k_prev)
-
     coeff_x = _coefficients(eps_components[0], sigma_components[0], dt, spacing[0])
     coeff_y = _coefficients(eps_components[1], sigma_components[1], dt, spacing[1])
     coeff_z = _coefficients(eps_components[2], sigma_components[2], dt, spacing[2])
@@ -731,7 +746,9 @@ def _electric_field_update_backward_kernel_fields_no_current(
     fx = go_x * coeff_x[1]
     fy = go_y * coeff_y[1]
     fz = go_z * coeff_z[1]
-    _accumulate_grad_magnetic(grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz)
+    _accumulate_grad_magnetic(
+        grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz
+    )
 
 
 # Backward kernel for E/H(+optional current) gradients with impressed current.
@@ -803,7 +820,9 @@ def _electric_field_update_backward_kernel_fields_with_current(
     fx = go_x * coeff_x[1]
     fy = go_y * coeff_y[1]
     fz = go_z * coeff_z[1]
-    _accumulate_grad_magnetic(grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz)
+    _accumulate_grad_magnetic(
+        grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz
+    )
 
     if write_grad_current == 1 and current_in_bounds:
         grad_current[0, src_i, src_j, src_k] = go_x * coeff_x[2]
@@ -864,7 +883,9 @@ def _electric_field_update_backward_kernel_full_no_current(
     fx = go_x * coeff_x[1]
     fy = go_y * coeff_y[1]
     fz = go_z * coeff_z[1]
-    _accumulate_grad_magnetic(grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz)
+    _accumulate_grad_magnetic(
+        grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz
+    )
 
     if write_grad_eps == 1 or write_grad_sigma == 1:
         partial_x = _material_partials(
@@ -1001,7 +1022,9 @@ def _electric_field_update_backward_kernel_full_with_current(
     fx = go_x * coeff_x[1]
     fy = go_y * coeff_y[1]
     fz = go_z * coeff_z[1]
-    _accumulate_grad_magnetic(grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz)
+    _accumulate_grad_magnetic(
+        grad_magnetic, i, j, k, i_prev, j_prev, k_prev, fx, fy, fz
+    )
 
     if write_grad_current == 1 and current_in_bounds:
         grad_current[0, src_i, src_j, src_k] = go_x * coeff_x[2]
@@ -1059,6 +1082,7 @@ def _electric_field_update_backward_kernel_full_with_current(
                 grad_sigma, go_z * partial_z[1], i, j, k, i_prev, j_prev, k_prev
             )
 
+
 # Launch one forward warp update for the selected material mode.
 def _launch_warp_forward(
     electric_field: torch.Tensor,
@@ -1071,11 +1095,14 @@ def _launch_warp_forward(
     impressed_current_offset: tuple[int, int, int],
     output: torch.Tensor,
 ) -> None:
+    # Resolve launch geometry from the electric grid.
     nx, ny, nz = electric_field.shape[1:]
     dim = (nx, ny, nz)
 
+    # Build a warp launch context from the input tensor device/stream.
     wp_device, wp_stream = FunctionSpec.warp_launch_context(electric_field)
 
+    # Convert common tensors once; these are reused across all material branches.
     wp_electric = wp.from_torch(electric_field.contiguous())
     wp_magnetic = wp.from_torch(magnetic_field.contiguous())
     wp_current = wp.from_torch(impressed_current.contiguous())
@@ -1088,10 +1115,12 @@ def _launch_warp_forward(
     current_z = int(impressed_current.shape[3])
     dt_value = float(dt)
 
+    # Select the forward kernel variant from scalar/field material modes.
     eps_is_scalar = isinstance(eps, (int, float))
     sigma_is_scalar = isinstance(sigma_e, (int, float))
 
     with wp.ScopedStream(wp_stream):
+        # Fast path: both materials are scalars.
         if eps_is_scalar and sigma_is_scalar:
             wp.launch(
                 kernel=_electric_field_update_kernel_scalar_scalar,
@@ -1117,6 +1146,7 @@ def _launch_warp_forward(
             )
             return
 
+        # Mixed path: scalar eps + spatial sigma.
         if eps_is_scalar and not sigma_is_scalar:
             sigma_field = _normalize_material_field(
                 sigma_e,
@@ -1149,6 +1179,7 @@ def _launch_warp_forward(
             )
             return
 
+        # Mixed path: spatial eps + scalar sigma.
         if not eps_is_scalar and sigma_is_scalar:
             eps_field = _normalize_material_field(
                 eps,
@@ -1181,6 +1212,7 @@ def _launch_warp_forward(
             )
             return
 
+        # General path: both materials are spatial fields.
         eps_field = _normalize_material_field(
             eps,
             "eps",
@@ -1242,12 +1274,14 @@ def _launch_warp_backward(
     torch.Tensor | None,
     torch.Tensor | None,
 ]:
+    # Decode autograd requirements for each differentiable input.
     need_grad_electric = needs_input_grad[0]
     need_grad_magnetic = needs_input_grad[1]
     need_grad_eps = (not eps_is_scalar) and needs_input_grad[2]
     need_grad_sigma = (not sigma_is_scalar) and needs_input_grad[3]
     need_grad_current = needs_input_grad[10] and impressed_current.numel() > 0
 
+    # Exit early when autograd does not request any gradients from this op.
     if not any(
         (
             need_grad_electric,
@@ -1259,6 +1293,7 @@ def _launch_warp_backward(
     ):
         return None, None, None, None, None
 
+    # Allocate output gradient buffers (empty placeholders for disabled grads).
     device = electric_field.device
     spatial_shape = tuple(electric_field.shape[1:])
     dim = spatial_shape
@@ -1284,6 +1319,7 @@ def _launch_warp_backward(
         else empty4
     )
 
+    # Build the warp launch context and normalize offset metadata.
     wp_device, wp_stream = FunctionSpec.warp_launch_context(electric_field)
 
     offset_x, offset_y, offset_z = tuple(
@@ -1292,6 +1328,7 @@ def _launch_warp_backward(
     use_current_input = int(impressed_current.numel() > 0)
     has_material_grads = need_grad_eps or need_grad_sigma
 
+    # Convert all candidate tensors once; specialized kernels reuse these handles.
     wp_electric = wp.from_torch(electric_field.contiguous())
     wp_magnetic = wp.from_torch(magnetic_field.contiguous())
     wp_eps = wp.from_torch(eps_field.contiguous())
@@ -1311,6 +1348,7 @@ def _launch_warp_backward(
     sigma_is_scalar_flag = int(sigma_is_scalar)
     dt_value = float(dt)
 
+    # Dispatch one specialized backward kernel for the requested gradient mode.
     if has_material_grads and use_current_input == 1:
         wp.launch(
             kernel=_electric_field_update_backward_kernel_full_with_current,
@@ -1426,6 +1464,7 @@ def _launch_warp_backward(
             stream=wp_stream,
         )
 
+    # Return only gradients requested by autograd.
     return (
         grad_electric if need_grad_electric else None,
         grad_magnetic if need_grad_magnetic else None,
@@ -1451,6 +1490,7 @@ def electric_field_update_impl(
     impressed_current: torch.Tensor,
     impressed_current_offset: torch.Tensor,
 ) -> torch.Tensor:
+    # Compute an output buffer and normalize metadata to Python scalars.
     output = torch.empty_like(electric_field)
     offset = tuple(
         int(v) for v in impressed_current_offset.detach().cpu().flatten().tolist()
@@ -1459,6 +1499,8 @@ def electric_field_update_impl(
     sigma_input: float | torch.Tensor = (
         float(sigma_e_scalar) if sigma_is_scalar else sigma_e_field
     )
+
+    # Delegate to the warp forward launcher; this custom-op stays thin by design.
     _launch_warp_forward(
         electric_field=electric_field,
         magnetic_field=magnetic_field,
@@ -1526,6 +1568,8 @@ def setup_electric_field_update_context(
         impressed_current_offset,
     ) = inputs
     _ = output
+
+    # Save tensors required to reconstruct local coefficients during backward.
     ctx.save_for_backward(
         electric_field,
         magnetic_field,
@@ -1535,6 +1579,8 @@ def setup_electric_field_update_context(
         impressed_current,
         impressed_current_offset,
     )
+
+    # Persist scalar metadata on the autograd context.
     ctx.eps_scalar = float(eps_scalar)
     ctx.sigma_e_scalar = float(sigma_e_scalar)
     ctx.eps_is_scalar = bool(eps_is_scalar)
@@ -1560,6 +1606,7 @@ def backward_electric_field_update(
     torch.Tensor | None,
     None,
 ]:
+    # Restore tensors and metadata captured during forward setup.
     (
         electric_field,
         magnetic_field,
@@ -1570,9 +1617,11 @@ def backward_electric_field_update(
         impressed_current_offset,
     ) = ctx.saved_tensors
 
+    # Torch may call backward with no gradient signal; mirror autograd convention.
     if grad_output is None:
         return (None, None, None, None, None, None, None, None, None, None, None, None)
 
+    # Launch warp-native backward and map gradients to custom-op argument order.
     (
         grad_electric,
         grad_magnetic,
@@ -1630,6 +1679,7 @@ def electric_field_update_warp(
     impressed_current_offset: torch.Tensor | Sequence[int] = (0, 0, 0),
     inplace: bool = False,
 ) -> torch.Tensor:
+    # Validate shape/dtype/device contracts shared by torch and warp backends.
     _validate_common_inputs(
         electric_field,
         magnetic_field,
@@ -1640,21 +1690,31 @@ def electric_field_update_warp(
         inplace,
     )
 
+    # Enforce contiguous tensors because warp kernels assume linear memory layout.
     if not electric_field.is_contiguous():
-        raise ValueError("electric_field must be contiguous for the warp implementation")
+        raise ValueError(
+            "electric_field must be contiguous for the warp implementation"
+        )
     if not magnetic_field.is_contiguous():
-        raise ValueError("magnetic_field must be contiguous for the warp implementation")
+        raise ValueError(
+            "magnetic_field must be contiguous for the warp implementation"
+        )
     if isinstance(eps, torch.Tensor) and not eps.is_contiguous():
         raise ValueError("eps tensor must be contiguous for the warp implementation")
     if isinstance(sigma_e, torch.Tensor) and not sigma_e.is_contiguous():
-        raise ValueError("sigma_e tensor must be contiguous for the warp implementation")
+        raise ValueError(
+            "sigma_e tensor must be contiguous for the warp implementation"
+        )
     if isinstance(spacing, torch.Tensor) and not spacing.is_contiguous():
-        raise ValueError("spacing tensor must be contiguous for the warp implementation")
+        raise ValueError(
+            "spacing tensor must be contiguous for the warp implementation"
+        )
     if impressed_current is not None and not impressed_current.is_contiguous():
         raise ValueError(
             "impressed_current must be contiguous for the warp implementation"
         )
 
+    # Normalize metadata to canonical tensor/tuple forms before dispatch.
     spacing_tensor = _as_spacing_tensor(
         spacing,
         device=electric_field.device,
@@ -1671,6 +1731,7 @@ def electric_field_update_warp(
     else:
         impressed_current_tensor = impressed_current
 
+    # In-place path updates electric_field directly and returns the same tensor.
     if inplace:
         _launch_warp_forward(
             electric_field=electric_field,
@@ -1685,6 +1746,7 @@ def electric_field_update_warp(
         )
         return electric_field
 
+    # Out-of-place path packs scalar/material metadata for the custom op.
     spatial_shape = tuple(electric_field.shape[1:])
     empty_material = torch.empty(
         (0, 0, 0),
@@ -1707,8 +1769,11 @@ def electric_field_update_warp(
             sigma_e, "sigma_e", spatial_shape, electric_field.device
         ).contiguous()
     )
-    offset_tensor = torch.tensor(offset, device=electric_field.device, dtype=torch.int32)
+    offset_tensor = torch.tensor(
+        offset, device=electric_field.device, dtype=torch.int32
+    )
 
+    # Dispatch through the registered torch custom op wrapper.
     return electric_field_update_impl(
         electric_field,
         magnetic_field,

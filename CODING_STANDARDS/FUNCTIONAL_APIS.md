@@ -58,7 +58,7 @@ This document is structured in two main sections:
 | [`FNC-002`](#fnc-002-file-layout-for-functionals) | File layout for functionals | Adding or refactoring functional files |
 | [`FNC-003`](#fnc-003-registration-and-dispatch-rules) | Registration and dispatch rules | Registering implementations |
 | [`FNC-004`](#fnc-004-optional-dependency-handling) | Optional dependency handling | Using optional backends |
-| [`FNC-005`](#fnc-005-benchmarking-hooks) | Benchmarking hooks | Implementing `make_inputs`/`compare` |
+| [`FNC-005`](#fnc-005-benchmarking-hooks) | Benchmarking hooks | Implementing `make_inputs_forward`/`make_inputs_backward`/`compare_forward` |
 | [`FNC-006`](#fnc-006-testing-functionals) | Testing functionals | Adding functional tests |
 | [`FNC-007`](#fnc-007-benchmark-registry) | Benchmark registry | Adding a functional to ASV |
 
@@ -72,7 +72,8 @@ This document is structured in two main sections:
 
 All functionals must be implemented with `FunctionSpec`, even if only a single
 implementation exists. This ensures the operation participates in validation
-and benchmarking via `make_inputs` and `compare`.
+and benchmarking via input generators and `compare_forward` (and
+`compare_backward` where needed).
 
 **Rationale:**
 
@@ -148,14 +149,16 @@ class Identity(FunctionSpec):
         return identity_torch(x)
 
     @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         yield ("small", (torch.randn(1024, device=device),), {})
         yield ("medium", (torch.randn(4096, device=device),), {})
         yield ("large", (torch.randn(16384, device=device),), {})
 
     @classmethod
-    def compare(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+    def compare_forward(
+        cls, output: torch.Tensor, reference: torch.Tensor
+    ) -> None:
         torch.testing.assert_close(output, reference)
 
 identity = Identity.make_function("identity")
@@ -210,6 +213,14 @@ __all__ = ["knn"]
   `physicsnemo/nn/functional/<name>/`.
   - Keep each backend in its own module (e.g., `_torch_impl.py`).
   - Keep shared helpers in `utils.py`.
+  - For complex Warp backends, prefer a dedicated `_warp_impl/` package with:
+    - `op.py` for torch custom-op registration and validation
+    - `launch_forward.py` for forward launch dispatch
+    - `launch_backward.py` for backward launch dispatch
+    - `_kernels/` with one kernel per file
+    - `utils.py` for shared Warp constants/functions
+  - Keep `launch_forward.py` and `launch_backward.py` as the only launch
+    surfaces; avoid extra launch helper modules unless there is a strong reason.
 
 **Rationale:**
 
@@ -226,6 +237,21 @@ physicsnemo/nn/functional/knn/
     _cuml_impl.py
     _scipy_impl.py
     utils.py
+```
+
+```text
+physicsnemo/nn/functional/interpolation/grid_to_point_interpolation/
+    grid_to_point_interpolation.py
+    _torch_impl.py
+    _warp_impl/
+        __init__.py
+        op.py
+        launch_forward.py
+        launch_backward.py
+        _kernels/
+            forward_3d_stride2.py
+            backward_3d_stride2.py
+        utils.py
 ```
 
 **Anti-pattern:**
@@ -308,11 +334,15 @@ import missing_dep  # raises at import time
 
 **Description:**
 
-Implement `make_inputs` and `compare` for every functional. `make_inputs` should
-yield labeled inputs ordered from smaller to larger cases. Labels do not have to
-be exactly "small/medium/large", and you can provide more than three cases.
-`compare` should validate output consistency. Labels are used for benchmark
-plots and summaries.
+Implement `make_inputs_forward` and `compare_forward` for every functional.
+Implement `make_inputs_backward` for functionals that support backward
+benchmarking, and implement `compare_backward` when backward validation needs
+different comparison semantics from forward.
+
+Input generators should yield labeled inputs ordered from smaller to larger
+cases. Labels do not have to be exactly "small/medium/large", and you can
+provide more than three cases. `compare_forward` should validate output
+consistency. Labels are used for benchmark plots and summaries.
 
 **Rationale:**
 
@@ -323,17 +353,22 @@ backends.
 
 ```python
 @classmethod
-def make_inputs(cls, device="cpu"):
+def make_inputs_forward(cls, device="cpu"):
     yield ("small", (torch.randn(1024, device=device),), {})
     yield ("medium", (torch.randn(4096, device=device),), {})
     yield ("large", (torch.randn(16384, device=device),), {})
+
+@classmethod
+def make_inputs_backward(cls, device="cpu"):
+    x = torch.randn(4096, device=device, requires_grad=True)
+    yield ("medium", (x,), {})
 ```
 
 **Anti-pattern:**
 
 ```python
 @classmethod
-def make_inputs(cls, device="cpu"):
+def make_inputs_forward(cls, device="cpu"):
     pass
 ```
 
@@ -346,6 +381,23 @@ def make_inputs(cls, device="cpu"):
 Add tests under `test/nn/functional/` to validate selection, optional
 dependencies, and output correctness.
 
+Use a consistent test layout when possible. This is **highly recommended** for
+readability and review speed, but it is **not strictly required** when a
+functional needs a different shape.
+
+Suggested naming/structure:
+
+1. Backend/reference correctness:
+   - `test_<functional_name>_<implementation_name>`
+2. Cross-backend parity:
+   - `test_<functional_name>_backend_forward_parity`
+   - `test_<functional_name>_backend_backward_parity` (only for differentiable ops)
+3. Deprecation + validation paths:
+   - `test_<functional_name>_error_handeling`
+
+Where possible, keep all backend parity checks in one functional test file and
+use the functional's `compare_forward`/`compare_backward` hooks for consistency.
+
 **Rationale:**
 
 Functional APIs are public entry points and need coverage for both the API and
@@ -354,8 +406,20 @@ backend behavior.
 **Example:**
 
 ```python
-def test_knn_cpu():
-    indices, distances = knn(points, queries, k=4)
+def test_grid_to_point_interpolation_torch():
+    ...
+
+def test_grid_to_point_interpolation_warp():
+    ...
+
+def test_grid_to_point_interpolation_backend_forward_parity():
+    ...
+
+def test_grid_to_point_interpolation_backend_backward_parity():
+    ...
+
+def test_grid_to_point_interpolation_error_handeling():
+    ...
 ```
 
 **Anti-pattern:**
@@ -372,7 +436,8 @@ def test_knn_cpu():
 
 Functionals that should be benchmarked must be added to
 `benchmarks/physicsnemo/nn/functional/registry.py`. Only add a functional once
-its `make_inputs` implementation yields labeled inputs.
+its input generators (`make_inputs_forward`, and optionally
+`make_inputs_backward`) yield labeled inputs.
 
 **Rationale:**
 
@@ -392,6 +457,6 @@ FUNCTIONAL_SPECS = (KNN, RadiusSearch)
 **Anti-pattern:**
 
 ```python
-# Adding a functional before make_inputs is implemented.
+# Adding a functional before input generators are implemented.
 FUNCTIONAL_SPECS = (MyFunctionalWithoutInputs,)
 ```

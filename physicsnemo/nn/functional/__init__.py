@@ -14,19 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .drop_path import drop_path
-from .electromagnetism import electric_field_update
-from .fft import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
-from .interpolation import interpolation
-from .knn import knn
-from .radius_search import radius_search
-from .sdf import signed_distance_field
-from .weight_fact import weight_fact
+from .electromagnetics import electric_field_update
+from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
+from .geometry import signed_distance_field
+from .interpolation import grid_to_point_interpolation, interpolation
+from .neighbors import knn, radius_search
+from .regularization_parameterization import drop_path, weight_fact
 
 __all__ = [
     "irfft",
     "irfft2",
     "drop_path",
+    "grid_to_point_interpolation",
     "imag",
     "interpolation",
     "knn",

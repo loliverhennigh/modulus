@@ -13,6 +13,6 @@ Radius Search
 
 .. rubric:: Benchmarks (ASV)
 
-.. figure:: /nn/functional/radius_search/benchmark.png
+.. figure:: /nn/functional/neighbors/radius_search/benchmark.png
    :alt: Radius search benchmark comparison
    :width: 100%

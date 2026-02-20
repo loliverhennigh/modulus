@@ -29,18 +29,24 @@ from typing import Any
 
 from benchmarks.physicsnemo.nn.functional.registry import FUNCTIONAL_SPECS
 
+_PHASE_ORDER = ("forward", "backward")
+
 # Map each FunctionSpec to its docs output directory.
 _SPEC_OUTPUT_SLUG = {
-    "DropPath": "drop_path",
-    "ElectricFieldUpdate": "electric_field_update",
-    "KNN": "knn",
-    "RFFT": "rfft",
-    "RFFT2": "rfft2",
-    "RadiusSearch": "radius_search",
-    "SignedDistanceField": "sdf",
-    "IRFFT": "irfft",
-    "IRFFT2": "irfft2",
-    "Interpolation": "interpolation",
+    "DropPath": "regularization_parameterization/drop_path",
+    "ElectricFieldUpdate": "electromagnetics/electric_field_update",
+    "KNN": "neighbors/knn",
+    "RFFT": "fourier_spectral/rfft",
+    "RFFT2": "fourier_spectral/rfft2",
+    "RadiusSearch": "neighbors/radius_search",
+    "SignedDistanceField": "geometry/sdf",
+    "IRFFT": "fourier_spectral/irfft",
+    "IRFFT2": "fourier_spectral/irfft2",
+    "GridToPointInterpolation": "interpolation/grid_to_point_interpolation",
+    "WeightFact": "regularization_parameterization/weight_fact",
+    "ViewAsComplex": "fourier_spectral/view_as_complex",
+    "Real": "fourier_spectral/real",
+    "Imag": "fourier_spectral/imag",
 }
 
 # Keep implementation order and colors stable across plots.
@@ -57,15 +63,20 @@ _IMPL_COLORS = {
 _BENCHMARK_SUFFIX = "FunctionalBenchmarks.time_functional"
 
 
-def _build_case_labels() -> dict[str, list[str]]:
-    # Build case labels directly from make_inputs for each plottable spec.
-    labels: dict[str, list[str]] = {}
+def _build_case_labels() -> dict[str, dict[str, list[str]]]:
+    # Build phase->spec->case labels directly from FunctionSpec input generators.
+    labels: dict[str, dict[str, list[str]]] = {phase: {} for phase in _PHASE_ORDER}
     for spec in FUNCTIONAL_SPECS:
         if len(spec.available_implementations()) < 2:
             continue
-        labels[spec.__name__] = [
-            label for label, _, _ in spec.make_inputs(device="cpu")
-        ]
+
+        forward_labels = list(spec.make_input_labels_forward(device="cpu"))
+        backward_labels = list(spec.make_input_labels_backward(device="cpu"))
+
+        if forward_labels:
+            labels["forward"][spec.__name__] = forward_labels
+        if backward_labels:
+            labels["backward"][spec.__name__] = backward_labels
     return labels
 
 
@@ -76,22 +87,23 @@ def _build_spec_implementations() -> dict[str, list[str]]:
         impls = spec.available_implementations()
         if len(impls) < 2:
             continue
-        implementations[spec.__name__] = impls
+        implementations[spec.__name__] = list(impls)
     return implementations
 
 
 def _build_params(
-    case_labels: dict[str, list[str]],
+    case_labels: dict[str, dict[str, list[str]]],
     spec_implementations: dict[str, list[str]],
-) -> list[tuple[str, str, int]]:
+) -> list[tuple[str, str, str, int]]:
     # Recreate ASV parameter ordering for fallback labels.
-    params: list[tuple[str, str, int]] = []
-    for spec_name, impls in spec_implementations.items():
-        for impl_name in impls:
-            params.extend(
-                (spec_name, impl_name, case_index)
-                for case_index in range(len(case_labels[spec_name]))
-            )
+    params: list[tuple[str, str, str, int]] = []
+    for phase in _PHASE_ORDER:
+        for spec_name, labels in case_labels[phase].items():
+            for impl_name in spec_implementations.get(spec_name, []):
+                params.extend(
+                    (phase, spec_name, impl_name, case_index)
+                    for case_index in range(len(labels))
+                )
     return params
 
 
@@ -145,81 +157,117 @@ def _entry_vectors(entry: Any) -> tuple[list[float | None], list[str]]:
     return values, labels
 
 
+def _parse_benchmark_label(label: str) -> tuple[str, str, str, int]:
+    # Parse ASV labels from either new (phase, spec, impl, case) or legacy format.
+    parsed = ast.literal_eval(label)
+    if isinstance(parsed, tuple) and len(parsed) == 4:
+        phase, spec_name, impl_name, case_index = parsed
+        return str(phase), str(spec_name), str(impl_name), int(case_index)
+    if isinstance(parsed, tuple) and len(parsed) == 3:
+        spec_name, impl_name, case_index = parsed
+        return "forward", str(spec_name), str(impl_name), int(case_index)
+    raise ValueError(f"Unsupported benchmark label format: {label}")
+
+
 def _plot_benchmarks(
     values: list[float | None], labels: list[str], output_root: Path
 ) -> None:
     # Import plotting dependency only for plotting.
     import matplotlib.pyplot as plt
 
-    # Build spec -> case -> implementation -> value map from ASV vectors.
-    data: dict[str, dict[str, dict[str, float]]] = {}
+    # Build phase->spec->case->implementation->value map from ASV vectors.
+    data: dict[str, dict[str, dict[str, dict[str, float]]]] = {
+        phase: {} for phase in _PHASE_ORDER
+    }
     for label, value in zip(labels, values):
         if value is None:
             continue
-        spec_name, impl_name, case_index = ast.literal_eval(label)
-        if spec_name not in _SPEC_CASE_LABELS:
+
+        phase, spec_name, impl_name, case_index = _parse_benchmark_label(label)
+        if phase not in _SPEC_CASE_LABELS:
             continue
-        case_label = _SPEC_CASE_LABELS[spec_name][case_index]
-        data.setdefault(spec_name, {}).setdefault(case_label, {})[impl_name] = value
+        if spec_name not in _SPEC_CASE_LABELS[phase]:
+            continue
+        if case_index >= len(_SPEC_CASE_LABELS[phase][spec_name]):
+            continue
 
-    # Render one grouped bar chart per spec.
-    for spec_name, case_map in data.items():
-        output_dir = output_root / _SPEC_OUTPUT_SLUG.get(spec_name, spec_name.lower())
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Build case order and implementation order for this spec.
-        case_labels = [
-            label for label in _SPEC_CASE_LABELS[spec_name] if label in case_map
-        ]
-        impl_names = sorted(
-            {impl for impl_map in case_map.values() for impl in impl_map},
-            key=lambda name: (_IMPL_ORDER.index(name) if name in _IMPL_ORDER else 99),
+        case_label = _SPEC_CASE_LABELS[phase][spec_name][case_index]
+        data[phase].setdefault(spec_name, {}).setdefault(case_label, {})[impl_name] = (
+            value
         )
-        if len(impl_names) < 2:
-            continue
 
-        # Create and style the figure.
-        fig, ax = plt.subplots(figsize=(8, 4))
-        fig.patch.set_facecolor("white")
-        ax.set_facecolor("white")
+    # Render one grouped bar chart per spec and benchmark phase.
+    for phase in _PHASE_ORDER:
+        for spec_name, case_map in data[phase].items():
+            output_dir = output_root / _SPEC_OUTPUT_SLUG.get(
+                spec_name, spec_name.lower()
+            )
+            output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Draw grouped bars for each implementation.
-        bar_width = 0.8 / len(impl_names)
-        x_positions = list(range(len(case_labels)))
-        for idx, impl_name in enumerate(impl_names):
-            offsets = [x + idx * bar_width for x in x_positions]
-            y_values = [
-                case_map[label].get(impl_name, float("nan")) for label in case_labels
+            # Build case order and implementation order for this spec.
+            case_labels = [
+                label
+                for label in _SPEC_CASE_LABELS[phase][spec_name]
+                if label in case_map
             ]
-            ax.bar(
-                offsets,
-                y_values,
-                width=bar_width,
-                color=_IMPL_COLORS.get(impl_name, _IMPL_COLORS["unknown"]),
-                label=impl_name,
+            impl_names = sorted(
+                {impl for impl_map in case_map.values() for impl in impl_map},
+                key=lambda name: (
+                    _IMPL_ORDER.index(name) if name in _IMPL_ORDER else 99
+                ),
+            )
+            if len(impl_names) < 2:
+                continue
+
+            # Create and style the figure.
+            fig, ax = plt.subplots(figsize=(8, 4))
+            fig.patch.set_facecolor("white")
+            ax.set_facecolor("white")
+
+            # Draw grouped bars for each implementation.
+            bar_width = 0.8 / len(impl_names)
+            x_positions = list(range(len(case_labels)))
+            for idx, impl_name in enumerate(impl_names):
+                offsets = [x + idx * bar_width for x in x_positions]
+                y_values = [
+                    case_map[label].get(impl_name, float("nan"))
+                    for label in case_labels
+                ]
+                ax.bar(
+                    offsets,
+                    y_values,
+                    width=bar_width,
+                    color=_IMPL_COLORS.get(impl_name, _IMPL_COLORS["unknown"]),
+                    label=impl_name,
+                )
+
+            # Configure axes and legend.
+            tick_positions = [
+                x + bar_width * (len(impl_names) - 1) / 2 for x in x_positions
+            ]
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(case_labels, rotation=20, ha="right")
+            ax.set_ylabel("Time (s)")
+            ax.set_title(f"{spec_name} {phase.title()} Benchmark", color="#111111")
+            ax.grid(axis="y", linestyle=":", color="#E0E0E0")
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.tick_params(axis="x", colors="#111111")
+            ax.tick_params(axis="y", colors="#111111")
+            ax.legend(
+                frameon=False,
+                fontsize="small",
+                loc="upper left",
+                bbox_to_anchor=(1.02, 1),
             )
 
-        # Configure axes and legend.
-        tick_positions = [
-            x + bar_width * (len(impl_names) - 1) / 2 for x in x_positions
-        ]
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(case_labels, rotation=20, ha="right")
-        ax.set_ylabel("Time (s)")
-        ax.set_title(f"{spec_name} Benchmark", color="#111111")
-        ax.grid(axis="y", linestyle=":", color="#E0E0E0")
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.tick_params(axis="x", colors="#111111")
-        ax.tick_params(axis="y", colors="#111111")
-        ax.legend(
-            frameon=False, fontsize="small", loc="upper left", bbox_to_anchor=(1.02, 1)
-        )
-
-        # Save figure to docs image path.
-        fig.tight_layout()
-        fig.savefig(output_dir / "benchmark.png")
-        plt.close(fig)
+            # Save figure to docs image path.
+            fig.tight_layout()
+            output_name = (
+                "benchmark.png" if phase == "forward" else f"benchmark_{phase}.png"
+            )
+            fig.savefig(output_dir / output_name)
+            plt.close(fig)
 
 
 def main() -> int:

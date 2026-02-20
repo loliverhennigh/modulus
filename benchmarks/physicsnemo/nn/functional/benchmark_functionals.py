@@ -26,6 +26,8 @@ import torch
 
 from benchmarks.physicsnemo.nn.functional.registry import FUNCTIONAL_SPECS
 
+_PHASE_ORDER = ("forward", "backward")
+
 
 def _resolve_device() -> torch.device:
     """Resolve the device to benchmark on."""
@@ -39,6 +41,27 @@ def _resolve_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def _resolve_phases() -> tuple[str, ...]:
+    """Resolve benchmark phases from environment configuration."""
+
+    # Default to forward-only to keep benchmark runtime manageable.
+    phase_filter = os.getenv("PHYSICSNEMO_ASV_PHASES", "forward")
+    requested = {
+        name.strip().lower() for name in phase_filter.split(",") if name.strip()
+    }
+    if not requested:
+        return ("forward",)
+
+    # Keep a stable phase order for reproducible ASV parameter vectors.
+    selected = tuple(phase for phase in _PHASE_ORDER if phase in requested)
+    if not selected:
+        raise ValueError(
+            "PHYSICSNEMO_ASV_PHASES must contain one or both of: "
+            f"{', '.join(_PHASE_ORDER)}"
+        )
+    return selected
 
 
 def _filter_specs(specs: Iterable[type]) -> list[type]:
@@ -67,34 +90,119 @@ def _filter_specs(specs: Iterable[type]) -> list[type]:
     return selected
 
 
+def _iter_tensors(value: Any):
+    """Iterate tensor leaves from nested Python containers."""
+
+    # Yield tensor leaves directly.
+    if torch.is_tensor(value):
+        yield value
+        return
+
+    # Recurse into tuples/lists.
+    if isinstance(value, (tuple, list)):
+        for item in value:
+            yield from _iter_tensors(item)
+        return
+
+    # Recurse into dict values.
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_tensors(item)
+
+
+def _clear_input_gradients(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    """Clear accumulated gradients for reusable benchmark inputs."""
+
+    # ASV reuses inputs across timing calls, so clear stale gradients each time.
+    for tensor in _iter_tensors((args, kwargs)):
+        if tensor.grad is not None:
+            tensor.grad = None
+
+
+def _loss_from_output(output: Any) -> torch.Tensor:
+    """Reduce the functional output to a scalar loss for backward timing."""
+
+    # Collect differentiable output tensors from nested return structures.
+    differentiable_outputs = [
+        tensor
+        for tensor in _iter_tensors(output)
+        if tensor.requires_grad or tensor.grad_fn is not None
+    ]
+    if not differentiable_outputs:
+        raise ValueError(
+            "Backward benchmark output must contain at least one differentiable tensor."
+        )
+
+    # Build a stable scalar objective from output norms.
+    # Use |z|^2 for complex tensors to avoid lossy casts.
+    def _norm_term(tensor: torch.Tensor) -> torch.Tensor:
+        if torch.is_complex(tensor):
+            return tensor.abs().square().mean()
+        return tensor.float().square().mean()
+
+    loss = _norm_term(differentiable_outputs[0])
+    for tensor in differentiable_outputs[1:]:
+        loss = loss + _norm_term(tensor)
+    return loss
+
+
+def _phase_case_labels(spec: type, phase: str, device: torch.device) -> list[str]:
+    """Resolve case labels for one phase without full tensor materialization."""
+
+    # Forward and backward phases each provide their own label hooks.
+    if phase == "forward":
+        return list(spec.make_input_labels_forward(device=device))
+    if phase == "backward":
+        return list(spec.make_input_labels_backward(device=device))
+    raise ValueError(f"Unsupported benchmark phase: {phase}")
+
+
+def _phase_case_by_index(
+    spec: type, phase: str, case_index: int, device: torch.device
+) -> tuple[str, tuple[Any, ...], dict[str, Any]]:
+    """Materialize one benchmark case by index during setup."""
+
+    # Stream generated cases and return the requested case only.
+    if phase == "forward":
+        case_iter = spec.make_inputs_forward(device=device)
+    elif phase == "backward":
+        case_iter = spec.make_inputs_backward(device=device)
+    else:
+        raise ValueError(f"Unsupported benchmark phase: {phase}")
+
+    for index, case in enumerate(case_iter):
+        if index == case_index:
+            return case
+    raise IndexError(
+        f"Case index {case_index} out of range for {spec.__name__} phase={phase}"
+    )
+
+
 # Resolve benchmark configuration and precompute all ASV parameter tuples.
 _DEVICE = _resolve_device()
-_PARAMS: list[tuple[str, str, int]] = []
+_PHASES = _resolve_phases()
 _SELECTED_SPECS = _filter_specs(FUNCTIONAL_SPECS)
-_WORK_ITEMS: dict[
-    tuple[str, str, int], tuple[type, str, tuple[Any, ...], dict[str, Any]]
-] = {}
+_PARAMS: list[tuple[str, str, str, int]] = []
+_WORK_ITEMS: dict[tuple[str, str, str, int], tuple[type, str]] = {}
 
-# Build the ASV parameter triples: (spec_name, implementation_name, case_index).
+# Build ASV parameter tuples: (phase, spec_name, implementation_name, case_index).
 for spec in _SELECTED_SPECS:
     # Skip specs that currently have no dispatchable implementations.
     implementations = spec.available_implementations()
     if not implementations:
         continue
 
-    # Materialize inputs once so ASV setup can index by case id.
-    # TODO: This is not ideal, we should keep make_inputs as a generator
-    cases = list(spec.make_inputs(device=_DEVICE))
-    if not cases:
-        continue
+    # Build phase-specific parameter tuples and cache label metadata.
+    for phase in _PHASES:
+        labels = _phase_case_labels(spec=spec, phase=phase, device=_DEVICE)
+        if not labels:
+            continue
 
-    # Build ASV parameter triples and cache resolved work items for setup().
-    for impl in implementations:
-        for case_index, case in enumerate(cases):
-            label, args, kwargs = case
-            key = (spec.__name__, impl, case_index)
-            _PARAMS.append(key)
-            _WORK_ITEMS[key] = (spec, label, args, kwargs)
+        for implementation_name in implementations:
+            for case_index, label in enumerate(labels):
+                key = (phase, spec.__name__, implementation_name, case_index)
+                _PARAMS.append(key)
+                _WORK_ITEMS[key] = (spec, label)
 
 
 class FunctionalBenchmarks:
@@ -102,28 +210,42 @@ class FunctionalBenchmarks:
 
     # ASV expects params to be a list of parameter axes.
     params = [_PARAMS]
-    param_names = ["spec_impl_case"]
+    param_names = ["phase_spec_impl_case"]
     timeout = 120
 
-    def setup(self, spec_impl_case: tuple[str, str, int]) -> None:
+    def setup(self, phase_spec_impl_case: tuple[str, str, str, int]) -> None:
         # Resolve the precomputed work item for this benchmark key.
-        spec, _, args, kwargs = _WORK_ITEMS[spec_impl_case]
+        spec, _ = _WORK_ITEMS[phase_spec_impl_case]
 
         # Cache resolved objects on self to minimize per-iteration overhead.
+        self.phase = phase_spec_impl_case[0]
+        self.case_index = phase_spec_impl_case[3]
         self.spec = spec
-        self.implementation = spec_impl_case[1]
-        self.args = args
-        self.kwargs = kwargs
+        self.implementation = phase_spec_impl_case[2]
+        _, self.args, self.kwargs = _phase_case_by_index(
+            spec=self.spec,
+            phase=self.phase,
+            case_index=self.case_index,
+            device=_DEVICE,
+        )
 
         # Synchronize before timing so previous CUDA work is excluded.
         if _DEVICE.type == "cuda":
             torch.cuda.synchronize()
 
-    def time_functional(self, spec_impl_case: tuple[str, str, int]) -> None:
-        # Dispatch to the selected implementation for the selected input case.
-        self.spec.dispatch(
-            *self.args, **self.kwargs, implementation=self.implementation
-        )
+    def time_functional(self, phase_spec_impl_case: tuple[str, str, str, int]) -> None:
+        # Benchmark the selected phase for the selected implementation/case.
+        if self.phase == "forward":
+            self.spec.dispatch(
+                *self.args, **self.kwargs, implementation=self.implementation
+            )
+        else:
+            _clear_input_gradients(args=self.args, kwargs=self.kwargs)
+            output = self.spec.dispatch(
+                *self.args, **self.kwargs, implementation=self.implementation
+            )
+            _loss_from_output(output).backward()
+
         # Synchronize to ensure the measured time includes kernel execution.
         if _DEVICE.type == "cuda":
             torch.cuda.synchronize()

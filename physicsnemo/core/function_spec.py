@@ -99,8 +99,6 @@ class FunctionSpec:
        ``compare_forward`` should validate that outputs from two
        implementations match. ``compare_backward`` can override comparison
        semantics for gradient tensors when needed.
-       ``make_inputs`` remains as a backward-compatible alias for forward-input
-       generation.
     4. Expose a functional entry point with :meth:`make_function`.
 
     Dispatch rules
@@ -288,28 +286,6 @@ class FunctionSpec:
         return decorator
 
     @classmethod
-    def make_inputs(
-        cls, device: torch.device
-    ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
-        """Backward-compatible alias for forward benchmark inputs.
-
-        New functionals should implement :meth:`make_inputs_forward` and
-        optionally :meth:`make_inputs_backward`. This method delegates to
-        :meth:`make_inputs_forward` and is kept for compatibility.
-
-        Parameters
-        ----------
-        device : torch.device
-            Device for generated tensors.
-
-        Returns
-        -------
-        Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]
-            Iterable of labeled forward input cases.
-        """
-        raise NotImplementedError(f"{cls.__name__}.make_inputs must be implemented")
-
-    @classmethod
     def make_inputs_forward(
         cls, device: torch.device
     ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
@@ -333,7 +309,9 @@ class FunctionSpec:
         Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]
             Iterable of labeled forward input cases.
         """
-        return cls.make_inputs(device=device)
+        raise NotImplementedError(
+            f"{cls.__name__}.make_inputs_forward must be implemented"
+        )
 
     @classmethod
     def make_inputs_backward(
@@ -359,48 +337,6 @@ class FunctionSpec:
         return ()
 
     @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        """Return labels for forward benchmark cases.
-
-        This hook is used by benchmarking/plotting code to enumerate case names
-        without necessarily materializing all benchmark tensors up front.
-        The default implementation derives labels from
-        :meth:`make_inputs_forward`.
-
-        Parameters
-        ----------
-        device : torch.device
-            Device used when deriving labels from generated cases.
-
-        Returns
-        -------
-        list[str]
-            Forward benchmark case labels.
-        """
-        return [label for label, _, _ in cls.make_inputs_forward(device=device)]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        """Return labels for backward benchmark cases.
-
-        This hook is used by benchmarking/plotting code to enumerate backward
-        case names without necessarily materializing all benchmark tensors up
-        front. The default implementation derives labels from
-        :meth:`make_inputs_backward`.
-
-        Parameters
-        ----------
-        device : torch.device
-            Device used when deriving labels from generated cases.
-
-        Returns
-        -------
-        list[str]
-            Backward benchmark case labels.
-        """
-        return [label for label, _, _ in cls.make_inputs_backward(device=device)]
-
-    @classmethod
     def compare_forward(cls, output: object, reference: object) -> None:
         """Compare forward outputs for validation.
         This is used to validate different implementations of the same function
@@ -413,12 +349,6 @@ class FunctionSpec:
         reference : object
             Reference output to compare against.
         """
-        compare_impl = getattr(cls, "compare")
-        base_compare_impl = getattr(FunctionSpec, "compare").__func__
-        compare_func = getattr(compare_impl, "__func__", compare_impl)
-        if compare_func is not base_compare_impl:
-            compare_impl(output=output, reference=reference)
-            return
         raise NotImplementedError(f"{cls.__name__}.compare_forward must be implemented")
 
     @classmethod
@@ -434,19 +364,6 @@ class FunctionSpec:
             Backward result from the implementation to compare.
         reference : object
             Reference backward result to compare against.
-        """
-        cls.compare_forward(output=output, reference=reference)
-
-    @classmethod
-    def compare(cls, output: object, reference: object) -> None:
-        """Backward-compatible alias for :meth:`compare_forward`.
-
-        Parameters
-        ----------
-        output : object
-            Output from the implementation to compare.
-        reference : object
-            Reference output to compare against.
         """
         cls.compare_forward(output=output, reference=reference)
 

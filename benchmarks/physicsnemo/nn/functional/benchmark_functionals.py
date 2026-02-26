@@ -24,9 +24,12 @@ from typing import Any, Iterable
 
 import torch
 
+from benchmarks.physicsnemo.nn.functional._spec_utils import (
+    PHASE_ORDER,
+    case_by_index,
+    case_labels,
+)
 from benchmarks.physicsnemo.nn.functional.registry import FUNCTIONAL_SPECS
-
-_PHASE_ORDER = ("forward", "backward")
 
 
 def _resolve_device() -> torch.device:
@@ -55,11 +58,11 @@ def _resolve_phases() -> tuple[str, ...]:
         return ("forward",)
 
     # Keep a stable phase order for reproducible ASV parameter vectors.
-    selected = tuple(phase for phase in _PHASE_ORDER if phase in requested)
+    selected = tuple(phase for phase in PHASE_ORDER if phase in requested)
     if not selected:
         raise ValueError(
             "PHYSICSNEMO_ASV_PHASES must contain one or both of: "
-            f"{', '.join(_PHASE_ORDER)}"
+            f"{', '.join(PHASE_ORDER)}"
         )
     return selected
 
@@ -146,38 +149,6 @@ def _loss_from_output(output: Any) -> torch.Tensor:
     return loss
 
 
-def _phase_case_labels(spec: type, phase: str, device: torch.device) -> list[str]:
-    """Resolve case labels for one phase without full tensor materialization."""
-
-    # Forward and backward phases each provide their own label hooks.
-    if phase == "forward":
-        return list(spec.make_input_labels_forward(device=device))
-    if phase == "backward":
-        return list(spec.make_input_labels_backward(device=device))
-    raise ValueError(f"Unsupported benchmark phase: {phase}")
-
-
-def _phase_case_by_index(
-    spec: type, phase: str, case_index: int, device: torch.device
-) -> tuple[str, tuple[Any, ...], dict[str, Any]]:
-    """Materialize one benchmark case by index during setup."""
-
-    # Stream generated cases and return the requested case only.
-    if phase == "forward":
-        case_iter = spec.make_inputs_forward(device=device)
-    elif phase == "backward":
-        case_iter = spec.make_inputs_backward(device=device)
-    else:
-        raise ValueError(f"Unsupported benchmark phase: {phase}")
-
-    for index, case in enumerate(case_iter):
-        if index == case_index:
-            return case
-    raise IndexError(
-        f"Case index {case_index} out of range for {spec.__name__} phase={phase}"
-    )
-
-
 # Resolve benchmark configuration and precompute all ASV parameter tuples.
 _DEVICE = _resolve_device()
 _PHASES = _resolve_phases()
@@ -194,7 +165,7 @@ for spec in _SELECTED_SPECS:
 
     # Build phase-specific parameter tuples and cache label metadata.
     for phase in _PHASES:
-        labels = _phase_case_labels(spec=spec, phase=phase, device=_DEVICE)
+        labels = case_labels(spec=spec, phase=phase, device=_DEVICE)
         if not labels:
             continue
 
@@ -222,7 +193,7 @@ class FunctionalBenchmarks:
         self.case_index = phase_spec_impl_case[3]
         self.spec = spec
         self.implementation = phase_spec_impl_case[2]
-        _, self.args, self.kwargs = _phase_case_by_index(
+        _, self.args, self.kwargs = case_by_index(
             spec=self.spec,
             phase=self.phase,
             case_index=self.case_index,

@@ -27,9 +27,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from benchmarks.physicsnemo.nn.functional._spec_utils import PHASE_ORDER, case_labels
 from benchmarks.physicsnemo.nn.functional.registry import FUNCTIONAL_SPECS
-
-_PHASE_ORDER = ("forward", "backward")
 
 # Map each FunctionSpec to its docs output directory.
 _SPEC_OUTPUT_SLUG = {
@@ -38,11 +37,14 @@ _SPEC_OUTPUT_SLUG = {
     "KNN": "neighbors/knn",
     "RFFT": "fourier_spectral/rfft",
     "RFFT2": "fourier_spectral/rfft2",
+    "MeshPoissonDiskSample": "geometry/mesh_poisson_disk_sample",
+    "MeshToVoxelFraction": "geometry/mesh_to_voxel_fraction",
     "RadiusSearch": "neighbors/radius_search",
     "SignedDistanceField": "geometry/sdf",
     "IRFFT": "fourier_spectral/irfft",
     "IRFFT2": "fourier_spectral/irfft2",
     "GridToPointInterpolation": "interpolation/grid_to_point_interpolation",
+    "PointToGridInterpolation": "interpolation/point_to_grid_interpolation",
     "WeightFact": "regularization_parameterization/weight_fact",
     "ViewAsComplex": "fourier_spectral/view_as_complex",
     "Real": "fourier_spectral/real",
@@ -65,13 +67,13 @@ _BENCHMARK_SUFFIX = "FunctionalBenchmarks.time_functional"
 
 def _build_case_labels() -> dict[str, dict[str, list[str]]]:
     # Build phase->spec->case labels directly from FunctionSpec input generators.
-    labels: dict[str, dict[str, list[str]]] = {phase: {} for phase in _PHASE_ORDER}
+    labels: dict[str, dict[str, list[str]]] = {phase: {} for phase in PHASE_ORDER}
     for spec in FUNCTIONAL_SPECS:
         if len(spec.available_implementations()) < 2:
             continue
 
-        forward_labels = list(spec.make_input_labels_forward(device="cpu"))
-        backward_labels = list(spec.make_input_labels_backward(device="cpu"))
+        forward_labels = case_labels(spec=spec, phase="forward", device="cpu")
+        backward_labels = case_labels(spec=spec, phase="backward", device="cpu")
 
         if forward_labels:
             labels["forward"][spec.__name__] = forward_labels
@@ -97,7 +99,7 @@ def _build_params(
 ) -> list[tuple[str, str, str, int]]:
     # Recreate ASV parameter ordering for fallback labels.
     params: list[tuple[str, str, str, int]] = []
-    for phase in _PHASE_ORDER:
+    for phase in PHASE_ORDER:
         for spec_name, labels in case_labels[phase].items():
             for impl_name in spec_implementations.get(spec_name, []):
                 params.extend(
@@ -177,7 +179,7 @@ def _plot_benchmarks(
 
     # Build phase->spec->case->implementation->value map from ASV vectors.
     data: dict[str, dict[str, dict[str, dict[str, float]]]] = {
-        phase: {} for phase in _PHASE_ORDER
+        phase: {} for phase in PHASE_ORDER
     }
     for label, value in zip(labels, values):
         if value is None:
@@ -197,7 +199,7 @@ def _plot_benchmarks(
         )
 
     # Render one grouped bar chart per spec and benchmark phase.
-    for phase in _PHASE_ORDER:
+    for phase in PHASE_ORDER:
         for spec_name, case_map in data[phase].items():
             output_dir = output_root / _SPEC_OUTPUT_SLUG.get(
                 spec_name, spec_name.lower()
@@ -264,7 +266,9 @@ def _plot_benchmarks(
             # Save figure to docs image path.
             fig.tight_layout()
             output_name = (
-                "benchmark.png" if phase == "forward" else f"benchmark_{phase}.png"
+                "benchmark_forward.png"
+                if phase == "forward"
+                else f"benchmark_{phase}.png"
             )
             fig.savefig(output_dir / output_name)
             plt.close(fig)

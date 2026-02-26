@@ -5,7 +5,7 @@ Electromagnetics Functionals
 
 .. rubric:: Benchmarks (ASV)
 
-.. figure:: /nn/functional/electromagnetics/electric_field_update/benchmark.png
+.. figure:: /nn/functional/electromagnetics/electric_field_update/benchmark_forward.png
    :alt: Electric field update benchmark comparison
    :width: 100%
 

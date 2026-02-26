@@ -156,7 +156,32 @@ class Identity(FunctionSpec):
         yield ("large", (torch.randn(16384, device=device),), {})
 
     @classmethod
+    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        device = torch.device(device)
+        yield (
+            "small-bwd",
+            (torch.randn(1024, device=device, requires_grad=True),),
+            {},
+        )
+        yield (
+            "medium-bwd",
+            (torch.randn(4096, device=device, requires_grad=True),),
+            {},
+        )
+        yield (
+            "large-bwd",
+            (torch.randn(16384, device=device, requires_grad=True),),
+            {},
+        )
+
+    @classmethod
     def compare_forward(
+        cls, output: torch.Tensor, reference: torch.Tensor
+    ) -> None:
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(
         cls, output: torch.Tensor, reference: torch.Tensor
     ) -> None:
         torch.testing.assert_close(output, reference)
@@ -334,15 +359,20 @@ import missing_dep  # raises at import time
 
 **Description:**
 
-Implement `make_inputs_forward` and `compare_forward` for every functional.
-Implement `make_inputs_backward` for functionals that support backward
-benchmarking, and implement `compare_backward` when backward validation needs
-different comparison semantics from forward.
+Implement `make_inputs_forward` for every functional so it can be benchmarked.
+Implement `compare_forward` when a functional has multiple implementations and
+needs cross-backend parity checks in tests.
+
+Implement `make_inputs_backward` only for functionals with a meaningful
+backward pass (for example differentiable functionals). Implement
+`compare_backward` when a functional has backward support and multiple
+implementations that need backward parity checks.
 
 Input generators should yield labeled inputs ordered from smaller to larger
 cases. Labels do not have to be exactly "small/medium/large", and you can
-provide more than three cases. `compare_forward` should validate output
-consistency. Labels are used for benchmark plots and summaries.
+provide more than three cases. Compare hooks should validate output
+consistency where implemented. Labels are used for benchmark plots and
+summaries.
 
 **Rationale:**
 
@@ -362,6 +392,14 @@ def make_inputs_forward(cls, device="cpu"):
 def make_inputs_backward(cls, device="cpu"):
     x = torch.randn(4096, device=device, requires_grad=True)
     yield ("medium", (x,), {})
+
+@classmethod
+def compare_forward(cls, output, reference):
+    torch.testing.assert_close(output, reference)
+
+@classmethod
+def compare_backward(cls, output, reference):
+    torch.testing.assert_close(output, reference)
 ```
 
 **Anti-pattern:**

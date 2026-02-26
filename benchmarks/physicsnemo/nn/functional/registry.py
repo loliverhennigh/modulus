@@ -16,11 +16,25 @@
 
 """Registry of FunctionSpec classes to benchmark with ASV."""
 
-from physicsnemo.nn.functional.fourier_spectral import IRFFT, IRFFT2, RFFT, RFFT2
-from physicsnemo.nn.functional.geometry import SignedDistanceField
-from physicsnemo.nn.functional.interpolation import GridToPointInterpolation
+from physicsnemo.nn.functional.fourier_spectral import (
+    IRFFT,
+    IRFFT2,
+    RFFT,
+    RFFT2,
+    Imag,
+    Real,
+    ViewAsComplex,
+)
+from physicsnemo.nn.functional.geometry import (
+    MeshPoissonDiskSample,
+    MeshToVoxelFraction,
+    SignedDistanceField,
+)
+from physicsnemo.nn.functional.interpolation import (
+    GridToPointInterpolation,
+)
 from physicsnemo.nn.functional.neighbors import KNN, RadiusSearch
-from physicsnemo.nn.functional.regularization_parameterization import DropPath
+from physicsnemo.nn.functional.regularization_parameterization import DropPath, WeightFact
 
 # FunctionSpec classes listed here must implement ``make_inputs_forward`` for ASV.
 # ``make_inputs_backward`` is optional and only needed for backward benchmarks.
@@ -30,10 +44,14 @@ FUNCTIONAL_SPECS = (
     GridToPointInterpolation,
     RadiusSearch,
     SignedDistanceField,
+    WeightFact,
     RFFT,
     RFFT2,
     IRFFT,
     IRFFT2,
+    ViewAsComplex,
+    Real,
+    Imag,
 )
 
 __all__ = ["FUNCTIONAL_SPECS"]

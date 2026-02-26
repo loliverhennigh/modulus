@@ -10,17 +10,6 @@ For functionals, the benchmark flow is intentionally simple:
 4. Register the `FunctionSpec` in `benchmarks/physicsnemo/nn/functional/registry.py`.
 5. Run ASV and regenerate plots.
 
-## Functional porting checklist
-
-When bringing in a new functional from another repo (for example PumpkinPulse):
-
-1. Add a `FunctionSpec` with explicit torch and warp implementations.
-2. Add parity tests for forward and backward behavior.
-3. Implement `make_inputs_forward` (and `make_inputs_backward` if applicable).
-4. Add the functional to `benchmarks/physicsnemo/nn/functional/registry.py`.
-5. Generate and include benchmark plots in docs.
-6. Add a docs page entry under `docs/api/nn/functionals/`.
-
 ## Where to read more
 
 - Functional benchmark rules and expectations:
@@ -66,5 +55,5 @@ PHYSICSNEMO_ASV_PHASES=forward,backward ./benchmarks/run_benchmarks.sh
 
 Plots are written under:
 
-- `docs/nn/functional/<category>/<functional_name>/benchmark.png` (forward)
+- `docs/nn/functional/<category>/<functional_name>/benchmark_forward.png` (forward)
 - `docs/nn/functional/<category>/<functional_name>/benchmark_backward.png` (backward)

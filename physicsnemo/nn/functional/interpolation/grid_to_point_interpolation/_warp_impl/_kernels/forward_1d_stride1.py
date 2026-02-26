@@ -14,25 +14,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
-from .geometry import signed_distance_field
-from .interpolation import grid_to_point_interpolation, interpolation
-from .neighbors import knn, radius_search
-from .regularization_parameterization import drop_path, weight_fact
+"""1D nearest-neighbor forward interpolation kernel."""
 
-__all__ = [
-    "irfft",
-    "irfft2",
-    "drop_path",
-    "grid_to_point_interpolation",
-    "imag",
-    "interpolation",
-    "knn",
-    "radius_search",
-    "real",
-    "rfft",
-    "rfft2",
-    "signed_distance_field",
-    "view_as_complex",
-    "weight_fact",
-]
+import warp as wp
+
+
+@wp.kernel
+def interp_1d_stride1(
+    points: wp.array(dtype=wp.float32),
+    grid: wp.array2d(dtype=wp.float32),
+    out: wp.array2d(dtype=wp.float32),
+    origin: wp.float32,
+    dx: wp.float32,
+    size_x: int,
+    center_offset: wp.float32,
+):
+    tid = wp.tid()
+    x = points[tid]
+    center = wp.int32((x - origin) / dx + center_offset)
+    if center < 0:
+        center = 0
+    if center >= size_x:
+        center = size_x - 1
+    for c in range(grid.shape[0]):
+        out[tid, c] = grid[c, center]
+
+
+__all__ = ["interp_1d_stride1"]
+

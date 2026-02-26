@@ -55,6 +55,12 @@ class KNN(FunctionSpec):
         neighbors for each query point.
     """
 
+    _BENCHMARK_CASES = (
+        ("small-p1024-q256-k16", 1024, 256, 16),
+        ("medium-p4096-q1024-k32", 4096, 1024, 32),
+        ("large-p8192-q2048-k32", 8192, 2048, 32),
+    )
+
     @FunctionSpec.register(
         name="cuml", required_imports=("cuml>=24.0.0", "cupy>=13.0.0"), rank=0
     )
@@ -76,21 +82,37 @@ class KNN(FunctionSpec):
         return knn_torch(points, queries, k)
 
     @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
-        cases = [
-            ("small", 1024, 256, 16),
-            ("medium", 4096, 1024, 32),
-            ("large", 8192, 2048, 32),
-        ]
-        for label, num_points, num_queries, k in cases:
+        for label, num_points, num_queries, k in cls._BENCHMARK_CASES:
             points = torch.rand(num_points, 3, device=device)
             queries = torch.rand(num_queries, 3, device=device)
             yield (
-                f"{label}-points{num_points}-queries{num_queries}-k{k}",
+                label,
                 (points, queries, k),
                 {},
             )
+
+    @classmethod
+    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        _ = device
+        # KNN returns discrete neighbor assignments, so backward benchmarking
+        # is not currently defined.
+        return ()
+
+    @classmethod
+    def make_inputs(cls, device: torch.device | str = "cpu"):
+        yield from cls.make_inputs_forward(device=device)
+
+    @classmethod
+    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
+        _ = device
+        return [label for label, _, _, _ in cls._BENCHMARK_CASES]
+
+    @classmethod
+    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
+        _ = device
+        return []
 
     @classmethod
     def compare(

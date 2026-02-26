@@ -68,6 +68,12 @@ class DropPath(FunctionSpec):
     or "survival rate" to align with common usage.
     """
 
+    _BENCHMARK_CASES = (
+        ("small-b8-f64", 8, 64),
+        ("medium-b16-f256", 16, 256),
+        ("large-b32-f1024", 32, 1024),
+    )
+
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
         x: Tensor,
@@ -83,20 +89,50 @@ class DropPath(FunctionSpec):
         )
 
     @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
+    def _iter_benchmark_cases(
+        cls,
+        device: torch.device | str = "cpu",
+        *,
+        include_backward_grads: bool = False,
+    ):
         device = torch.device(device)
-        cases = [
-            ("small", 8, 64),
-            ("medium", 16, 256),
-            ("large", 32, 1024),
-        ]
-        for label, batch, features in cases:
+        for label, batch, features in cls._BENCHMARK_CASES:
             x = torch.randn(batch, features, device=device)
+            if include_backward_grads:
+                x.requires_grad_(True)
             yield (
-                f"{label}-batch{batch}-features{features}-drop0p1-train",
+                label,
                 (x,),
                 {"drop_prob": 0.1, "training": True, "scale_by_keep": True},
             )
+
+    @classmethod
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        yield from cls._iter_benchmark_cases(
+            device=device,
+            include_backward_grads=False,
+        )
+
+    @classmethod
+    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        yield from cls._iter_benchmark_cases(
+            device=device,
+            include_backward_grads=True,
+        )
+
+    @classmethod
+    def make_inputs(cls, device: torch.device | str = "cpu"):
+        yield from cls.make_inputs_forward(device=device)
+
+    @classmethod
+    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
+        _ = device
+        return [label for label, _, _ in cls._BENCHMARK_CASES]
+
+    @classmethod
+    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
+        _ = device
+        return [label for label, _, _ in cls._BENCHMARK_CASES]
 
 
 drop_path = DropPath.make_function("drop_path")

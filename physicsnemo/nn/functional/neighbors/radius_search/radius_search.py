@@ -85,6 +85,12 @@ class RadiusSearch(FunctionSpec):
 
     """
 
+    _BENCHMARK_CASES = (
+        ("small-p1024-q512-r0p1-m32", 1024, 512, 0.1, 32),
+        ("medium-p4096-q2048-r0p1-m32", 4096, 2048, 0.1, 32),
+        ("large-p8192-q4096-r0p1-m32", 8192, 4096, 0.1, 32),
+    )
+
     @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=0)
     def warp_forward(
         points: torch.Tensor,
@@ -112,21 +118,16 @@ class RadiusSearch(FunctionSpec):
         )
 
     @classmethod
-    def make_inputs(
+    def make_inputs_forward(
         cls,
         device: torch.device | str = "cpu",
     ):
         device = torch.device(device)
-        cases = [
-            ("small", 1024, 512, 0.1, 32),
-            ("medium", 4096, 2048, 0.1, 32),
-            ("large", 8192, 4096, 0.1, 32),
-        ]
-        for label, num_points, num_queries, radius, max_points in cases:
+        for label, num_points, num_queries, radius, max_points in cls._BENCHMARK_CASES:
             points = torch.rand(num_points, 3, device=device)
             queries = torch.rand(num_queries, 3, device=device)
             yield (
-                f"{label}-points{num_points}-queries{num_queries}-radius{radius}",
+                label,
                 (points, queries, radius),
                 {
                     "max_points": max_points,
@@ -134,6 +135,27 @@ class RadiusSearch(FunctionSpec):
                     "return_points": True,
                 },
             )
+
+    @classmethod
+    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        _ = device
+        # Radius search returns discrete neighbor assignments, so backward
+        # benchmarking is not currently defined.
+        return ()
+
+    @classmethod
+    def make_inputs(cls, device: torch.device | str = "cpu"):
+        yield from cls.make_inputs_forward(device=device)
+
+    @classmethod
+    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
+        _ = device
+        return [label for label, _, _, _, _ in cls._BENCHMARK_CASES]
+
+    @classmethod
+    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
+        _ = device
+        return []
 
     @classmethod
     def compare(

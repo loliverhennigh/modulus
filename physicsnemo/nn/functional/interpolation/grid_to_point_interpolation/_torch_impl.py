@@ -66,7 +66,7 @@ def linear_step(x: Tensor) -> Tensor:
 
 @torch.compile
 def smooth_step_1(x: Tensor) -> Tensor:
-    """
+    r"""
     Compute the smooth step interpolation of the input tensor values.
 
     This function applies the smooth step function: \(f(x) = 3x^2 - 2x^3\)
@@ -89,7 +89,7 @@ def smooth_step_1(x: Tensor) -> Tensor:
 
 @torch.compile
 def smooth_step_2(x: Tensor) -> Tensor:
-    """
+    r"""
     Compute the enhanced smooth step interpolation of the input tensor values.
 
     This function applies the enhanced smooth step function:
@@ -271,8 +271,9 @@ def _gather_nd(params: Tensor, indices: Tensor) -> Tensor:
             f"Got indices:{indices.shape}, params:{params.shape}. {m} > {n}"
         )
 
-    indices = indices.reshape((num_samples, m)).transpose(0, 1).tolist()
-    output = params[indices]  # (num_samples, ...)
+    indices = indices.reshape((num_samples, m)).transpose(0, 1)
+    index_tuple = tuple(indices[axis] for axis in range(m))
+    output = params[index_tuple]  # (num_samples, ...)
     return output.reshape(out_shape).contiguous()
 
 

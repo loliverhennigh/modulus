@@ -5,11 +5,22 @@ By default, ``grid_to_point_interpolation`` and
 ``point_to_grid_interpolation`` dispatch to the Warp backend when available.
 The deprecated ``interpolation`` alias preserves torch-default behavior for
 backward compatibility.
+Visualization assets for this page are generated from
+``docs/_media/functionals/interpolation/``.
 
 Grid-To-Point Interpolation
 ---------------------------
 
 .. autofunction:: physicsnemo.nn.functional.grid_to_point_interpolation
+
+.. rubric:: Visualization
+
+This animation shows query points colored by interpolated values over the same
+fixed structured grid field.
+
+.. figure:: /nn/functional/interpolation/grid_to_point_interpolation/grid_to_point_queries.gif
+   :alt: Grid-to-point interpolation query animation
+   :width: 85%
 
 .. rubric:: Benchmarks (ASV)
 
@@ -29,6 +40,20 @@ Point-To-Grid Interpolation
 ---------------------------
 
 .. autofunction:: physicsnemo.nn.functional.point_to_grid_interpolation
+
+.. rubric:: Visualization
+
+The image below shows scattered input point values (left) and the resulting
+rasterized grid field (right). The animation shows convergence as more points
+are accumulated.
+
+.. figure:: /nn/functional/interpolation/point_to_grid_interpolation/point_to_grid_overview.png
+   :alt: Point-to-grid interpolation visualization overview
+   :width: 100%
+
+.. figure:: /nn/functional/interpolation/point_to_grid_interpolation/point_to_grid_convergence.gif
+   :alt: Point-to-grid interpolation convergence animation
+   :width: 75%
 
 .. rubric:: Benchmarks (ASV)
 

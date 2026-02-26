@@ -14,20 +14,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .grid_to_point_interpolation import (
-    GridToPointInterpolation,
-    grid_to_point_interpolation,
-    interpolation,
-)
-from .point_to_grid_interpolation import (
-    PointToGridInterpolation,
-    point_to_grid_interpolation,
-)
+"""1D nearest-neighbor point-to-grid forward scatter kernel."""
 
-__all__ = [
-    "GridToPointInterpolation",
-    "PointToGridInterpolation",
-    "grid_to_point_interpolation",
-    "interpolation",
-    "point_to_grid_interpolation",
-]
+import warp as wp
+
+
+@wp.kernel
+def point_to_grid_forward_1d_stride1(
+    points: wp.array(dtype=wp.float32),
+    point_values: wp.array2d(dtype=wp.float32),
+    out_grid: wp.array2d(dtype=wp.float32),
+    origin: wp.float32,
+    dx: wp.float32,
+    size_x: int,
+    center_offset: wp.float32,
+):
+    tid = wp.tid()
+    x = points[tid]
+    center = wp.int32((x - origin) / dx + center_offset)
+    if center < 0:
+        center = 0
+    if center >= size_x:
+        center = size_x - 1
+
+    for c in range(point_values.shape[1]):
+        wp.atomic_add(out_grid, c, center, point_values[tid, c])
+
+
+__all__ = ["point_to_grid_forward_1d_stride1"]

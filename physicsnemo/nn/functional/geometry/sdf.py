@@ -321,29 +321,6 @@ class SignedDistanceField(FunctionSpec):
         # SDF currently has no custom backward implementation.
         return ()
 
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _, _ in cls._BENCHMARK_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return []
-
-    @classmethod
-    def compare(
-        cls,
-        output: tuple[torch.Tensor, torch.Tensor],
-        reference: tuple[torch.Tensor, torch.Tensor],
-    ) -> None:
-        # TODO(ASV): Populate output comparison in a follow-up PR.
-        raise NotImplementedError
-
 
 signed_distance_field = SignedDistanceField.make_function("signed_distance_field")
 

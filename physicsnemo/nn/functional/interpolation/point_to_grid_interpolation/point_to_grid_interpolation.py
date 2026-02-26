@@ -14,7 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import warnings
+from __future__ import annotations
+
 from typing import List, Tuple
 
 import torch
@@ -22,60 +23,47 @@ from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
 
-from ._torch_impl import interpolation_torch
-from ._warp_impl import interpolation_warp
+from ._torch_impl import point_to_grid_interpolation_torch
+from ._warp_impl import point_to_grid_interpolation_warp
 
 
-class GridToPointInterpolation(FunctionSpec):
-    r"""Interpolate values from a structured grid at query point locations.
+class PointToGridInterpolation(FunctionSpec):
+    r"""Scatter point values back onto a structured grid using interpolation weights.
 
-    This functional evaluates a scalar or multi-channel field defined on a regular
-    Cartesian grid at arbitrary query points in 1D, 2D, or 3D.
+    This functional maps values defined at query points onto a regular Cartesian
+    grid in 1D/2D/3D. It is the adjoint-style counterpart to
+    ``grid_to_point_interpolation``.
 
-    For a query point :math:`\mathbf{x}` and a grid field :math:`f`, interpolation
-    is computed as a weighted sum over local stencil points:
+    For point values :math:`v_n` at points :math:`\mathbf{x}_n`, the gridded field
+    :math:`g_i` is accumulated as:
 
     .. math::
 
-       \hat{f}(\mathbf{x}) = \sum_{i \in \mathcal{N}(\mathbf{x})}
-       w_i(\mathbf{x})\, f_i
+       g_i = \sum_{n} w_i(\mathbf{x}_n)\, v_n
 
-    where :math:`\mathcal{N}(\mathbf{x})` is the interpolation neighborhood and
-    :math:`w_i(\mathbf{x})` are interpolation weights.
-
-    The interpolation mode controls the stencil and weights:
-
-    - ``nearest_neighbor``: nearest grid point (piecewise constant, 1-point stencil)
-    - ``linear``: multilinear interpolation (2^d stencil in d dimensions)
-    - ``smooth_step_1``: multilinear-style interpolation with smooth-step weights
-      :math:`3t^2 - 2t^3`
-    - ``smooth_step_2``: multilinear-style interpolation with quintic smooth-step
-      weights :math:`t^3(6t^2 - 15t + 10)`
-    - ``gaussian``: local Gaussian weighting over a larger fixed stencil
-
-    Notes
-    -----
-    - Grid spacing and extents are provided by ``grid``.
-    - The ``warp`` and ``torch`` backends are intended to be numerically aligned.
-    - ``torch`` remains the current default dispatch path pending further Warp
-      validation.
+    where :math:`w_i(\mathbf{x}_n)` are interpolation weights for grid node
+    :math:`i` at query point :math:`\mathbf{x}_n`.
 
     Parameters
     ----------
-    query_points: torch.Tensor
-        Points at which interpolation is to be performed.
-    context_grid: torch.Tensor
-        Source grid from which values are interpolated.
-    grid: list[tuple[float, float, int]]
-        Describes the grid's range and resolution.
-    interpolation_type: str, optional
-        Interpolation method name, by default ``"smooth_step_2"``.
-    mem_speed_trade: bool, optional
-        Trade-off between memory usage and speed.
+    query_points : torch.Tensor
+        Query points with shape ``(num_points, dims)``.
+    point_values : torch.Tensor
+        Values at query points with shape ``(num_points, channels)``.
+    grid : list[tuple[float, float, int]]
+        Grid extent and resolution metadata.
+    interpolation_type : str, optional
+        Interpolation method name.
+    mem_speed_trade : bool, optional
+        Forwarded to the underlying grid-to-point implementation.
     implementation : {"warp", "torch"} or None
-        Implementation to use. When ``None``, dispatch selects the available
-        implementation.
+        Implementation to use. When ``None``, dispatch selects by rank.
 
+    Notes
+    -----
+    - ``query_points`` and ``point_values`` currently support ``torch.float32``.
+    - The ``warp`` and ``torch`` backends are intended to be numerically aligned.
+    - ``warp`` is the default dispatch path for ``point_to_grid_interpolation``.
     """
 
     _BENCHMARK_CASES = (
@@ -92,33 +80,33 @@ class GridToPointInterpolation(FunctionSpec):
     _COMPARE_BACKWARD_ATOL = 2e-2
     _COMPARE_BACKWARD_RTOL = 5e-2
 
-    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=1)
+    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=0)
     def warp_forward(
         query_points: Tensor,
-        context_grid: Tensor,
+        point_values: Tensor,
         grid: List[Tuple[float, float, int]],
         interpolation_type: str = "smooth_step_2",
         mem_speed_trade: bool = True,
     ) -> Tensor:
-        return interpolation_warp(
+        return point_to_grid_interpolation_warp(
             query_points,
-            context_grid,
+            point_values,
             grid,
             interpolation_type=interpolation_type,
             mem_speed_trade=mem_speed_trade,
         )
 
-    @FunctionSpec.register(name="torch", rank=0, baseline=True)
+    @FunctionSpec.register(name="torch", rank=1, baseline=True)
     def torch_forward(
         query_points: Tensor,
-        context_grid: Tensor,
+        point_values: Tensor,
         grid: List[Tuple[float, float, int]],
         interpolation_type: str = "smooth_step_2",
         mem_speed_trade: bool = True,
     ) -> Tensor:
-        return interpolation_torch(
+        return point_to_grid_interpolation_torch(
             query_points,
-            context_grid,
+            point_values,
             grid,
             interpolation_type=interpolation_type,
             mem_speed_trade=mem_speed_trade,
@@ -129,13 +117,6 @@ class GridToPointInterpolation(FunctionSpec):
         device = torch.device(device)
         for label, dims, grid_size, num_points, interp_name in cls._BENCHMARK_CASES:
             grid = [(-1.0, 2.0, grid_size)] * dims
-            linspace = [torch.linspace(x[0], x[1], x[2], device=device) for x in grid]
-            mesh_grid = torch.meshgrid(linspace, indexing="ij")
-            mesh_grid = torch.stack(mesh_grid, dim=0)
-            context_grid = torch.zeros_like(mesh_grid[0:1])
-            for power, coord in enumerate(mesh_grid, start=1):
-                context_grid = context_grid + coord.unsqueeze(0) ** power
-            context_grid = torch.sin(context_grid)
             query_points = torch.stack(
                 [
                     torch.linspace(0.0, 1.0, num_points, device=device)
@@ -143,9 +124,16 @@ class GridToPointInterpolation(FunctionSpec):
                 ],
                 axis=-1,
             )
+            point_values = torch.stack(
+                (
+                    torch.sin(query_points.sum(dim=-1)),
+                    torch.cos(query_points.prod(dim=-1)),
+                ),
+                dim=-1,
+            )
             yield (
                 label,
-                (query_points, context_grid, grid),
+                (query_points, point_values, grid),
                 {"interpolation_type": interp_name, "mem_speed_trade": True},
             )
 
@@ -154,13 +142,6 @@ class GridToPointInterpolation(FunctionSpec):
         device = torch.device(device)
         for label, dims, grid_size, num_points, interp_name in cls._BENCHMARK_CASES:
             grid = [(-1.0, 2.0, grid_size)] * dims
-            linspace = [torch.linspace(x[0], x[1], x[2], device=device) for x in grid]
-            mesh_grid = torch.meshgrid(linspace, indexing="ij")
-            mesh_grid = torch.stack(mesh_grid, dim=0)
-            context_grid = torch.zeros_like(mesh_grid[0:1])
-            for power, coord in enumerate(mesh_grid, start=1):
-                context_grid = context_grid + coord.unsqueeze(0) ** power
-            context_grid = torch.sin(context_grid).requires_grad_(True)
             query_points = torch.stack(
                 [
                     torch.linspace(0.0, 1.0, num_points, device=device)
@@ -168,9 +149,16 @@ class GridToPointInterpolation(FunctionSpec):
                 ],
                 axis=-1,
             ).requires_grad_(True)
+            point_values = torch.stack(
+                (
+                    torch.sin(query_points.sum(dim=-1)),
+                    torch.cos(query_points.prod(dim=-1)),
+                ),
+                dim=-1,
+            ).requires_grad_(True)
             yield (
                 label,
-                (query_points, context_grid, grid),
+                (query_points, point_values, grid),
                 {"interpolation_type": interp_name, "mem_speed_trade": True},
             )
 
@@ -193,24 +181,12 @@ class GridToPointInterpolation(FunctionSpec):
         )
 
 
-grid_to_point_interpolation = GridToPointInterpolation.make_function(
-    "grid_to_point_interpolation"
+point_to_grid_interpolation = PointToGridInterpolation.make_function(
+    "point_to_grid_interpolation"
 )
 
 
-def interpolation(*args, **kwargs):
-    """Deprecated alias for ``grid_to_point_interpolation``."""
-    warnings.warn(
-        "`interpolation` is deprecated and will be removed in a future release. "
-        "Use `grid_to_point_interpolation` instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return grid_to_point_interpolation(*args, **kwargs)
-
-
 __all__ = [
-    "GridToPointInterpolation",
-    "grid_to_point_interpolation",
-    "interpolation",
+    "PointToGridInterpolation",
+    "point_to_grid_interpolation",
 ]

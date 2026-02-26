@@ -88,17 +88,17 @@ class FunctionSpec:
        ``@FunctionSpec.register``. Provide a ``name`` and a ``rank`` (lower
        wins). Optionally set ``baseline=True`` for the reference implementation
        used in benchmarking. The decorator must be used inside the class body.
-    3. Implement :meth:`make_inputs_forward`, :meth:`make_inputs_backward`,
-       :meth:`compare_forward`, and optionally :meth:`compare_backward` for
-       benchmarking and correctness checks. These are
-       optional for basic usage, but highly encouraged and required for
-       benchmarking/validation workflows. Each input generator should yield
-       ``(label, args, kwargs)`` items in roughly increasing workload order
-       (for example from smaller to larger cases). Labels use a descriptive
-       naming scheme that is used in benchmark plots and summaries.
-       ``compare_forward`` should validate that outputs from two
-       implementations match. ``compare_backward`` can override comparison
-       semantics for gradient tensors when needed.
+    3. Implement :meth:`make_inputs_forward` for every functional so it can be
+       benchmarked. Implement :meth:`compare_forward` when a functional has
+       multiple implementations and needs cross-backend forward parity checks.
+       Implement :meth:`make_inputs_backward` only for functionals with a
+       meaningful backward pass (for example differentiable functionals).
+       Implement :meth:`compare_backward` when backward support exists and
+       multiple implementations need backward parity checks.
+       Each input generator should yield ``(label, args, kwargs)`` items in
+       roughly increasing workload order (for example from smaller to larger
+       cases). Labels do not need to be exactly ``small/medium/large`` and are
+       used in benchmark plots and summaries.
     4. Expose a functional entry point with :meth:`make_function`.
 
     Dispatch rules
@@ -190,7 +190,27 @@ class FunctionSpec:
                 yield ("large", (torch.randn(16384, device=device),), {})
 
             @classmethod
+            def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+                device = torch.device(device)
+                yield (
+                    "small_grad",
+                    (torch.randn(1024, device=device, requires_grad=True),),
+                    {},
+                )
+                yield (
+                    "medium_grad",
+                    (torch.randn(4096, device=device, requires_grad=True),),
+                    {},
+                )
+
+            @classmethod
             def compare_forward(
+                cls, output: torch.Tensor, reference: torch.Tensor
+            ) -> None:
+                torch.testing.assert_close(output, reference)
+
+            @classmethod
+            def compare_backward(
                 cls, output: torch.Tensor, reference: torch.Tensor
             ) -> None:
                 torch.testing.assert_close(output, reference)
@@ -291,9 +311,10 @@ class FunctionSpec:
     ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
         """Generator for labeled forward-pass benchmark inputs.
 
-        This method is used for benchmarking and testing. Generated inputs
-        should be representative of expected usage and suitable for both code
-        coverage and performance measurement.
+        This method is used for benchmarking and testing and should be
+        implemented for every functional. Generated inputs should be
+        representative of expected usage and suitable for both code coverage
+        and performance measurement.
 
         Yield each case as ``(label, args, kwargs)`` in roughly increasing
         workload order (for example from smaller to larger inputs). Labels should
@@ -319,10 +340,10 @@ class FunctionSpec:
     ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
         """Generator for labeled backward-pass benchmark inputs.
 
-        Backward benchmarks are optional. Functionals that support autograd
-        benchmarking should override this method and yield
-        ``(label, args, kwargs)`` items that exercise representative backward
-        workloads. By default, no backward benchmark cases are provided.
+        Backward benchmarks are optional. Functionals with a meaningful
+        backward pass should override this method and yield ``(label, args,
+        kwargs)`` items that exercise representative backward workloads.
+        By default, no backward benchmark cases are provided.
 
         Parameters
         ----------
@@ -339,8 +360,8 @@ class FunctionSpec:
     @classmethod
     def compare_forward(cls, output: object, reference: object) -> None:
         """Compare forward outputs for validation.
-        This is used to validate different implementations of the same function
-        against a baseline implementation in forward mode.
+        This is typically implemented when a functional has multiple
+        implementations and needs forward parity validation against a baseline.
 
         Parameters
         ----------
@@ -357,6 +378,8 @@ class FunctionSpec:
 
         The default behavior delegates to :meth:`compare_forward`. Functionals
         can override this when backward tolerances differ from forward.
+        This is typically implemented when multiple implementations support
+        backward and require backward parity checks.
 
         Parameters
         ----------

@@ -15,8 +15,16 @@
 # limitations under the License.
 
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
-from .geometry import signed_distance_field
-from .interpolation import grid_to_point_interpolation, interpolation
+from .geometry import (
+    mesh_poisson_disk_sample,
+    mesh_to_voxel_fraction,
+    signed_distance_field,
+)
+from .interpolation import (
+    grid_to_point_interpolation,
+    interpolation,
+    point_to_grid_interpolation,
+)
 from .neighbors import knn, radius_search
 from .regularization_parameterization import drop_path, weight_fact
 
@@ -28,6 +36,9 @@ __all__ = [
     "imag",
     "interpolation",
     "knn",
+    "mesh_poisson_disk_sample",
+    "mesh_to_voxel_fraction",
+    "point_to_grid_interpolation",
     "radius_search",
     "real",
     "rfft",

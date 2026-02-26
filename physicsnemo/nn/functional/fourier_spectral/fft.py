@@ -373,46 +373,18 @@ class ViewAsComplex(FunctionSpec):
         return input
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, size in _FFT_1D_CASES:
             signal = torch.randn(4, size, 2, device=device)
-            if include_backward_grads:
-                signal.requires_grad_(True)
             yield (label, (signal,), {})
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
+        device = torch.device(device)
+        for label, size in _FFT_1D_CASES:
+            signal = torch.randn(4, size, 2, device=device, requires_grad=True)
+            yield (label, (signal,), {})
 
 
 class Real(FunctionSpec):
@@ -439,47 +411,21 @@ class Real(FunctionSpec):
         return input[..., 0]
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, size in _FFT_1D_CASES:
             signal = torch.randn(4, size, 2, device=device)
             complex_signal = torch.view_as_complex(signal)
-            if include_backward_grads:
-                complex_signal.requires_grad_(True)
             yield (label, (complex_signal,), {})
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
+        device = torch.device(device)
+        for label, size in _FFT_1D_CASES:
+            signal = torch.randn(4, size, 2, device=device)
+            complex_signal = torch.view_as_complex(signal)
+            complex_signal.requires_grad_(True)
+            yield (label, (complex_signal,), {})
 
 
 class Imag(FunctionSpec):
@@ -506,47 +452,21 @@ class Imag(FunctionSpec):
         return input[..., 1]
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, size in _FFT_1D_CASES:
             signal = torch.randn(4, size, 2, device=device)
             complex_signal = torch.view_as_complex(signal)
-            if include_backward_grads:
-                complex_signal.requires_grad_(True)
             yield (label, (complex_signal,), {})
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
+        device = torch.device(device)
+        for label, size in _FFT_1D_CASES:
+            signal = torch.randn(4, size, 2, device=device)
+            complex_signal = torch.view_as_complex(signal)
+            complex_signal.requires_grad_(True)
+            yield (label, (complex_signal,), {})
 
 
 class RFFT(FunctionSpec):
@@ -582,46 +502,18 @@ class RFFT(FunctionSpec):
         return _rfft_onnx(input, (n,), (dim,), norm)
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, size in _FFT_1D_CASES:
             signal = torch.randn(4, size, device=device)
-            if include_backward_grads:
-                signal.requires_grad_(True)
             yield (label, (signal,), {"n": size})
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
+        device = torch.device(device)
+        for label, size in _FFT_1D_CASES:
+            signal = torch.randn(4, size, device=device, requires_grad=True)
+            yield (label, (signal,), {"n": size})
 
 
 class RFFT2(FunctionSpec):
@@ -657,17 +549,10 @@ class RFFT2(FunctionSpec):
         return _rfft_onnx(input, s, dim, norm)
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, height, width in _FFT_2D_CASES:
             signal = torch.randn(4, height, width, device=device)
-            if include_backward_grads:
-                signal.requires_grad_(True)
             yield (
                 label,
                 (signal,),
@@ -675,32 +560,17 @@ class RFFT2(FunctionSpec):
             )
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _, _ in _FFT_2D_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _, _ in _FFT_2D_CASES]
+        device = torch.device(device)
+        for label, height, width in _FFT_2D_CASES:
+            signal = torch.randn(
+                4, height, width, device=device, requires_grad=True
+            )
+            yield (
+                label,
+                (signal,),
+                {"s": (height, width)},
+            )
 
 
 class IRFFT(FunctionSpec):
@@ -736,18 +606,11 @@ class IRFFT(FunctionSpec):
         return _irfft_onnx(input, (n,), (dim,), norm)
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, size in _FFT_1D_CASES:
             signal = torch.randn(4, size, device=device)
             spectrum = torch.fft.rfft(signal)
-            if include_backward_grads:
-                spectrum = spectrum.detach().requires_grad_(True)
             yield (
                 label,
                 (spectrum,),
@@ -755,32 +618,16 @@ class IRFFT(FunctionSpec):
             )
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in _FFT_1D_CASES]
+        device = torch.device(device)
+        for label, size in _FFT_1D_CASES:
+            signal = torch.randn(4, size, device=device)
+            spectrum = torch.fft.rfft(signal).detach().requires_grad_(True)
+            yield (
+                label,
+                (spectrum,),
+                {"n": size},
+            )
 
 
 class IRFFT2(FunctionSpec):
@@ -816,18 +663,11 @@ class IRFFT2(FunctionSpec):
         return _irfft_onnx(input, s, dim, norm)
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, height, width in _FFT_2D_CASES:
             signal = torch.randn(4, height, width, device=device)
             spectrum = torch.fft.rfft2(signal)
-            if include_backward_grads:
-                spectrum = spectrum.detach().requires_grad_(True)
             yield (
                 label,
                 (spectrum,),
@@ -835,32 +675,16 @@ class IRFFT2(FunctionSpec):
             )
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _, _ in _FFT_2D_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _, _ in _FFT_2D_CASES]
+        device = torch.device(device)
+        for label, height, width in _FFT_2D_CASES:
+            signal = torch.randn(4, height, width, device=device)
+            spectrum = torch.fft.rfft2(signal).detach().requires_grad_(True)
+            yield (
+                label,
+                (spectrum,),
+                {"s": (height, width)},
+            )
 
 
 rfft = RFFT.make_function("rfft")

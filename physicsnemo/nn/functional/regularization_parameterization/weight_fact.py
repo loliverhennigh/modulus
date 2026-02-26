@@ -50,17 +50,10 @@ class WeightFact(FunctionSpec):
         return g, v
 
     @classmethod
-    def _iter_benchmark_cases(
-        cls,
-        device: torch.device | str = "cpu",
-        *,
-        include_backward_grads: bool = False,
-    ):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, size in cls._BENCHMARK_CASES:
             w = torch.randn(size, size, device=device)
-            if include_backward_grads:
-                w.requires_grad_(True)
             yield (
                 label,
                 (w,),
@@ -68,32 +61,15 @@ class WeightFact(FunctionSpec):
             )
 
     @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=False,
-        )
-
-    @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        yield from cls._iter_benchmark_cases(
-            device=device,
-            include_backward_grads=True,
-        )
-
-    @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
-        yield from cls.make_inputs_forward(device=device)
-
-    @classmethod
-    def make_input_labels_forward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in cls._BENCHMARK_CASES]
-
-    @classmethod
-    def make_input_labels_backward(cls, device: torch.device) -> list[str]:
-        _ = device
-        return [label for label, _ in cls._BENCHMARK_CASES]
+        device = torch.device(device)
+        for label, size in cls._BENCHMARK_CASES:
+            w = torch.randn(size, size, device=device, requires_grad=True)
+            yield (
+                label,
+                (w,),
+                {"mean": 1.0, "stddev": 0.1},
+            )
 
 
 weight_fact = WeightFact.make_function("weight_fact")

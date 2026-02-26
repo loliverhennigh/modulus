@@ -32,6 +32,7 @@ from physicsnemo.nn.functional.geometry import (
 )
 from physicsnemo.nn.functional.interpolation import (
     GridToPointInterpolation,
+    PointToGridInterpolation,
 )
 from physicsnemo.nn.functional.neighbors import KNN, RadiusSearch
 from physicsnemo.nn.functional.regularization_parameterization import DropPath, WeightFact
@@ -42,6 +43,7 @@ FUNCTIONAL_SPECS = (
     DropPath,
     KNN,
     GridToPointInterpolation,
+    PointToGridInterpolation,
     RadiusSearch,
     SignedDistanceField,
     WeightFact,

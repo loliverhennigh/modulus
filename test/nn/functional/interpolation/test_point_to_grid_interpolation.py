@@ -44,10 +44,7 @@ def _build_reference_problem(device: torch.device | str, dims: int = 3):
     # Build smooth query points in domain interior.
     num_points = 96
     query_points = torch.stack(
-        [
-            torch.linspace(-0.2, 1.2, num_points, device=device)
-            for _ in range(dims)
-        ],
+        [torch.linspace(-0.2, 1.2, num_points, device=device) for _ in range(dims)],
         axis=-1,
     ).to(torch.float32)
 
@@ -64,7 +61,9 @@ def _build_reference_problem(device: torch.device | str, dims: int = 3):
     linspace = [torch.linspace(x[0], x[1], x[2], device=device) for x in grid]
     mesh_grid = torch.meshgrid(linspace, indexing="ij")
     mesh_grid = torch.stack(mesh_grid, dim=0)
-    context_grid = torch.zeros(2, *mesh_grid.shape[1:], device=device, dtype=torch.float32)
+    context_grid = torch.zeros(
+        2, *mesh_grid.shape[1:], device=device, dtype=torch.float32
+    )
     context_grid[0] = torch.sin(mesh_grid.sum(dim=0))
     context_grid[1] = torch.cos(mesh_grid.prod(dim=0))
 
@@ -258,7 +257,9 @@ def test_point_to_grid_interpolation_error_handling(device: str):
 # Compare torch and warp forward outputs on benchmark representative inputs.
 @requires_module("warp")
 def test_point_to_grid_interpolation_backend_forward_parity(device: str):
-    for _label, args, kwargs in PointToGridInterpolation.make_inputs_forward(device=device):
+    for _label, args, kwargs in PointToGridInterpolation.make_inputs_forward(
+        device=device
+    ):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
 
@@ -278,7 +279,9 @@ def test_point_to_grid_interpolation_backend_forward_parity(device: str):
 # Compare torch and warp backward gradients on benchmark representative inputs.
 @requires_module("warp")
 def test_point_to_grid_interpolation_backend_backward_parity(device: str):
-    for label, args, kwargs in PointToGridInterpolation.make_inputs_backward(device=device):
+    for label, args, kwargs in PointToGridInterpolation.make_inputs_backward(
+        device=device
+    ):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
 

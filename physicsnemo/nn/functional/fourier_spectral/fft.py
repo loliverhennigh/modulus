@@ -563,9 +563,7 @@ class RFFT2(FunctionSpec):
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
         for label, height, width in _FFT_2D_CASES:
-            signal = torch.randn(
-                4, height, width, device=device, requires_grad=True
-            )
+            signal = torch.randn(4, height, width, device=device, requires_grad=True)
             yield (
                 label,
                 (signal,),

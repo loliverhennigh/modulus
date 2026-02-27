@@ -19,6 +19,7 @@ import torch
 
 from physicsnemo.core.version_check import check_version_spec
 from physicsnemo.nn.functional import knn
+from physicsnemo.nn.functional.neighbors import KNN
 from physicsnemo.nn.functional.neighbors.knn._cuml_impl import knn_impl as knn_cuml
 from physicsnemo.nn.functional.neighbors.knn._scipy_impl import knn_impl as knn_scipy
 
@@ -93,7 +94,12 @@ def test_knn_error_handling(device: str):
 
     # Mismatched dtypes are rejected by all implementations.
     with pytest.raises(ValueError, match="must have the same dtype"):
-        knn(points.to(torch.float32), queries.to(torch.float64), k=3, implementation="torch")
+        knn(
+            points.to(torch.float32),
+            queries.to(torch.float64),
+            k=3,
+            implementation="torch",
+        )
 
     # Accelerated implementation/device mismatch checks.
     if "cpu" in device and check_version_spec("cuml", "24.0.0", hard_fail=False):
@@ -170,3 +176,19 @@ def test_knn_opcheck(device: str):
         op = knn_scipy
 
     torch.library.opcheck(op, args=(points, queries, k))
+
+
+# Validate benchmark input generation contract for KNN.
+def test_knn_make_inputs_forward(device: str):
+    label, args, kwargs = next(iter(KNN.make_inputs_forward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    indices, distances = KNN.dispatch(*args, implementation="torch", **kwargs)
+    assert indices.ndim == 2
+    assert distances.ndim == 2
+
+
+def test_knn_make_inputs_backward():
+    assert list(KNN.make_inputs_backward(device="cpu")) == []

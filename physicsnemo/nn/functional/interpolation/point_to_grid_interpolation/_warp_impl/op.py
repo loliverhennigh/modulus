@@ -54,7 +54,9 @@ def _parse_grid_metadata(grid_meta: torch.Tensor) -> list[tuple[float, float, in
 
 
 # Register the warp-backed point-to-grid op with torch custom ops.
-@torch.library.custom_op("physicsnemo::point_to_grid_interpolation_warp", mutates_args=())
+@torch.library.custom_op(
+    "physicsnemo::point_to_grid_interpolation_warp", mutates_args=()
+)
 def point_to_grid_interpolation_impl(
     query_points: torch.Tensor,
     point_values: torch.Tensor,
@@ -100,8 +102,16 @@ def point_to_grid_interpolation_impl(
 
     # Normalize to float32 for warp kernels and keep original dtype for output cast.
     input_dtype = point_values.dtype
-    query_fp32 = query_points if query_points.dtype == torch.float32 else query_points.to(torch.float32)
-    values_fp32 = point_values if point_values.dtype == torch.float32 else point_values.to(torch.float32)
+    query_fp32 = (
+        query_points
+        if query_points.dtype == torch.float32
+        else query_points.to(torch.float32)
+    )
+    values_fp32 = (
+        point_values
+        if point_values.dtype == torch.float32
+        else point_values.to(torch.float32)
+    )
 
     # Allocate output tensor.
     output = torch.zeros(
@@ -148,7 +158,11 @@ def _(
     channels = point_values.shape[1] if point_values.ndim == 2 else 1
     dims = int(grid_meta.shape[0]) if grid_meta.ndim == 2 else 1
     sizes = [1] * dims
-    if grid_meta.device.type != "meta" and grid_meta.ndim == 2 and grid_meta.shape[1] == 3:
+    if (
+        grid_meta.device.type != "meta"
+        and grid_meta.ndim == 2
+        and grid_meta.shape[1] == 3
+    ):
         try:
             sizes = [int(v) for v in grid_meta[:, 2].tolist()]
         except Exception:

@@ -17,6 +17,7 @@ import pytest
 import torch
 
 from physicsnemo.nn.functional import signed_distance_field
+from physicsnemo.nn.functional.geometry import SignedDistanceField
 from test.conftest import requires_module
 
 
@@ -129,3 +130,27 @@ def test_signed_distance_field_error_handling(device: str):
             torch.zeros(1, 2, 3, device=device, dtype=torch.int32),
             query_points,
         )
+
+
+# Validate benchmark input generation contract for SDF.
+@requires_module("warp")
+def test_signed_distance_field_make_inputs_forward(device: str):
+    label, args, kwargs = next(
+        iter(SignedDistanceField.make_inputs_forward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    sdf_out, hit_points = SignedDistanceField.dispatch(
+        *args,
+        implementation="warp",
+        **kwargs,
+    )
+    assert sdf_out.ndim == 1
+    assert hit_points.ndim == 2
+    assert hit_points.shape[1] == 3
+
+
+def test_signed_distance_field_make_inputs_backward():
+    assert list(SignedDistanceField.make_inputs_backward(device="cpu")) == []

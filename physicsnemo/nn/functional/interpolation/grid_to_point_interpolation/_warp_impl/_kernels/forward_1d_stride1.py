@@ -41,4 +41,3 @@ def interp_1d_stride1(
 
 
 __all__ = ["interp_1d_stride1"]
-

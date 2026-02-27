@@ -17,6 +17,7 @@
 import torch
 
 from physicsnemo.nn.functional import weight_fact
+from physicsnemo.nn.functional.regularization_parameterization import WeightFact
 
 
 # Validate the torch weight-factorization implementation.
@@ -38,3 +39,28 @@ def test_weight_fact_backward(device: str):
     # g * v reconstructs w, so the gradient wrt w is expected to be ones.
     (g * v).sum().backward()
     torch.testing.assert_close(w.grad, torch.ones_like(w))
+
+
+# Validate benchmark input generation contracts for forward and backward paths.
+def test_weight_fact_make_inputs_forward(device: str):
+    label, args, kwargs = next(iter(WeightFact.make_inputs_forward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    g, v = WeightFact.dispatch(*args, implementation="torch", **kwargs)
+    assert g.shape[0] == v.shape[0]
+    assert g.shape[1] == 1
+
+
+def test_weight_fact_make_inputs_backward(device: str):
+    label, args, kwargs = next(iter(WeightFact.make_inputs_backward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    w = args[0]
+    assert w.requires_grad
+    g, v = WeightFact.dispatch(*args, implementation="torch", **kwargs)
+    (g * v).sum().backward()
+    assert w.grad is not None

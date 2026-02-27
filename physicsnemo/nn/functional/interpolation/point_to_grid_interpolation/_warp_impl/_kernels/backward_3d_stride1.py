@@ -53,7 +53,9 @@ def point_to_grid_backward_3d_stride1(
 
     if compute_values_grad != 0:
         for c in range(point_values.shape[1]):
-            grad_point_values[tid, c] = grad_grid_output[c, center_x, center_y, center_z]
+            grad_point_values[tid, c] = grad_grid_output[
+                c, center_x, center_y, center_z
+            ]
 
     if compute_query_grad != 0:
         grad_query[tid, 0] = 0.0

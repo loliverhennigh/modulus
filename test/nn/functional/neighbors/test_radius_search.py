@@ -18,6 +18,7 @@ import pytest
 import torch
 
 from physicsnemo.nn.functional import radius_search
+from physicsnemo.nn.functional.neighbors import RadiusSearch
 from physicsnemo.nn.functional.neighbors.radius_search._warp_impl import (
     radius_search_impl as radius_search_warp,
 )
@@ -324,3 +325,18 @@ def test_radius_search_opcheck(device: str):
         radius_search_warp,
         args=(points, queries, 0.5, 8, True, True),
     )
+
+
+# Validate benchmark input generation contract for radius search.
+def test_radius_search_make_inputs_forward(device: str):
+    label, args, kwargs = next(iter(RadiusSearch.make_inputs_forward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    output = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
+    assert isinstance(output, tuple)
+
+
+def test_radius_search_make_inputs_backward():
+    assert list(RadiusSearch.make_inputs_backward(device="cpu")) == []

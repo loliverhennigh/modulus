@@ -35,13 +35,18 @@ from physicsnemo.nn.functional.interpolation import (
     PointToGridInterpolation,
 )
 from physicsnemo.nn.functional.neighbors import KNN, RadiusSearch
-from physicsnemo.nn.functional.regularization_parameterization import DropPath, WeightFact
+from physicsnemo.nn.functional.regularization_parameterization import (
+    DropPath,
+    WeightFact,
+)
 
 # FunctionSpec classes listed here must implement ``make_inputs_forward`` for ASV.
 # ``make_inputs_backward`` is optional and only needed for backward benchmarks.
 FUNCTIONAL_SPECS = (
     DropPath,
     KNN,
+    MeshPoissonDiskSample,
+    MeshToVoxelFraction,
     GridToPointInterpolation,
     PointToGridInterpolation,
     RadiusSearch,

@@ -185,7 +185,8 @@ def test_grid_to_point_interpolation_error_handling(device: str):
     # Check warp mem_speed_trade warning behavior.
     query_points, context_grid, grid, _, _ = _build_reference_problem(device)
     with pytest.warns(
-        UserWarning, match="ignores mem_speed_trade and always runs the same kernel path"
+        UserWarning,
+        match="ignores mem_speed_trade and always runs the same kernel path",
     ):
         GridToPointInterpolation.dispatch(
             query_points,

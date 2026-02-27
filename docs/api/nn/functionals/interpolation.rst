@@ -5,8 +5,6 @@ By default, ``grid_to_point_interpolation`` and
 ``point_to_grid_interpolation`` dispatch to the Warp backend when available.
 The deprecated ``interpolation`` alias preserves torch-default behavior for
 backward compatibility.
-Visualization assets for this page are generated from
-``docs/_media/functionals/interpolation/``.
 
 Grid-To-Point Interpolation
 ---------------------------

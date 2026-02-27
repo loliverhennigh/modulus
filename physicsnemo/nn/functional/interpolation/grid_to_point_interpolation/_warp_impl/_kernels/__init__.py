@@ -15,4 +15,3 @@
 # limitations under the License.
 
 """Warp interpolation kernels organized as one-kernel-per-file."""
-

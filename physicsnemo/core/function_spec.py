@@ -376,10 +376,9 @@ class FunctionSpec:
     def compare_backward(cls, output: object, reference: object) -> None:
         """Compare backward outputs for validation.
 
-        The default behavior delegates to :meth:`compare_forward`. Functionals
-        can override this when backward tolerances differ from forward.
-        This is typically implemented when multiple implementations support
-        backward and require backward parity checks.
+        By default this method raises ``NotImplementedError``. Functionals
+        should implement this when they provide backward support across
+        multiple implementations and need backward parity checks.
 
         Parameters
         ----------
@@ -388,7 +387,9 @@ class FunctionSpec:
         reference : object
             Reference backward result to compare against.
         """
-        cls.compare_forward(output=output, reference=reference)
+        raise NotImplementedError(
+            f"{cls.__name__}.compare_backward must be implemented"
+        )
 
     def __call__(self, *args, **kwargs):
         """Dispatch to the selected implementation.

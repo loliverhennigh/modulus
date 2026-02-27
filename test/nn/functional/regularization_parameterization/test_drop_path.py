@@ -17,6 +17,7 @@
 import torch
 
 from physicsnemo.nn.functional import drop_path
+from physicsnemo.nn.functional.regularization_parameterization import DropPath
 
 
 # Validate the torch drop-path implementation on deterministic RNG state.
@@ -85,3 +86,28 @@ def test_drop_path_backward(device: str):
     expected_grad.div_(keep_prob)
     expected_grad = expected_grad.expand_as(x)
     torch.testing.assert_close(x.grad, expected_grad)
+
+
+# Validate benchmark input generation contracts for forward and backward paths.
+def test_drop_path_make_inputs_forward(device: str):
+    label, args, kwargs = next(iter(DropPath.make_inputs_forward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    output = DropPath.dispatch(*args, implementation="torch", **kwargs)
+    assert output.ndim == 2
+    assert output.dtype == torch.float32
+
+
+def test_drop_path_make_inputs_backward(device: str):
+    label, args, kwargs = next(iter(DropPath.make_inputs_backward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    x = args[0]
+    assert x.requires_grad
+    output = DropPath.dispatch(*args, implementation="torch", **kwargs)
+    output.sum().backward()
+    assert x.grad is not None

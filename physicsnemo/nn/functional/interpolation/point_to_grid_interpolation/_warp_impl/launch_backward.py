@@ -366,7 +366,9 @@ def launch_backward(
         else torch.zeros((1, dims), device=query_fp32.device, dtype=torch.float32)
     )
     grad_values_work = (
-        torch.zeros((num_points, channels), device=query_fp32.device, dtype=torch.float32)
+        torch.zeros(
+            (num_points, channels), device=query_fp32.device, dtype=torch.float32
+        )
         if compute_values_grad
         else torch.zeros((1, channels), device=query_fp32.device, dtype=torch.float32)
     )

@@ -94,6 +94,22 @@ class KNN(FunctionSpec):
             )
 
     @classmethod
+    def compare_forward(
+        cls,
+        output: tuple[torch.Tensor, torch.Tensor],
+        reference: tuple[torch.Tensor, torch.Tensor],
+    ) -> None:
+        # Neighbor ordering can differ for equal-distance ties across backends.
+        _, distances = output
+        _, reference_distances = reference
+        torch.testing.assert_close(
+            torch.sort(distances, dim=1)[0],
+            torch.sort(reference_distances, dim=1)[0],
+            atol=1e-5,
+            rtol=1e-5,
+        )
+
+    @classmethod
     def dispatch(
         cls,
         points: torch.Tensor,

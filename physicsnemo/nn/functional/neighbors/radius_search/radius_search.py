@@ -136,4 +136,66 @@ class RadiusSearch(FunctionSpec):
                 },
             )
 
+    @classmethod
+    def compare_forward(cls, output: tuple, reference: tuple) -> None:
+        # Radius-search backends can return neighbors in different orders.
+        if len(output) != len(reference):
+            raise AssertionError("output and reference tuples must have equal length")
+
+        dynamic_output = (
+            len(output) > 0
+            and output[0].ndim == 2
+            and output[0].shape[0] == 2
+            and output[0].dtype in (torch.int32, torch.int64)
+        )
+
+        for output_tensor, reference_tensor in zip(output, reference):
+            if output_tensor.dtype in (torch.int32, torch.int64):
+                if output_tensor.ndim == 2 and output_tensor.shape[0] == 2:
+                    torch.testing.assert_close(
+                        output_tensor.sum(dim=1).to(torch.int64),
+                        reference_tensor.sum(dim=1).to(torch.int64),
+                    )
+                elif output_tensor.ndim >= 2:
+                    torch.testing.assert_close(
+                        output_tensor.sum(dim=1).to(torch.int64),
+                        reference_tensor.sum(dim=1).to(torch.int64),
+                    )
+                else:
+                    torch.testing.assert_close(
+                        output_tensor.sum().to(torch.int64),
+                        reference_tensor.sum().to(torch.int64),
+                    )
+                continue
+
+            if dynamic_output and output_tensor.ndim == 2 and output_tensor.shape[1] == 3:
+                torch.testing.assert_close(
+                    output_tensor.sum(dim=0),
+                    reference_tensor.sum(dim=0),
+                )
+            elif dynamic_output and output_tensor.ndim == 1:
+                torch.testing.assert_close(
+                    output_tensor.sum(),
+                    reference_tensor.sum(),
+                )
+            elif output_tensor.ndim == 2 and output_tensor.shape[0] == 2:
+                torch.testing.assert_close(
+                    output_tensor.sum(dim=0),
+                    reference_tensor.sum(dim=0),
+                )
+            elif output_tensor.ndim >= 2:
+                torch.testing.assert_close(
+                    output_tensor.sum(dim=1),
+                    reference_tensor.sum(dim=1),
+                )
+            else:
+                torch.testing.assert_close(
+                    output_tensor.sum(),
+                    reference_tensor.sum(),
+                )
+
+    @classmethod
+    def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        torch.testing.assert_close(output, reference, atol=1e-5, rtol=1e-5)
+
 radius_search = RadiusSearch.make_function("radius_search")

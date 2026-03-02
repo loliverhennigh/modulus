@@ -127,21 +127,14 @@ def test_knn_backend_forward_parity(device: str):
     if "cuda" in device:
         if not check_version_spec("cuml", "24.0.0", hard_fail=False):
             pytest.skip("cuml not available")
-        _, distances_a = knn(points, queries, k, implementation="cuml")
+        output_a = knn(points, queries, k, implementation="cuml")
     else:
         if not check_version_spec("scipy", "1.7.0", hard_fail=False):
             pytest.skip("scipy not available")
-        _, distances_a = knn(points, queries, k, implementation="scipy")
+        output_a = knn(points, queries, k, implementation="scipy")
 
-    _, distances_b = knn(points, queries, k, implementation="torch")
-
-    # Ordering may differ for ties across implementations, so compare sorted distances.
-    torch.testing.assert_close(
-        torch.sort(distances_a, dim=1)[0],
-        torch.sort(distances_b, dim=1)[0],
-        atol=1e-5,
-        rtol=1e-5,
-    )
+    output_b = knn(points, queries, k, implementation="torch")
+    KNN.compare_forward(output_a, output_b)
 
 
 # Validate torch.compile support path for KNN.

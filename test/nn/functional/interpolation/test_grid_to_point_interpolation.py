@@ -147,6 +147,27 @@ def test_grid_to_point_interpolation_error_handeling(device: str):
     )
     GridToPointInterpolation.compare_forward(old_output, new_output)
 
+    # Deprecated alias should still allow explicit backend overrides.
+    if "warp" in GridToPointInterpolation.available_implementations():
+        with pytest.warns(DeprecationWarning, match="`interpolation` is deprecated"):
+            old_warp_output = deprecated_interpolation(
+                query_points,
+                context_grid,
+                grid=grid,
+                interpolation_type="linear",
+                mem_speed_trade=True,
+                implementation="warp",
+            )
+        warp_output = GridToPointInterpolation.dispatch(
+            query_points,
+            context_grid,
+            grid,
+            interpolation_type="linear",
+            mem_speed_trade=True,
+            implementation="warp",
+        )
+        GridToPointInterpolation.compare_forward(old_warp_output, warp_output)
+
     # Check that the non-deprecated API defaults to warp when available.
     if "warp" in GridToPointInterpolation.available_implementations():
         default_output = grid_to_point_interpolation(

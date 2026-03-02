@@ -57,8 +57,9 @@ class GridToPointInterpolation(FunctionSpec):
     -----
     - Grid spacing and extents are provided by ``grid``.
     - The ``warp`` and ``torch`` backends are intended to be numerically aligned.
-    - ``torch`` remains the current default dispatch path pending further Warp
-      validation.
+    - ``warp`` is the default dispatch path for ``grid_to_point_interpolation``.
+    - The deprecated ``interpolation`` alias defaults to ``torch`` unless an
+      explicit ``implementation`` is provided.
 
     Parameters
     ----------
@@ -92,7 +93,7 @@ class GridToPointInterpolation(FunctionSpec):
     _COMPARE_BACKWARD_ATOL = 2e-2
     _COMPARE_BACKWARD_RTOL = 5e-2
 
-    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=1)
+    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=0)
     def warp_forward(
         query_points: Tensor,
         context_grid: Tensor,
@@ -108,7 +109,7 @@ class GridToPointInterpolation(FunctionSpec):
             mem_speed_trade=mem_speed_trade,
         )
 
-    @FunctionSpec.register(name="torch", rank=0, baseline=True)
+    @FunctionSpec.register(name="torch", rank=1, baseline=True)
     def torch_forward(
         query_points: Tensor,
         context_grid: Tensor,
@@ -206,6 +207,9 @@ def interpolation(*args, **kwargs):
         DeprecationWarning,
         stacklevel=2,
     )
+    # Preserve historical default behavior for the deprecated alias while still
+    # allowing explicit backend selection overrides.
+    kwargs.setdefault("implementation", "torch")
     return grid_to_point_interpolation(*args, **kwargs)
 
 

@@ -206,21 +206,10 @@ def test_radius_search_backend_forward_parity(device: str, max_points: int | Non
         implementation="torch",
     )
 
-    # Neighbor ordering can differ; compare order-invariant aggregates.
-    if max_points is None:
-        torch.testing.assert_close(
-            idx_warp.sum(dim=1).to(torch.int64),
-            idx_torch.sum(dim=1).to(torch.int64),
-        )
-        torch.testing.assert_close(pts_warp.sum(dim=0), pts_torch.sum(dim=0))
-        torch.testing.assert_close(dist_warp.sum(), dist_torch.sum())
-    else:
-        torch.testing.assert_close(
-            idx_warp.sum(dim=1).to(torch.int64),
-            idx_torch.sum(dim=1).to(torch.int64),
-        )
-        torch.testing.assert_close(pts_warp.sum(dim=1), pts_torch.sum(dim=1))
-        torch.testing.assert_close(dist_warp.sum(dim=1), dist_torch.sum(dim=1))
+    RadiusSearch.compare_forward(
+        (idx_warp, pts_warp, dist_warp),
+        (idx_torch, pts_torch, dist_torch),
+    )
 
 
 # Compare warp and torch backward gradients on output points.
@@ -254,7 +243,7 @@ def test_radius_search_backend_backward_parity(device: str, max_points: int | No
     pts_grad_torch, qrs_grad_torch = grads["torch"]
     assert pts_grad_warp is not None
     assert pts_grad_torch is not None
-    torch.testing.assert_close(pts_grad_warp, pts_grad_torch, atol=1e-5, rtol=1e-5)
+    RadiusSearch.compare_backward(pts_grad_warp, pts_grad_torch)
 
     # Query gradients are expected to be absent/unsupported for this op contract.
     assert qrs_grad_warp is None or torch.all(qrs_grad_warp == 0)

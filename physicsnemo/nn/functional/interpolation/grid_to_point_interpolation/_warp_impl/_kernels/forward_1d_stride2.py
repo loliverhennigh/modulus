@@ -32,12 +32,18 @@ def interp_1d_stride2(
     interp_id: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     x = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos = (x - origin) / dx
     center = wp.int32(pos)
     frac = pos - wp.float32(center)
     lower = basis_value(interp_id, frac)
     upper = basis_value(interp_id, 1.0 - frac)
+
+    # Clamp stencil indices so boundary samples stay in bounds.
     idx0 = center
     idx1 = center + 1
     if idx0 < 0:
@@ -48,6 +54,8 @@ def interp_1d_stride2(
         idx1 = 0
     if idx1 >= size_x:
         idx1 = size_x - 1
+
+    # Accumulate channel contributions for this sample.
     for c in range(grid.shape[0]):
         out[tid, c] = upper * grid[c, idx0] + lower * grid[c, idx1]
 

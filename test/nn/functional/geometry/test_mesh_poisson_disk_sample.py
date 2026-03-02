@@ -291,7 +291,7 @@ def test_mesh_poisson_disk_sample_weighted_per_vertex_radius_warning(device: str
 
 # Validate input/error handling paths.
 @requires_module("warp")
-def test_mesh_poisson_disk_sample_error_handling(device: str):
+def test_mesh_poisson_disk_sample_error_handeling(device: str):
     mesh_vertices, mesh_indices_2d = _build_case(device=device, subdivisions=2)
 
     with pytest.raises(ValueError, match=r"shape \(n_vertices, 3\)"):

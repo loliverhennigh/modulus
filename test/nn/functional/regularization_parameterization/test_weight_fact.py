@@ -32,7 +32,7 @@ def test_weight_fact_torch(device: str):
 
 
 # Validate backward behavior for weight-factorization outputs.
-def test_weight_fact_backward(device: str):
+def test_weight_fact_torch_backward(device: str):
     w = torch.randn(16, 8, device=device, dtype=torch.float32, requires_grad=True)
     g, v = weight_fact(w, mean=1.0, stddev=0.1, implementation="torch")
 

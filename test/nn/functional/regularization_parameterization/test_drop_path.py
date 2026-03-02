@@ -42,7 +42,7 @@ def test_drop_path_torch(device: str):
 
 
 # Validate no-op behavior for inference mode and zero drop probability.
-def test_drop_path_error_handling(device: str):
+def test_drop_path_error_handeling(device: str):
     x = torch.randn(4, 8, device=device, dtype=torch.float32)
 
     out_eval = drop_path(
@@ -65,7 +65,7 @@ def test_drop_path_error_handling(device: str):
 
 
 # Validate backward behavior for stochastic-depth masking.
-def test_drop_path_backward(device: str):
+def test_drop_path_torch_backward(device: str):
     x = torch.randn(8, 16, device=device, dtype=torch.float32, requires_grad=True)
     keep_prob = 0.6
 

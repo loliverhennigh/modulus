@@ -30,7 +30,11 @@ def interp_3d_stride1(
     center_offset: wp.float32,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     p = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos = wp.vec3f(
         (p[0] - origin[0]) / dx[0],
         (p[1] - origin[1]) / dx[1],
@@ -51,6 +55,8 @@ def interp_3d_stride1(
         center_z = 0
     if center_z >= size[2]:
         center_z = size[2] - 1
+
+    # Accumulate channel contributions for this sample.
     for c in range(grid.shape[0]):
         out[tid, c] = grid[c, center_x, center_y, center_z]
 

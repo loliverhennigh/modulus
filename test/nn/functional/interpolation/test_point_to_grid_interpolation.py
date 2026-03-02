@@ -146,7 +146,7 @@ def test_point_to_grid_interpolation_warp(
 
 
 # Validate API-level alias behavior and input error handling.
-def test_point_to_grid_interpolation_error_handling(device: str):
+def test_point_to_grid_interpolation_error_handeling(device: str):
     query_points, point_values, grid, _ = _build_reference_problem(device, dims=2)
 
     # Check top-level functional export path.
@@ -389,3 +389,47 @@ def test_point_to_grid_interpolation_backend_backward_optional_grads(device: str
                     f"on device '{device}'"
                 ),
             )
+
+
+# Validate benchmark input generation contract for forward interpolation cases.
+def test_point_to_grid_interpolation_make_inputs_forward(device: str):
+    label, args, kwargs = next(
+        iter(PointToGridInterpolation.make_inputs_forward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    output = PointToGridInterpolation.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    assert output.ndim >= 2
+    assert output.shape[0] == args[1].shape[1]
+
+
+# Validate benchmark input generation contract for backward interpolation cases.
+def test_point_to_grid_interpolation_make_inputs_backward(device: str):
+    label, args, kwargs = next(
+        iter(PointToGridInterpolation.make_inputs_backward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    query_points, point_values, _ = args
+    assert query_points.requires_grad
+    assert point_values.requires_grad
+    if not point_values.is_leaf:
+        point_values.retain_grad()
+
+    output = PointToGridInterpolation.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    if output.requires_grad:
+        output.sum().backward()
+        # Some interpolation modes may not backpropagate through query points.
+        assert (query_points.grad is not None) or (point_values.grad is not None)

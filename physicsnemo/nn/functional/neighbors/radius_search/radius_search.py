@@ -136,12 +136,4 @@ class RadiusSearch(FunctionSpec):
                 },
             )
 
-    @classmethod
-    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        _ = device
-        # Radius search returns discrete neighbor assignments, so backward
-        # benchmarking is not currently defined.
-        return ()
-
-
 radius_search = RadiusSearch.make_function("radius_search")

@@ -36,6 +36,10 @@ def backward_1d_stride2(
     compute_grid_grad: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos = (points[tid] - origin) / dx
     center = wp.int32(pos)
     frac = pos - wp.float32(center)
@@ -44,6 +48,7 @@ def backward_1d_stride2(
     d_lower = basis_derivative(interp_id, frac) / dx
     d_upper = -basis_derivative(interp_id, 1.0 - frac) / dx
 
+    # Clamp stencil indices so boundary samples stay in bounds.
     idx0 = center
     idx1 = center + 1
     if idx0 < 0:
@@ -56,15 +61,19 @@ def backward_1d_stride2(
         idx1 = size_x - 1
 
     grad_x = wp.float32(0.0)
+
+    # Accumulate channel contributions for this sample.
     for c in range(grid.shape[0]):
         g = grad_output[tid, c]
         v0 = grid[c, idx0]
         v1 = grid[c, idx1]
 
+        # Accumulate gradient contributions for the output grid.
         if compute_grid_grad != 0:
             wp.atomic_add(grad_grid, c, idx0, g * upper)
             wp.atomic_add(grad_grid, c, idx1, g * lower)
 
+        # Accumulate gradient contributions for query-point coordinates.
         if compute_query_grad != 0:
             grad_x += g * (v0 * d_upper + v1 * d_lower)
 

@@ -31,13 +31,21 @@ def backward_1d_stride1(
     compute_grid_grad: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
+
+    # Convert world-space coordinates into grid-space coordinates.
     center = wp.int32((points[tid] - origin) / dx + center_offset)
+
+    # Clamp stencil indices so boundary samples stay in bounds.
     if center < 0:
         center = 0
     if center >= size_x:
         center = size_x - 1
     if compute_grid_grad == 0:
         return
+
+    # Accumulate channel contributions for this sample.
     for c in range(grad_output.shape[1]):
         wp.atomic_add(grad_grid, c, center, grad_output[tid, c])
 

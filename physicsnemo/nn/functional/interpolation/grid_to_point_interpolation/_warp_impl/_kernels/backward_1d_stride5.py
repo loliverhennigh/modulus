@@ -34,7 +34,11 @@ def backward_1d_stride5(
     compute_grid_grad: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     x = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos = (x - origin) / dx
     center = wp.int32(pos + center_offset)
     sigma = dx / 2.0
@@ -51,12 +55,15 @@ def backward_1d_stride5(
         sum_w += wp.exp(-0.5 * dist * dist)
 
     if sum_w <= 0.0:
+        # Accumulate gradient contributions for query-point coordinates.
         if compute_query_grad != 0:
             grad_query[tid, 0] = 0.0
         return
     inv_sum_w = 1.0 / sum_w
 
     grad_x = wp.float32(0.0)
+
+    # Accumulate channel contributions for this sample.
     for c in range(grid.shape[0]):
         y = wp.float32(0.0)
         for ox in range(-2, 3):
@@ -83,6 +90,7 @@ def backward_1d_stride5(
             w = wp.exp(-0.5 * dist * dist)
             dwdx = -w * dist / sigma
 
+            # Accumulate gradient contributions for the output grid.
             if compute_grid_grad != 0:
                 wp.atomic_add(grad_grid, c, idx, g * (w * inv_sum_w))
             if compute_query_grad != 0:

@@ -122,7 +122,7 @@ def test_grid_to_point_interpolation_warp(
 
 
 # Validate deprecated alias and input/error handling paths.
-def test_grid_to_point_interpolation_error_handling(device: str):
+def test_grid_to_point_interpolation_error_handeling(device: str):
     grid = [(-1.0, 1.0, 16)]
     query_points = torch.linspace(0.0, 1.0, 8, device=device).unsqueeze(-1)
     context_grid = torch.sin(torch.linspace(-1.0, 1.0, 16, device=device).unsqueeze(0))
@@ -432,3 +432,47 @@ def test_grid_to_point_interpolation_backend_backward_parity(device: str):
                 f"on device '{device}'"
             ),
         )
+
+
+# Validate benchmark input generation contract for forward interpolation cases.
+def test_grid_to_point_interpolation_make_inputs_forward(device: str):
+    label, args, kwargs = next(
+        iter(GridToPointInterpolation.make_inputs_forward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    output = GridToPointInterpolation.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    assert output.ndim == 2
+    assert output.shape[0] == args[0].shape[0]
+
+
+# Validate benchmark input generation contract for backward interpolation cases.
+def test_grid_to_point_interpolation_make_inputs_backward(device: str):
+    label, args, kwargs = next(
+        iter(GridToPointInterpolation.make_inputs_backward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    query_points, context_grid, _ = args
+    assert query_points.requires_grad
+    assert context_grid.requires_grad
+
+    output = GridToPointInterpolation.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    if output.requires_grad:
+        output.sum().backward()
+        # Some interpolation modes (for example nearest-neighbor) are not
+        # differentiable w.r.t. query points, so only require at least one
+        # gradient-carrying input to receive gradients.
+        assert (query_points.grad is not None) or (context_grid.grad is not None)

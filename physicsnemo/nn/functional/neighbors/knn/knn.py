@@ -94,13 +94,6 @@ class KNN(FunctionSpec):
             )
 
     @classmethod
-    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        _ = device
-        # KNN returns discrete neighbor assignments, so backward benchmarking
-        # is not currently defined.
-        return ()
-
-    @classmethod
     def dispatch(
         cls,
         points: torch.Tensor,

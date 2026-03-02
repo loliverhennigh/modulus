@@ -70,26 +70,34 @@ def test_knn_torch(device: str, k: int, dtype: torch.dtype):
     _assert_knn_outputs(points, queries, indices, distances, k)
 
 
-# Validate accelerated implementations when available on the appropriate device.
+# Validate the cuML implementation when available on CUDA.
 @pytest.mark.parametrize("k", [1, 5])
-def test_knn_accelerated(device: str, k: int):
+def test_knn_cuml(device: str, k: int):
+    if "cuda" not in device:
+        pytest.skip("cuml backend is CUDA-only")
+    if not check_version_spec("cuml", "24.0.0", hard_fail=False):
+        pytest.skip("cuml not available")
+
     points, queries = _build_problem(device, torch.float32)
+    indices, distances = knn(points, queries, k=k, implementation="cuml")
+    _assert_knn_outputs(points, queries, indices, distances, k)
 
-    if "cuda" in device and check_version_spec("cuml", "24.0.0", hard_fail=False):
-        indices, distances = knn(points, queries, k=k, implementation="cuml")
-        _assert_knn_outputs(points, queries, indices, distances, k)
-        return
 
-    if "cpu" in device and check_version_spec("scipy", "1.7.0", hard_fail=False):
-        indices, distances = knn(points, queries, k=k, implementation="scipy")
-        _assert_knn_outputs(points, queries, indices, distances, k)
-        return
+# Validate the SciPy implementation when available on CPU.
+@pytest.mark.parametrize("k", [1, 5])
+def test_knn_scipy(device: str, k: int):
+    if "cpu" not in device:
+        pytest.skip("scipy backend is CPU-only")
+    if not check_version_spec("scipy", "1.7.0", hard_fail=False):
+        pytest.skip("scipy not available")
 
-    pytest.skip("No accelerated KNN backend available for this device")
+    points, queries = _build_problem(device, torch.float32)
+    indices, distances = knn(points, queries, k=k, implementation="scipy")
+    _assert_knn_outputs(points, queries, indices, distances, k)
 
 
 # Validate KNN error handling paths.
-def test_knn_error_handling(device: str):
+def test_knn_error_handeling(device: str):
     points, queries = _build_problem(device, torch.float32)
 
     # Mismatched dtypes are rejected by all implementations.

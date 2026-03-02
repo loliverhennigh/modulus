@@ -32,13 +32,18 @@ def point_to_grid_forward_1d_stride2(
     interp_id: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     x = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos = (x - origin) / dx
     center = wp.int32(pos)
     frac = pos - wp.float32(center)
     lower = basis_value(interp_id, frac)
     upper = basis_value(interp_id, 1.0 - frac)
 
+    # Clamp stencil indices so boundary samples stay in bounds.
     idx0 = center
     idx1 = center + 1
     if idx0 < 0:
@@ -50,6 +55,7 @@ def point_to_grid_forward_1d_stride2(
     if idx1 >= size_x:
         idx1 = size_x - 1
 
+    # Accumulate channel contributions for this sample.
     for c in range(point_values.shape[1]):
         value = point_values[tid, c]
         wp.atomic_add(out_grid, c, idx0, upper * value)

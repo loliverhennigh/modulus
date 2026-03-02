@@ -30,11 +30,17 @@ def interp_1d_stride5(
     center_offset: wp.float32,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     x = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos = (x - origin) / dx
     center = wp.int32(pos + center_offset)
     sigma = dx / 2.0
     sum_w = 0.0
+
+    # Accumulate channel contributions for this sample.
     for c in range(grid.shape[0]):
         out[tid, c] = 0.0
     for ox in range(-2, 3):

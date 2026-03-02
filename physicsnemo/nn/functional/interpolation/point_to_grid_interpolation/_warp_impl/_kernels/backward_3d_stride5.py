@@ -34,7 +34,11 @@ def point_to_grid_backward_3d_stride5(
     compute_values_grad: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     p = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos_x = (p[0] - origin[0]) / dx[0]
     pos_y = (p[1] - origin[1]) / dx[1]
     pos_z = (p[2] - origin[2]) / dx[2]
@@ -75,11 +79,15 @@ def point_to_grid_backward_3d_stride5(
                 sum_w += gx * gy * wp.exp(-0.5 * dist_z * dist_z)
 
     if sum_w <= 0.0:
+        # Accumulate gradient contributions for query-point coordinates.
         if compute_query_grad != 0:
             grad_query[tid, 0] = 0.0
             grad_query[tid, 1] = 0.0
             grad_query[tid, 2] = 0.0
+
+        # Accumulate gradient contributions for per-point input values.
         if compute_values_grad != 0:
+            # Accumulate channel contributions for this sample.
             for c in range(point_values.shape[1]):
                 grad_point_values[tid, c] = 0.0
         return

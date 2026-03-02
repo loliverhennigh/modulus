@@ -34,17 +34,26 @@ def point_to_grid_backward_1d_stride1(
     compute_values_grad: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     x = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     center = wp.int32((x - origin) / dx + center_offset)
+
+    # Clamp stencil indices so boundary samples stay in bounds.
     if center < 0:
         center = 0
     if center >= size_x:
         center = size_x - 1
 
+    # Accumulate gradient contributions for per-point input values.
     if compute_values_grad != 0:
+        # Accumulate channel contributions for this sample.
         for c in range(point_values.shape[1]):
             grad_point_values[tid, c] = grad_grid_output[c, center]
 
+    # Accumulate gradient contributions for query-point coordinates.
     if compute_query_grad != 0:
         grad_query[tid, 0] = 0.0
 

@@ -31,6 +31,8 @@ def backward_2d_stride1(
     compute_grid_grad: int,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     p = points[tid]
     center_x = wp.int32((p[0] - origin[0]) / dx[0] + center_offset)
     center_y = wp.int32((p[1] - origin[1]) / dx[1] + center_offset)
@@ -44,6 +46,8 @@ def backward_2d_stride1(
         center_y = size[1] - 1
     if compute_grid_grad == 0:
         return
+
+    # Accumulate channel contributions for this sample.
     for c in range(grad_output.shape[1]):
         wp.atomic_add(grad_grid, c, center_x, center_y, grad_output[tid, c])
 

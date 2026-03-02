@@ -315,13 +315,6 @@ class SignedDistanceField(FunctionSpec):
                 {"max_dist": 10.0, "use_sign_winding_number": False},
             )
 
-    @classmethod
-    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        _ = device
-        # SDF currently has no custom backward implementation.
-        return ()
-
-
 signed_distance_field = SignedDistanceField.make_function("signed_distance_field")
 
 

@@ -158,7 +158,7 @@ def test_radius_search_warp(
 
 # Validate radius-search error handling paths.
 @requires_module("warp")
-def test_radius_search_error_handling(device: str):
+def test_radius_search_error_handeling(device: str):
     points, queries = _build_problem(device)
     if not torch.cuda.is_available():
         pytest.skip("device mismatch path requires CUDA")

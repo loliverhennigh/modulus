@@ -30,7 +30,11 @@ def point_to_grid_forward_2d_stride5(
     center_offset: wp.float32,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     p = points[tid]
+
+    # Convert world-space coordinates into grid-space coordinates.
     pos_x = (p[0] - origin[0]) / dx[0]
     pos_y = (p[1] - origin[1]) / dx[1]
     center_x = wp.int32(pos_x + center_offset)
@@ -80,6 +84,8 @@ def point_to_grid_forward_2d_stride5(
             coord_y = origin[1] + wp.float32(idx_y) * dx[1]
             dist_y = (p[1] - coord_y) / sigma_y
             weight = gx * wp.exp(-0.5 * dist_y * dist_y) * inv_sum_w
+
+            # Accumulate channel contributions for this sample.
             for c in range(point_values.shape[1]):
                 wp.atomic_add(out_grid, c, idx_x, idx_y, weight * point_values[tid, c])
 

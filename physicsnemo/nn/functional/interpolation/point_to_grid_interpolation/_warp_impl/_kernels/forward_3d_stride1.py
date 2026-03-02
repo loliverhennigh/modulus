@@ -30,6 +30,8 @@ def point_to_grid_forward_3d_stride1(
     center_offset: wp.float32,
 ):
     tid = wp.tid()
+
+    # Map one Warp thread to one query/scatter sample.
     p = points[tid]
     center_x = wp.int32((p[0] - origin[0]) / dx[0] + center_offset)
     center_y = wp.int32((p[1] - origin[1]) / dx[1] + center_offset)
@@ -47,6 +49,7 @@ def point_to_grid_forward_3d_stride1(
     if center_z >= size[2]:
         center_z = size[2] - 1
 
+    # Accumulate channel contributions for this sample.
     for c in range(point_values.shape[1]):
         wp.atomic_add(out_grid, c, center_x, center_y, center_z, point_values[tid, c])
 

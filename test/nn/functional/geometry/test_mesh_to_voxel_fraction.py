@@ -146,7 +146,7 @@ def test_mesh_to_voxel_fraction_open_mesh_path(device: str):
 
 # Validate argument and shape error handling paths.
 @requires_module("warp")
-def test_mesh_to_voxel_fraction_error_handeling(device: str):
+def test_mesh_to_voxel_fraction_error_handling(device: str):
     mesh_vertices, mesh_indices_2d, origin, voxel_size, grid_dims = _build_case(device)
 
     # Invalid mesh index shape.

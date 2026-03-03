@@ -115,7 +115,7 @@ def test_irfft2_torch(device: str):
 
 
 # Validate API-level error handling for invalid view_as_complex input layout.
-def test_fft_error_handeling(device: str):
+def test_fft_error_handling(device: str):
     with pytest.raises(RuntimeError):
         functional_view_as_complex(
             torch.randn(4, 128, device=device, dtype=torch.float32),

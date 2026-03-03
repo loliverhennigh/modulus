@@ -42,7 +42,7 @@ def test_drop_path_torch(device: str):
 
 
 # Validate no-op behavior for inference mode and zero drop probability.
-def test_drop_path_error_handeling(device: str):
+def test_drop_path_error_handling(device: str):
     x = torch.randn(4, 8, device=device, dtype=torch.float32)
 
     out_eval = drop_path(

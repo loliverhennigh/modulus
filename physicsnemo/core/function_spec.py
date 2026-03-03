@@ -117,52 +117,41 @@ class FunctionSpec:
 
     .. code-block:: python
 
-        import importlib
         import torch
+        import warp as wp
 
         from physicsnemo.core.function_spec import FunctionSpec
-        from physicsnemo.core.version_check import check_version_spec
 
-        WARP_AVAILABLE = check_version_spec("warp", "0.6.0", hard_fail=False)
+        wp.init()
+        wp.config.quiet = True
 
-        if WARP_AVAILABLE:
-            wp = importlib.import_module("warp")
-            wp.init()
-            wp.config.quiet = True
+        @wp.kernel
+        def _identity_kernel(
+            x: wp.array(dtype=wp.float32),
+            y: wp.array(dtype=wp.float32),
+        ):
+            i = wp.tid()
+            y[i] = x[i]
 
-            @wp.kernel
-            def _identity_kernel(
-                x: wp.array(dtype=wp.float32),
-                y: wp.array(dtype=wp.float32),
-            ):
-                i = wp.tid()
-                y[i] = x[i]
-
-            @torch.library.custom_op("physicsnemo::identity_warp", mutates_args=())
-            def identity_impl(x: torch.Tensor) -> torch.Tensor:
-                out = torch.empty_like(x)
-                device, stream = FunctionSpec.warp_launch_context(x)
-                wp_x = wp.from_torch(x, dtype=wp.float32, return_ctype=True)
-                wp_y = wp.from_torch(out, dtype=wp.float32, return_ctype=True)
-                with wp.ScopedStream(stream):
-                    wp.launch(
-                        kernel=_identity_kernel,
-                        dim=x.numel(),
-                        inputs=[wp_x, wp_y],
-                        device=device,
-                        stream=stream,
-                    )
-                return out
-
-            @identity_impl.register_fake
-            def identity_impl_fake(x: torch.Tensor) -> torch.Tensor:
-                return torch.empty_like(x)
-        else:
-
-            def identity_impl(*args, **kwargs) -> torch.Tensor:
-                raise ImportError(
-                    "warp>=0.6.0 is required for the Warp identity implementation"
+        @torch.library.custom_op("physicsnemo::identity_warp", mutates_args=())
+        def identity_impl(x: torch.Tensor) -> torch.Tensor:
+            out = torch.empty_like(x)
+            device, stream = FunctionSpec.warp_launch_context(x)
+            wp_x = wp.from_torch(x, dtype=wp.float32, return_ctype=True)
+            wp_y = wp.from_torch(out, dtype=wp.float32, return_ctype=True)
+            with wp.ScopedStream(stream):
+                wp.launch(
+                    kernel=_identity_kernel,
+                    dim=x.numel(),
+                    inputs=[wp_x, wp_y],
+                    device=device,
+                    stream=stream,
                 )
+            return out
+
+        @identity_impl.register_fake
+        def identity_impl_fake(x: torch.Tensor) -> torch.Tensor:
+            return torch.empty_like(x)
 
         def identity_torch(x: torch.Tensor) -> torch.Tensor:
             return x.clone()
@@ -307,7 +296,7 @@ class FunctionSpec:
 
     @classmethod
     def make_inputs_forward(
-        cls, device: torch.device
+        cls, device: torch.device | str
     ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
         """Generator for labeled forward-pass benchmark inputs.
 
@@ -322,7 +311,7 @@ class FunctionSpec:
 
         Parameters
         ----------
-        device : torch.device
+        device : torch.device | str
             Device for generated tensors.
 
         Returns
@@ -336,7 +325,7 @@ class FunctionSpec:
 
     @classmethod
     def make_inputs_backward(
-        cls, device: torch.device
+        cls, device: torch.device | str
     ) -> Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]:
         """Generator for labeled backward-pass benchmark inputs.
 
@@ -347,7 +336,7 @@ class FunctionSpec:
 
         Parameters
         ----------
-        device : torch.device
+        device : torch.device | str
             Device for generated tensors.
 
         Returns

@@ -83,52 +83,41 @@ selection, benchmarking and verification across the codebase.
 **Example:**
 
 ```python
-import importlib
 import torch
+import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.core.version_check import check_version_spec
 
-WARP_AVAILABLE = check_version_spec("warp", "0.6.0", hard_fail=False)
+wp.init()
+wp.config.quiet = True
 
-if WARP_AVAILABLE:
-    wp = importlib.import_module("warp")
-    wp.init()
-    wp.config.quiet = True
+@wp.kernel
+def _identity_kernel(
+    x: wp.array(dtype=wp.float32),
+    y: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    y[i] = x[i]
 
-    @wp.kernel
-    def _identity_kernel(
-        x: wp.array(dtype=wp.float32),
-        y: wp.array(dtype=wp.float32),
-    ):
-        i = wp.tid()
-        y[i] = x[i]
-
-    @torch.library.custom_op("physicsnemo::identity_warp", mutates_args=())
-    def identity_impl(x: torch.Tensor) -> torch.Tensor:
-        out = torch.empty_like(x)
-        device, stream = FunctionSpec.warp_launch_context(x)
-        wp_x = wp.from_torch(x, dtype=wp.float32, return_ctype=True)
-        wp_y = wp.from_torch(out, dtype=wp.float32, return_ctype=True)
-        with wp.ScopedStream(stream):
-            wp.launch(
-                kernel=_identity_kernel,
-                dim=x.numel(),
-                inputs=[wp_x, wp_y],
-                device=device,
-                stream=stream,
-            )
-        return out
-
-    @identity_impl.register_fake
-    def identity_impl_fake(x: torch.Tensor) -> torch.Tensor:
-        return torch.empty_like(x)
-else:
-
-    def identity_impl(*args, **kwargs) -> torch.Tensor:
-        raise ImportError(
-            "warp>=0.6.0 is required for the Warp identity implementation"
+@torch.library.custom_op("physicsnemo::identity_warp", mutates_args=())
+def identity_impl(x: torch.Tensor) -> torch.Tensor:
+    out = torch.empty_like(x)
+    device, stream = FunctionSpec.warp_launch_context(x)
+    wp_x = wp.from_torch(x, dtype=wp.float32, return_ctype=True)
+    wp_y = wp.from_torch(out, dtype=wp.float32, return_ctype=True)
+    with wp.ScopedStream(stream):
+        wp.launch(
+            kernel=_identity_kernel,
+            dim=x.numel(),
+            inputs=[wp_x, wp_y],
+            device=device,
+            stream=stream,
         )
+    return out
+
+@identity_impl.register_fake
+def identity_impl_fake(x: torch.Tensor) -> torch.Tensor:
+    return torch.empty_like(x)
 
 def identity_torch(x: torch.Tensor) -> torch.Tensor:
     return x.clone()
@@ -431,7 +420,7 @@ Suggested naming/structure:
    - `test_<functional_name>_backend_forward_parity`
    - `test_<functional_name>_backend_backward_parity` (only for differentiable ops)
 3. Deprecation + validation paths:
-   - `test_<functional_name>_error_handeling`
+   - `test_<functional_name>_error_handling`
 
 Where possible, keep all backend parity checks in one functional test file and
 use the functional's `compare_forward`/`compare_backward` hooks for consistency.
@@ -456,7 +445,7 @@ def test_grid_to_point_interpolation_backend_forward_parity():
 def test_grid_to_point_interpolation_backend_backward_parity():
     ...
 
-def test_grid_to_point_interpolation_error_handeling():
+def test_grid_to_point_interpolation_error_handling():
     ...
 ```
 

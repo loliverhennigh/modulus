@@ -97,7 +97,7 @@ def test_knn_scipy(device: str, k: int):
 
 
 # Validate KNN error handling paths.
-def test_knn_error_handeling(device: str):
+def test_knn_error_handling(device: str):
     points, queries = _build_problem(device, torch.float32)
 
     # Mismatched dtypes are rejected by all implementations.

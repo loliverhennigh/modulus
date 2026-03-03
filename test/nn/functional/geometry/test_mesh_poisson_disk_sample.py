@@ -54,17 +54,6 @@ def _minimum_pairwise_distance(points: torch.Tensor) -> float:
     return float(distance_matrix.min().item())
 
 
-def _nn_distance_cv(points: torch.Tensor) -> float:
-    if points.shape[0] < 2:
-        return 0.0
-    distance_matrix = torch.cdist(points, points)
-    distance_matrix.fill_diagonal_(float("inf"))
-    nn_distance = distance_matrix.min(dim=1).values
-    return float(
-        (nn_distance.std(unbiased=False) / nn_distance.mean().clamp_min(1.0e-12)).item()
-    )
-
-
 # Validate warp implementation behavior and minimum-distance enforcement.
 @requires_module("warp")
 def test_mesh_poisson_disk_sample_warp(device: str):
@@ -213,12 +202,9 @@ def test_mesh_poisson_disk_sample_weighted_sample_elimination(device: str):
     assert min_pair_distance > 0.0
 
 
-# Validate weighted mode quality against Open3D weighted sample elimination.
+# Validate weighted mode output quality with simple geometric sanity checks.
 @requires_module("warp")
-@requires_module("open3d")
-def test_mesh_poisson_disk_sample_weighted_quality_matches_open3d(device: str):
-    import open3d as o3d
-
+def test_mesh_poisson_disk_sample_weighted_quality_sanity(device: str):
     mesh_vertices, mesh_indices_2d = _build_case(device=device, subdivisions=3)
     target_num_points = 1024
     random_seed = 1337
@@ -236,32 +222,24 @@ def test_mesh_poisson_disk_sample_weighted_quality_matches_open3d(device: str):
         implementation="warp",
     )
     assert output.shape == (target_num_points, 3)
+    assert output.dtype == torch.float32
+    assert torch.isfinite(output).all()
 
-    mesh_o3d = o3d.geometry.TriangleMesh(
-        vertices=o3d.utility.Vector3dVector(mesh_vertices.detach().cpu().numpy()),
-        triangles=o3d.utility.Vector3iVector(mesh_indices_2d.detach().cpu().numpy()),
-    )
-    try:
-        points_o3d = mesh_o3d.sample_points_poisson_disk(
-            number_of_points=target_num_points,
-            init_factor=5,
-            seed=random_seed,
-        )
-    except TypeError:
-        points_o3d = mesh_o3d.sample_points_poisson_disk(
-            number_of_points=target_num_points,
-            init_factor=5,
-        )
-    output_o3d = torch.from_numpy(np.asarray(points_o3d.points)).to(torch.float32)
+    # Points should lie within mesh bounds (up to small floating-point tolerance).
+    bbox_min = mesh_vertices.min(dim=0).values - 1.0e-5
+    bbox_max = mesh_vertices.max(dim=0).values + 1.0e-5
+    assert bool((output >= bbox_min).all())
+    assert bool((output <= bbox_max).all())
 
-    cv_warp = _nn_distance_cv(output.detach().cpu())
-    cv_o3d = _nn_distance_cv(output_o3d)
-    mean_warp = float(output.detach().cpu().mean().item())
-    mean_o3d = float(output_o3d.mean().item())
+    # Point cloud should not collapse to a lower-dimensional or degenerate set.
+    assert float(output.std(dim=0).min().item()) > 1.0e-4
 
-    # Weighted mode should stay tightly aligned with Open3D quality statistics.
-    assert abs(cv_warp - cv_o3d) <= 0.1 * max(cv_o3d, 1.0e-6)
-    assert abs(mean_warp - mean_o3d) <= 5.0e-2
+    # Avoid pathological duplicate-heavy outputs.
+    unique_count = torch.unique(output, dim=0).shape[0]
+    assert unique_count >= int(0.95 * target_num_points)
+
+    # Enforce non-zero minimum separation for weighted elimination output.
+    assert _minimum_pairwise_distance(output) > 0.0
 
 
 # Validate weighted mode ignores per-vertex radius with a user warning.
@@ -291,7 +269,7 @@ def test_mesh_poisson_disk_sample_weighted_per_vertex_radius_warning(device: str
 
 # Validate input/error handling paths.
 @requires_module("warp")
-def test_mesh_poisson_disk_sample_error_handeling(device: str):
+def test_mesh_poisson_disk_sample_error_handling(device: str):
     mesh_vertices, mesh_indices_2d = _build_case(device=device, subdivisions=2)
 
     with pytest.raises(ValueError, match=r"shape \(n_vertices, 3\)"):

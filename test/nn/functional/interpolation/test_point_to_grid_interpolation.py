@@ -146,7 +146,7 @@ def test_point_to_grid_interpolation_warp(
 
 
 # Validate API-level alias behavior and input error handling.
-def test_point_to_grid_interpolation_error_handeling(device: str):
+def test_point_to_grid_interpolation_error_handling(device: str):
     query_points, point_values, grid, _ = _build_reference_problem(device, dims=2)
 
     # Check top-level functional export path.

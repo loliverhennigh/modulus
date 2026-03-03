@@ -122,7 +122,7 @@ def test_grid_to_point_interpolation_warp(
 
 
 # Validate deprecated alias and input/error handling paths.
-def test_grid_to_point_interpolation_error_handeling(device: str):
+def test_grid_to_point_interpolation_error_handling(device: str):
     grid = [(-1.0, 1.0, 16)]
     query_points = torch.linspace(0.0, 1.0, 8, device=device).unsqueeze(-1)
     context_grid = torch.sin(torch.linspace(-1.0, 1.0, 16, device=device).unsqueeze(0))

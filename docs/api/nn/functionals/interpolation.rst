@@ -5,9 +5,9 @@ Grid-To-Point Interpolation
 ---------------------------
 
 .. note::
-   By default, ``grid_to_point_interpolation`` dispatches to the Warp backend
-   when available. The deprecated ``interpolation`` alias preserves
-   torch-default behavior for backward compatibility.
+   By default, ``grid_to_point_interpolation`` dispatches to the Warp backend.
+   The deprecated ``interpolation`` alias preserves torch-default behavior for
+   backward compatibility.
 
 .. autofunction:: physicsnemo.nn.functional.grid_to_point_interpolation
 

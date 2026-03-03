@@ -86,7 +86,7 @@ def test_signed_distance_field_warp(dtype: torch.dtype, device: str):
 
 # Validate SDF input/error handling and index-shape compatibility paths.
 @requires_module("warp")
-def test_signed_distance_field_error_handeling(device: str):
+def test_signed_distance_field_error_handling(device: str):
     device = torch.device(device)
     mesh_vertices = _tetrahedron_vertices().to(device=device, dtype=torch.float32)
     mesh_indices_flat = torch.tensor(

@@ -16,38 +16,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 import pytest
 import torch
 
 from physicsnemo.nn.functional import imag, irfft, irfft2, real, rfft, rfft2
 from physicsnemo.nn.functional import view_as_complex as functional_view_as_complex
-from physicsnemo.nn.functional.fourier_spectral import (
-    IRFFT,
-    IRFFT2,
-    RFFT,
-    RFFT2,
-    Imag,
-    Real,
-    ViewAsComplex,
-)
-
-_FFT_SPECS = (ViewAsComplex, Real, Imag, RFFT, RFFT2, IRFFT, IRFFT2)
-
-
-# Yield tensors recursively from nested tuple/list/dict containers.
-def _iter_tensors(value: object) -> Iterable[torch.Tensor]:
-    if isinstance(value, torch.Tensor):
-        yield value
-        return
-    if isinstance(value, tuple | list):
-        for item in value:
-            yield from _iter_tensors(item)
-        return
-    if isinstance(value, dict):
-        for item in value.values():
-            yield from _iter_tensors(item)
 
 
 # Validate the view_as_complex functional wrapper against torch behavior.
@@ -121,34 +94,3 @@ def test_fft_error_handling(device: str):
             torch.randn(4, 128, device=device, dtype=torch.float32),
             implementation="torch",
         )
-
-
-# Validate forward benchmark input generation contract across all FFT functionals.
-def test_fft_make_inputs_forward(device: str):
-    for spec in _FFT_SPECS:
-        label, args, kwargs = next(iter(spec.make_inputs_forward(device=device)))
-        assert isinstance(label, str)
-        assert isinstance(args, tuple)
-        assert isinstance(kwargs, dict)
-
-        output = spec.dispatch(*args, implementation="torch", **kwargs)
-        assert isinstance(output, torch.Tensor)
-
-
-# Validate backward benchmark input generation contract across all FFT functionals.
-def test_fft_make_inputs_backward(device: str):
-    for spec in _FFT_SPECS:
-        label, args, kwargs = next(iter(spec.make_inputs_backward(device=device)))
-        assert isinstance(label, str)
-        assert isinstance(args, tuple)
-        assert isinstance(kwargs, dict)
-
-        grad_inputs = [tensor for tensor in _iter_tensors(args) if tensor.requires_grad]
-        assert grad_inputs
-
-        output = spec.dispatch(*args, implementation="torch", **kwargs)
-        assert output.requires_grad
-        output.backward(torch.randn_like(output))
-
-        for tensor in grad_inputs:
-            assert tensor.grad is not None

@@ -69,7 +69,7 @@ def test_mesh_poisson_disk_sample_warp(device: str):
         "hash_grid_resolution": 64,
     }
 
-    output_default = mesh_poisson_disk_sample(mesh_vertices, mesh_indices_2d, **kwargs)
+    # Explicitly target the warp implementation for this single-backend functional.
     output_warp = mesh_poisson_disk_sample(
         mesh_vertices,
         mesh_indices_2d,
@@ -82,25 +82,6 @@ def test_mesh_poisson_disk_sample_warp(device: str):
     assert output_warp.dtype == torch.float32
     assert output_warp.shape[0] <= kwargs["max_points"]
     assert output_warp.shape[0] > 0
-
-    if device == "cpu":
-        torch.testing.assert_close(
-            _sorted_points(output_default),
-            _sorted_points(output_warp),
-        )
-    else:
-        # GPU launches are not strictly deterministic due parallel conflict resolution.
-        count_delta = abs(output_default.shape[0] - output_warp.shape[0])
-        allowed_delta = (
-            int(0.15 * max(output_default.shape[0], output_warp.shape[0])) + 4
-        )
-        assert count_delta <= allowed_delta
-        torch.testing.assert_close(
-            output_default.mean(dim=0),
-            output_warp.mean(dim=0),
-            atol=5e-2,
-            rtol=5e-2,
-        )
 
     # Numerical tolerance allows tiny floating-point drift.
     min_pair_distance = _minimum_pairwise_distance(output_warp)

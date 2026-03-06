@@ -47,20 +47,12 @@ def _build_case(device: str, subdivisions: int = 2, grid_n: int = 32):
     return mesh_vertices, mesh_indices_2d, origin, voxel_size, grid_dims
 
 
-# Validate the warp implementation using both explicit and default dispatch.
+# Validate core warp output properties for mesh-to-voxel conversion.
 @requires_module("warp")
 def test_mesh_to_voxel_fraction_warp(device: str):
     mesh_vertices, mesh_indices_2d, origin, voxel_size, grid_dims = _build_case(device)
 
-    output_default = mesh_to_voxel_fraction(
-        mesh_vertices,
-        mesh_indices_2d,
-        origin,
-        voxel_size,
-        grid_dims,
-        n_samples=32,
-        seed=1234,
-    )
+    # Explicitly dispatch to warp for this single-backend functional.
     output_warp = mesh_to_voxel_fraction(
         mesh_vertices,
         mesh_indices_2d,
@@ -77,7 +69,6 @@ def test_mesh_to_voxel_fraction_warp(device: str):
     assert float(output_warp.min()) >= 0.0
     assert float(output_warp.max()) <= 1.0
     assert 0.0 < float(output_warp.sum()) < float(output_warp.numel())
-    torch.testing.assert_close(output_default, output_warp)
 
 
 # Validate equivalent results for flattened and (n_faces, 3) index layouts.

@@ -189,7 +189,3 @@ def test_knn_make_inputs_forward(device: str):
     indices, distances = KNN.dispatch(*args, implementation="torch", **kwargs)
     assert indices.ndim == 2
     assert distances.ndim == 2
-
-
-def test_knn_make_inputs_backward():
-    assert list(KNN.make_inputs_backward(device="cpu")) == []

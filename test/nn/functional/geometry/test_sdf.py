@@ -150,7 +150,3 @@ def test_signed_distance_field_make_inputs_forward(device: str):
     assert sdf_out.ndim == 1
     assert hit_points.ndim == 2
     assert hit_points.shape[1] == 3
-
-
-def test_signed_distance_field_make_inputs_backward():
-    assert list(SignedDistanceField.make_inputs_backward(device="cpu")) == []

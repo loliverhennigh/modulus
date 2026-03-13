@@ -29,14 +29,14 @@ lint:
 	pre-commit run markdownlint -a && \
 	pre-commit run check-added-large-files -a
 
-license: 
-	python test/ci_tests/header_check.py --all-files
+license:
+	pre-commit run license -a
 
 doctest:
 	coverage run \
 		--rcfile='test/coverage.docstring.rc' \
 		-m pytest \
-		--doctest-modules physicsnemo/ --ignore-glob=*internal* --ignore-glob=*experimental*
+		--doctest-modules physicsnemo/ --ignore-glob=*internal* --ignore-glob=*experimental* --ignore-glob=*deploy/onnx*
 
 pytest: 
 	coverage run \

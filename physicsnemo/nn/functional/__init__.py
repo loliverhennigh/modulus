@@ -27,6 +27,13 @@ from .interpolation import (
 )
 from .neighbors import knn, radius_search
 from .regularization_parameterization import drop_path, weight_fact
+from .equivariant_ops import (
+    legendre_polynomials,
+    polar_and_dipole_basis,
+    smooth_log,
+    spherical_basis,
+    vector_project,
+)
 
 __all__ = [
     "irfft",
@@ -39,11 +46,16 @@ __all__ = [
     "mesh_poisson_disk_sample",
     "mesh_to_voxel_fraction",
     "point_to_grid_interpolation",
+    "legendre_polynomials",
+    "polar_and_dipole_basis",
     "radius_search",
     "real",
     "rfft",
     "rfft2",
     "signed_distance_field",
+    "smooth_log",
+    "spherical_basis",
+    "vector_project",
     "view_as_complex",
     "weight_fact",
 ]

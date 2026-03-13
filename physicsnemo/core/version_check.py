@@ -193,10 +193,6 @@ _PACKAGE_HINTS: Dict[str, str] = {
         "scikit-learn",
         direct_install="scikit-learn",
     ),
-    "scikit-image": _format_install_hint(  # To be removed with utils/mesh/
-        "scikit-image",
-        direct_install="scikit-image",
-    ),
     # Data format packages
     "xarray": _format_install_hint(
         "xarray",
@@ -448,6 +444,34 @@ def is_package_available(distribution_name: str) -> bool:
         True if the package is installed, False otherwise.
     """
     return get_installed_version(distribution_name) is not None
+
+
+@functools.lru_cache(maxsize=None)
+def get_physicsnemo_pkg_info() -> dict[str, str | None]:
+    """Return the PhysicsNeMo package version and current git commit hash.
+
+    Both values are determined without importing ``physicsnemo`` itself:
+    the version is read from installed package metadata, and the commit
+    hash comes from the enclosing git repository (if any).
+
+    Returns
+    -------
+    dict[str, str | None]
+        ``"version"``: the installed version string, or ``None`` if the
+        package is not installed.
+        ``"git_hash"``: the HEAD commit SHA, or ``None`` if the current
+        working directory is not inside a git repository.
+    """
+    import git
+
+    version = get_installed_version("nvidia-physicsnemo")
+
+    try:
+        git_hash = git.Repo(search_parent_directories=True).head.commit.hexsha
+    except git.InvalidGitRepositoryError:
+        git_hash = None
+
+    return {"version": version, "git_hash": git_hash}
 
 
 @functools.lru_cache(maxsize=None)

@@ -14,7 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .drop_path import drop_path
+from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
+from .geometry import (
+    mesh_poisson_disk_sample,
+    mesh_to_voxel_fraction,
+    signed_distance_field,
+)
+from .interpolation import (
+    grid_to_point_interpolation,
+    interpolation,
+    point_to_grid_interpolation,
+)
+from .neighbors import knn, radius_search
+from .regularization_parameterization import drop_path, weight_fact
 from .equivariant_ops import (
     legendre_polynomials,
     polar_and_dipole_basis,
@@ -22,20 +34,18 @@ from .equivariant_ops import (
     spherical_basis,
     vector_project,
 )
-from .fft import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
-from .interpolation import interpolation
-from .knn import knn
-from .radius_search import radius_search
-from .sdf import signed_distance_field
-from .weight_fact import weight_fact
 
 __all__ = [
     "irfft",
     "irfft2",
     "drop_path",
+    "grid_to_point_interpolation",
     "imag",
     "interpolation",
     "knn",
+    "mesh_poisson_disk_sample",
+    "mesh_to_voxel_fraction",
+    "point_to_grid_interpolation",
     "legendre_polynomials",
     "polar_and_dipole_basis",
     "radius_search",

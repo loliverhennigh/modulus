@@ -261,6 +261,12 @@ class SignedDistanceField(FunctionSpec):
     ... )
     """
 
+    _BENCHMARK_CASES = (
+        ("small-subdiv2-q4096", 2, 4096),
+        ("medium-subdiv3-q16384", 3, 16384),
+        ("large-subdiv4-q65536", 4, 65536),
+    )
+
     @FunctionSpec.register(
         name="warp", required_imports=("warp>=0.6.0",), rank=0, baseline=True
     )
@@ -280,19 +286,14 @@ class SignedDistanceField(FunctionSpec):
         )
 
     @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         from physicsnemo.mesh.primitives.procedural.lumpy_sphere import (
             load as load_lumpy_sphere,
         )
 
         device = torch.device(device)
         # Build benchmark cases with increasing lumpy-sphere mesh resolution.
-        cases = [
-            ("small", 2, 4096),
-            ("medium", 3, 16384),
-            ("large", 4, 65536),
-        ]
-        for label, subdivisions, num_points in cases:
+        for label, subdivisions, num_points in cls._BENCHMARK_CASES:
             mesh = load_lumpy_sphere(subdivisions=subdivisions, device=str(device))
             mesh_vertices = mesh.points.to(torch.float32).contiguous()
             mesh_indices = mesh.cells.to(torch.int32).reshape(-1).contiguous()
@@ -308,25 +309,11 @@ class SignedDistanceField(FunctionSpec):
                 torch.rand(num_points, 3, device=device) * (box_max - box_min) + box_min
             )
 
-            num_triangles = int(mesh.cells.shape[0])
             yield (
-                (
-                    f"{label}-lumpy-sphere-subdiv{subdivisions}-"
-                    f"tris{num_triangles}-query-points{num_points}"
-                ),
+                label,
                 (mesh_vertices, mesh_indices, input_points),
                 {"max_dist": 10.0, "use_sign_winding_number": False},
             )
-
-    @classmethod
-    def compare(
-        cls,
-        output: tuple[torch.Tensor, torch.Tensor],
-        reference: tuple[torch.Tensor, torch.Tensor],
-    ) -> None:
-        # TODO(ASV): Populate output comparison in a follow-up PR.
-        raise NotImplementedError
-
 
 signed_distance_field = SignedDistanceField.make_function("signed_distance_field")
 

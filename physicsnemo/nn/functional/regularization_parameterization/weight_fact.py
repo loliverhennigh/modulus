@@ -36,6 +36,12 @@ class WeightFact(FunctionSpec):
         implementation.
     """
 
+    _BENCHMARK_CASES = (
+        ("small-256x256", 256),
+        ("medium-512x512", 512),
+        ("large-1024x1024", 1024),
+    )
+
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(w: Tensor, mean: float = 1.0, stddev: float = 0.1):
         g = torch.normal(mean, stddev, size=(w.shape[0], 1), device=w.device)
@@ -44,17 +50,23 @@ class WeightFact(FunctionSpec):
         return g, v
 
     @classmethod
-    def make_inputs(cls, device: torch.device | str = "cpu"):
+    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
         device = torch.device(device)
-        cases = [
-            ("small", 256),
-            ("medium", 512),
-            ("large", 1024),
-        ]
-        for label, size in cases:
+        for label, size in cls._BENCHMARK_CASES:
             w = torch.randn(size, size, device=device)
             yield (
-                f"{label}-weight-matrix{size}x{size}-mean1p0-std0p1",
+                label,
+                (w,),
+                {"mean": 1.0, "stddev": 0.1},
+            )
+
+    @classmethod
+    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        device = torch.device(device)
+        for label, size in cls._BENCHMARK_CASES:
+            w = torch.randn(size, size, device=device, requires_grad=True)
+            yield (
+                label,
                 (w,),
                 {"mean": 1.0, "stddev": 0.1},
             )

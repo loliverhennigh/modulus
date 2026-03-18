@@ -41,17 +41,22 @@ from physicsnemo.nn.functional.regularization_parameterization import (
 )
 
 # FunctionSpec classes listed here must implement ``make_inputs_forward`` for ASV.
-# ``make_inputs_backward`` is optional and only needed for backward benchmarks.
+# ``make_inputs_backward`` is optional and only used when backward benchmarks run.
 FUNCTIONAL_SPECS = (
+    # Regularization / parameterization.
     DropPath,
+    WeightFact,
+    # Neighbor queries.
     KNN,
+    RadiusSearch,
+    # Geometry.
     MeshPoissonDiskSample,
     MeshToVoxelFraction,
+    SignedDistanceField,
+    # Interpolation.
     GridToPointInterpolation,
     PointToGridInterpolation,
-    RadiusSearch,
-    SignedDistanceField,
-    WeightFact,
+    # Fourier spectral.
     RFFT,
     RFFT2,
     IRFFT,

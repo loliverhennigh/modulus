@@ -14,30 +14,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared helpers for functional ASV benchmark scripts."""
+"""Shared helpers for functional ASV benchmark scripts.
+
+This module centralizes FunctionSpec case/phase handling so benchmark timing and
+plot generation always interpret benchmark metadata the same way.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterable, Iterator
+from typing import Any, TypeAlias
 
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
 
+# Keep benchmark phases in a stable order for reproducible outputs.
 PHASE_ORDER = ("forward", "backward")
+
+# Canonical benchmark case tuple type yielded by input generators.
+BenchmarkCase: TypeAlias = tuple[str, tuple[Any, ...], dict[str, Any]]
+
+
+def _phase_case_iterator(
+    spec: type, phase: str, device: torch.device | str
+) -> Iterator[BenchmarkCase]:
+    """Return the phase-specific case iterator for ``spec``."""
+
+    # Forward and backward each have their own FunctionSpec generator hook.
+    if phase == "forward":
+        return spec.make_inputs_forward(device=device)
+    if phase == "backward":
+        return spec.make_inputs_backward(device=device)
+    raise ValueError(f"Unsupported benchmark phase: {phase}")
 
 
 def supports_backward_inputs(spec: type) -> bool:
-    """Return True when a spec overrides backward input generation."""
+    """Return ``True`` when ``spec`` overrides backward input generation."""
 
-    return spec.make_inputs_backward.__func__ is not FunctionSpec.make_inputs_backward
+    # Compare unbound callables so this works regardless of classmethod wrapping.
+    spec_fn = getattr(spec.make_inputs_backward, "__func__", spec.make_inputs_backward)
+    base_fn = getattr(
+        FunctionSpec.make_inputs_backward, "__func__", FunctionSpec.make_inputs_backward
+    )
+    return spec_fn is not base_fn
 
 
 def _metadata_case_labels(spec: type) -> list[str]:
-    """Return benchmark case labels from optional spec metadata."""
+    """Extract benchmark case labels from optional FunctionSpec metadata."""
 
+    # Prefer static metadata declared directly on the FunctionSpec.
     benchmark_cases = getattr(spec, "_BENCHMARK_CASES", None)
-    if isinstance(benchmark_cases, (list, tuple)):
+    if isinstance(benchmark_cases, Iterable):
         labels = [
             case[0]
             for case in benchmark_cases
@@ -46,6 +74,7 @@ def _metadata_case_labels(spec: type) -> list[str]:
         if labels:
             return labels
 
+    # Fall back to callable metadata hook when present.
     benchmark_cases_fn = getattr(spec, "_benchmark_cases", None)
     if callable(benchmark_cases_fn):
         labels = [
@@ -60,20 +89,24 @@ def _metadata_case_labels(spec: type) -> list[str]:
 
 
 def case_labels(spec: type, phase: str, device: torch.device | str) -> list[str]:
-    """Resolve labeled benchmark cases for one phase."""
+    """Resolve benchmark case labels for one spec and one phase."""
 
+    # Validate requested phase and skip unsupported backward benchmarking.
     if phase not in PHASE_ORDER:
         raise ValueError(f"Unsupported benchmark phase: {phase}")
     if phase == "backward" and not supports_backward_inputs(spec):
         return []
 
+    # Metadata labels avoid materializing full tensor inputs while plotting.
     labels = _metadata_case_labels(spec)
     if labels:
         return labels
 
-    if phase == "forward":
-        return [label for label, _, _ in spec.make_inputs_forward(device=device)]
-    return [label for label, _, _ in spec.make_inputs_backward(device=device)]
+    # Fall back to labels from the phase-specific input generator.
+    return [
+        label
+        for label, _, _ in _phase_case_iterator(spec=spec, phase=phase, device=device)
+    ]
 
 
 def case_by_index(
@@ -81,22 +114,24 @@ def case_by_index(
     phase: str,
     case_index: int,
     device: torch.device | str,
-) -> tuple[str, tuple[Any, ...], dict[str, Any]]:
-    """Materialize one case from the phase-specific input generator."""
+) -> BenchmarkCase:
+    """Materialize exactly one benchmark case by index."""
 
-    if phase == "forward":
-        case_iter = spec.make_inputs_forward(device=device)
-    elif phase == "backward":
-        case_iter = spec.make_inputs_backward(device=device)
-    else:
-        raise ValueError(f"Unsupported benchmark phase: {phase}")
-
+    # Walk the case iterator until the requested index is reached.
+    case_iter = _phase_case_iterator(spec=spec, phase=phase, device=device)
     for index, case in enumerate(case_iter):
         if index == case_index:
             return case
+
     raise IndexError(
         f"Case index {case_index} out of range for {spec.__name__} phase={phase}"
     )
 
 
-__all__ = ["PHASE_ORDER", "supports_backward_inputs", "case_labels", "case_by_index"]
+__all__ = [
+    "PHASE_ORDER",
+    "BenchmarkCase",
+    "supports_backward_inputs",
+    "case_labels",
+    "case_by_index",
+]

@@ -147,7 +147,13 @@ class RadiusSearch(FunctionSpec):
         device: torch.device | str = "cpu",
     ):
         device = torch.device(device)
-        for label, num_points, num_queries, radius, max_points in cls._BACKWARD_BENCHMARK_CASES:
+        for (
+            label,
+            num_points,
+            num_queries,
+            radius,
+            max_points,
+        ) in cls._BACKWARD_BENCHMARK_CASES:
             points = torch.rand(num_points, 3, device=device, requires_grad=True)
             queries = torch.rand(num_queries, 3, device=device, requires_grad=True)
             yield (
@@ -192,7 +198,11 @@ class RadiusSearch(FunctionSpec):
                     )
                 continue
 
-            if dynamic_output and output_tensor.ndim == 2 and output_tensor.shape[1] == 3:
+            if (
+                dynamic_output
+                and output_tensor.ndim == 2
+                and output_tensor.shape[1] == 3
+            ):
                 torch.testing.assert_close(
                     output_tensor.sum(dim=0),
                     reference_tensor.sum(dim=0),
@@ -221,5 +231,6 @@ class RadiusSearch(FunctionSpec):
     @classmethod
     def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
         torch.testing.assert_close(output, reference, atol=1e-5, rtol=1e-5)
+
 
 radius_search = RadiusSearch.make_function("radius_search")

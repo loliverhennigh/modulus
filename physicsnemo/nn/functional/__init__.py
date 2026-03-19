@@ -14,11 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
-from .geometry import signed_distance_field
-from .interpolation import interpolation
-from .neighbors import knn, radius_search
-from .regularization_parameterization import drop_path, weight_fact
 from .equivariant_ops import (
     legendre_polynomials,
     polar_and_dipole_basis,
@@ -26,6 +21,11 @@ from .equivariant_ops import (
     spherical_basis,
     vector_project,
 )
+from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
+from .geometry import signed_distance_field
+from .interpolation import interpolation
+from .neighbors import knn, radius_search
+from .regularization_parameterization import drop_path, weight_fact
 
 __all__ = [
     "irfft",

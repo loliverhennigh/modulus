@@ -315,6 +315,7 @@ class SignedDistanceField(FunctionSpec):
                 {"max_dist": 10.0, "use_sign_winding_number": False},
             )
 
+
 signed_distance_field = SignedDistanceField.make_function("signed_distance_field")
 
 

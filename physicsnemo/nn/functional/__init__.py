@@ -15,11 +15,7 @@
 # limitations under the License.
 
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
-from .geometry import (
-    mesh_poisson_disk_sample,
-    mesh_to_voxel_fraction,
-    signed_distance_field,
-)
+from .geometry import signed_distance_field
 from .interpolation import (
     grid_to_point_interpolation,
     interpolation,
@@ -43,8 +39,6 @@ __all__ = [
     "imag",
     "interpolation",
     "knn",
-    "mesh_poisson_disk_sample",
-    "mesh_to_voxel_fraction",
     "point_to_grid_interpolation",
     "legendre_polynomials",
     "polar_and_dipole_basis",

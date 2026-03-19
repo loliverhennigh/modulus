@@ -47,6 +47,122 @@ def _build_case(device: str, subdivisions: int = 2, grid_n: int = 32):
     return mesh_vertices, mesh_indices_2d, origin, voxel_size, grid_dims
 
 
+# Build call arguments for parameterized error-path tests.
+def _case_bad_mesh_indices_shape(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    origin: torch.Tensor,
+    voxel_size: float,
+    grid_dims: tuple[int, int, int],
+):
+    bad_indices = torch.zeros(4, 4, device=mesh_vertices.device, dtype=torch.int32)
+    return (mesh_vertices, bad_indices, origin, voxel_size, grid_dims), {
+        "implementation": "warp"
+    }
+
+
+def _case_bad_mesh_indices_dtype(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    origin: torch.Tensor,
+    voxel_size: float,
+    grid_dims: tuple[int, int, int],
+):
+    return (
+        mesh_vertices,
+        mesh_indices.to(torch.float32),
+        origin,
+        voxel_size,
+        grid_dims,
+    ), {"implementation": "warp"}
+
+
+def _case_bad_mesh_indices_bounds(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    origin: torch.Tensor,
+    voxel_size: float,
+    grid_dims: tuple[int, int, int],
+):
+    bad_indices = mesh_indices.clone()
+    bad_indices[0, 0] = mesh_vertices.shape[0]
+    return (mesh_vertices, bad_indices, origin, voxel_size, grid_dims), {
+        "implementation": "warp"
+    }
+
+
+def _case_bad_origin_shape(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    origin: torch.Tensor,
+    voxel_size: float,
+    grid_dims: tuple[int, int, int],
+):
+    bad_origin = torch.zeros(2, device=mesh_vertices.device, dtype=torch.float32)
+    return (mesh_vertices, mesh_indices, bad_origin, voxel_size, grid_dims), {
+        "implementation": "warp"
+    }
+
+
+def _case_bad_grid_dims(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    origin: torch.Tensor,
+    voxel_size: float,
+    grid_dims: tuple[int, int, int],
+):
+    return (mesh_vertices, mesh_indices, origin, voxel_size, (32, 32)), {
+        "implementation": "warp"
+    }
+
+
+def _case_bad_voxel_size(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    origin: torch.Tensor,
+    voxel_size: float,
+    grid_dims: tuple[int, int, int],
+):
+    return (mesh_vertices, mesh_indices, origin, 0.0, grid_dims), {
+        "implementation": "warp"
+    }
+
+
+def _case_bad_n_samples(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    origin: torch.Tensor,
+    voxel_size: float,
+    grid_dims: tuple[int, int, int],
+):
+    return (mesh_vertices, mesh_indices, origin, voxel_size, grid_dims), {
+        "n_samples": 0,
+        "implementation": "warp",
+    }
+
+
+_ERROR_CASE_BUILDERS = {
+    "bad_mesh_indices_shape": _case_bad_mesh_indices_shape,
+    "bad_mesh_indices_dtype": _case_bad_mesh_indices_dtype,
+    "bad_mesh_indices_bounds": _case_bad_mesh_indices_bounds,
+    "bad_origin_shape": _case_bad_origin_shape,
+    "bad_grid_dims": _case_bad_grid_dims,
+    "bad_voxel_size": _case_bad_voxel_size,
+    "bad_n_samples": _case_bad_n_samples,
+}
+
+
+_ERROR_CASE_EXPECTATIONS = {
+    "bad_mesh_indices_shape": (ValueError, r"shape \(n_faces, 3\)"),
+    "bad_mesh_indices_dtype": (TypeError, "integer dtype"),
+    "bad_mesh_indices_bounds": (ValueError, r"0 <= index < n_vertices"),
+    "bad_origin_shape": (ValueError, "origin must be a length-3 vector"),
+    "bad_grid_dims": (ValueError, "grid_dims must contain exactly three values"),
+    "bad_voxel_size": (ValueError, "voxel_size must be strictly positive"),
+    "bad_n_samples": (ValueError, "n_samples must be strictly positive"),
+}
+
+
 # Validate core warp output properties for mesh-to-voxel conversion.
 @requires_module("warp")
 def test_mesh_to_voxel_fraction_warp(device: str):
@@ -137,88 +253,32 @@ def test_mesh_to_voxel_fraction_open_mesh_path(device: str):
 
 # Validate argument and shape error handling paths.
 @requires_module("warp")
-def test_mesh_to_voxel_fraction_error_handling(device: str):
+@pytest.mark.parametrize(
+    "error_case",
+    (
+        "bad_mesh_indices_shape",
+        "bad_mesh_indices_dtype",
+        "bad_mesh_indices_bounds",
+        "bad_origin_shape",
+        "bad_grid_dims",
+        "bad_voxel_size",
+        "bad_n_samples",
+    ),
+)
+def test_mesh_to_voxel_fraction_error_handling(device: str, error_case: str):
     mesh_vertices, mesh_indices_2d, origin, voxel_size, grid_dims = _build_case(device)
+    call_builder = _ERROR_CASE_BUILDERS[error_case]
+    expected_exception, expected_match = _ERROR_CASE_EXPECTATIONS[error_case]
+    args, kwargs = call_builder(
+        mesh_vertices,
+        mesh_indices_2d,
+        origin,
+        voxel_size,
+        grid_dims,
+    )
 
-    # Invalid mesh index shape.
-    with pytest.raises(ValueError, match=r"shape \(n_faces, 3\)"):
-        mesh_to_voxel_fraction(
-            mesh_vertices,
-            torch.zeros(4, 4, device=mesh_vertices.device, dtype=torch.int32),
-            origin,
-            voxel_size,
-            grid_dims,
-            implementation="warp",
-        )
-
-    # Non-integer mesh indices are rejected.
-    with pytest.raises(TypeError, match="integer dtype"):
-        mesh_to_voxel_fraction(
-            mesh_vertices,
-            mesh_indices_2d.to(torch.float32),
-            origin,
-            voxel_size,
-            grid_dims,
-            implementation="warp",
-        )
-
-    # Out-of-bounds mesh indices are rejected.
-    mesh_indices_oob = mesh_indices_2d.clone()
-    mesh_indices_oob[0, 0] = mesh_vertices.shape[0]
-    with pytest.raises(ValueError, match=r"0 <= index < n_vertices"):
-        mesh_to_voxel_fraction(
-            mesh_vertices,
-            mesh_indices_oob,
-            origin,
-            voxel_size,
-            grid_dims,
-            implementation="warp",
-        )
-
-    # Invalid origin shape.
-    with pytest.raises(ValueError, match="origin must be a length-3 vector"):
-        mesh_to_voxel_fraction(
-            mesh_vertices,
-            mesh_indices_2d,
-            torch.zeros(2, device=mesh_vertices.device, dtype=torch.float32),
-            voxel_size,
-            grid_dims,
-            implementation="warp",
-        )
-
-    # Invalid grid dimensions.
-    with pytest.raises(ValueError, match="grid_dims must contain exactly three values"):
-        mesh_to_voxel_fraction(
-            mesh_vertices,
-            mesh_indices_2d,
-            origin,
-            voxel_size,
-            (32, 32),
-            implementation="warp",
-        )
-
-    # Invalid voxel size.
-    with pytest.raises(ValueError, match="voxel_size must be strictly positive"):
-        mesh_to_voxel_fraction(
-            mesh_vertices,
-            mesh_indices_2d,
-            origin,
-            0.0,
-            grid_dims,
-            implementation="warp",
-        )
-
-    # Invalid number of samples.
-    with pytest.raises(ValueError, match="n_samples must be strictly positive"):
-        mesh_to_voxel_fraction(
-            mesh_vertices,
-            mesh_indices_2d,
-            origin,
-            voxel_size,
-            grid_dims,
-            n_samples=0,
-            implementation="warp",
-        )
+    with pytest.raises(expected_exception, match=expected_match):
+        mesh_to_voxel_fraction(*args, **kwargs)
 
 
 # Validate benchmark input generation contract for this FunctionSpec.

@@ -124,7 +124,9 @@ def _benchmark_entry(data: dict[str, Any]) -> Any:
     raise KeyError(f"Unable to find benchmark entry for {_BENCHMARK_SUFFIX}")
 
 
-def _entry_vectors(entry: Any, fallback_params: list[BenchmarkKey]) -> tuple[list[float | None], list[str]]:
+def _entry_vectors(
+    entry: Any, fallback_params: list[BenchmarkKey]
+) -> tuple[list[float | None], list[str]]:
     """Normalize the ASV entry payload into ``(values, labels)`` vectors."""
 
     # ASV may store benchmark vectors directly or under "result"/"results".
@@ -193,7 +195,9 @@ def _build_spec_data(device: torch.device | str) -> dict[str, BenchmarkSpecData]
     return spec_data
 
 
-def _build_fallback_params(spec_data: dict[str, BenchmarkSpecData]) -> list[BenchmarkKey]:
+def _build_fallback_params(
+    spec_data: dict[str, BenchmarkSpecData],
+) -> list[BenchmarkKey]:
     """Reconstruct ASV key ordering for result payloads missing explicit labels."""
 
     params: list[BenchmarkKey] = []
@@ -261,9 +265,7 @@ def _plot_phase_spec(
 
     # Preserve label ordering from FunctionSpec metadata/generator output.
     case_labels_in_order = [
-        label
-        for label in metadata.labels_by_phase.get(phase, [])
-        if label in case_map
+        label for label in metadata.labels_by_phase.get(phase, []) if label in case_map
     ]
     if not case_labels_in_order:
         return
@@ -323,9 +325,7 @@ def _plot_phase_spec(
     # Save to canonical benchmark file name for the phase.
     fig.tight_layout()
     output_name = (
-        "benchmark_forward.png"
-        if phase == "forward"
-        else f"benchmark_{phase}.png"
+        "benchmark_forward.png" if phase == "forward" else f"benchmark_{phase}.png"
     )
     fig.savefig(output_dir / output_name)
     plt.close(fig)

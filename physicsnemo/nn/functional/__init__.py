@@ -14,6 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .equivariant_ops import (
+    legendre_polynomials,
+    polar_and_dipole_basis,
+    smooth_log,
+    spherical_basis,
+    vector_project,
+)
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
 from .geometry import (
     mesh_poisson_disk_sample,
@@ -27,13 +34,6 @@ from .interpolation import (
 )
 from .neighbors import knn, radius_search
 from .regularization_parameterization import drop_path, weight_fact
-from .equivariant_ops import (
-    legendre_polynomials,
-    polar_and_dipole_basis,
-    smooth_log,
-    spherical_basis,
-    vector_project,
-)
 
 __all__ = [
     "irfft",

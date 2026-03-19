@@ -157,4 +157,3 @@ def _voxel_open_mesh_intersection_kernel(
             inside_count += 1
 
     output[output_index] = wp.float32(inside_count) / wp.float32(n_samples)
-

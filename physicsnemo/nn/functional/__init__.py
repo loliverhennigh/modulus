@@ -16,11 +16,7 @@
 
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
 from .geometry import signed_distance_field
-from .interpolation import (
-    grid_to_point_interpolation,
-    interpolation,
-    point_to_grid_interpolation,
-)
+from .interpolation import interpolation
 from .neighbors import knn, radius_search
 from .regularization_parameterization import drop_path, weight_fact
 from .equivariant_ops import (
@@ -35,11 +31,9 @@ __all__ = [
     "irfft",
     "irfft2",
     "drop_path",
-    "grid_to_point_interpolation",
     "imag",
     "interpolation",
     "knn",
-    "point_to_grid_interpolation",
     "legendre_polynomials",
     "polar_and_dipole_basis",
     "radius_search",

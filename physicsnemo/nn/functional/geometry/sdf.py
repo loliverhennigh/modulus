@@ -16,6 +16,7 @@
 
 import torch
 import warp as wp
+from jaxtyping import Float
 
 from physicsnemo.core.function_spec import FunctionSpec
 
@@ -271,12 +272,12 @@ class SignedDistanceField(FunctionSpec):
         name="warp", required_imports=("warp>=0.6.0",), rank=0, baseline=True
     )
     def warp_forward(
-        mesh_vertices: torch.Tensor,
+        mesh_vertices: Float[torch.Tensor, "num_vertices 3"],
         mesh_indices: torch.Tensor,
-        input_points: torch.Tensor,
+        input_points: Float[torch.Tensor, "... 3"],
         max_dist: float = 1e8,
         use_sign_winding_number: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[Float[torch.Tensor, "..."], Float[torch.Tensor, "... 3"]]:
         return signed_distance_field_impl(
             mesh_vertices,
             mesh_indices,

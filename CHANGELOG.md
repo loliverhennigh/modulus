@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `physicsnemo.mesh.sampling.find_nearest_cells` uses a KNN-backed
   implementation, and no longer accepts the `bvh=`, `chunk_size=`,
   `max_rounds=`, or `max_candidates_per_point=` parameters.
+- &#9888;&#65039; **BC-impact (deep imports):** internal `physicsnemo.nn.functional`
+  modules were reorganized by category. Public top-level functional imports are
+  unchanged, but code importing internal module paths directly (for example
+  `physicsnemo.nn.functional.knn` or
+  `physicsnemo.nn.functional.radius_search`) should migrate to
+  `physicsnemo.nn.functional.neighbors.*`.
 
 ### Deprecated
 

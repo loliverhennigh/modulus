@@ -2,61 +2,49 @@
 
 This directory contains ASV benchmarks for `physicsnemo.nn`.
 
-## Functional Benchmark Workflow
+For functionals, the benchmark flow is intentionally simple:
 
 1. Implement or update the functional `FunctionSpec`.
-2. Add representative `make_inputs_forward(device=...)` cases.
-3. Add `make_inputs_backward(device=...)` when backward timing is meaningful.
-4. Register the `FunctionSpec` in `benchmarks/physicsnemo/nn/functional/registry.py`.
-5. Run ASV and regenerate plots.
+2. Add representative `make_inputs(device=...)` cases to that `FunctionSpec`.
+3. Register the `FunctionSpec` in `benchmarks/physicsnemo/nn/functional/registry.py`.
+4. Run ASV and regenerate plots.
 
-## Key Files
+## Where to read more
 
-- Benchmark registry:
+- Functional benchmark rules and expectations:
+  - `CODING_STANDARDS/FUNCTIONAL_APIS.md`
+- `FunctionSpec` behavior and required hooks:
+  - `physicsnemo/core/function_spec.py`
+
+## Where to edit
+
+- Benchmark registry (which functionals are benchmarked):
   - `benchmarks/physicsnemo/nn/functional/registry.py`
-- ASV benchmark runner:
+- ASV benchmark runner for functionals:
   - `benchmarks/physicsnemo/nn/functional/benchmark_functionals.py`
 - Plot generation:
   - `benchmarks/physicsnemo/nn/functional/plot_functional_benchmarks.py`
 
-## Relevant Standards / APIs
+## Example functionals to copy
 
-- Functional benchmark conventions:
-  - `CODING_STANDARDS/FUNCTIONAL_APIS.md`
-- `FunctionSpec` behavior:
-  - `physicsnemo/core/function_spec.py`
+- `physicsnemo/nn/functional/interpolation/interpolation.py`
+- `physicsnemo/nn/functional/radius_search/radius_search.py`
+- `physicsnemo/nn/functional/knn/knn.py`
 
-## Common Commands
+## Common commands
 
-Run all configured benchmarks:
+Run benchmarks (repo root):
 
 ```bash
 ./benchmarks/run_benchmarks.sh
 ```
 
-Run selected functionals:
+Run only selected functionals while iterating:
 
 ```bash
-PHYSICSNEMO_ASV_FUNCTIONALS=GridToPointInterpolation,RadiusSearch ./benchmarks/run_benchmarks.sh
+PHYSICSNEMO_ASV_FUNCTIONALS=Interpolation,RadiusSearch ./benchmarks/run_benchmarks.sh
 ```
 
-Run selected benchmark phases:
+Plots are written under:
 
-```bash
-PHYSICSNEMO_ASV_PHASES=forward ./benchmarks/run_benchmarks.sh
-PHYSICSNEMO_ASV_PHASES=forward,backward ./benchmarks/run_benchmarks.sh
-```
-
-Override benchmark device:
-
-```bash
-PHYSICSNEMO_ASV_DEVICE=cuda ./benchmarks/run_benchmarks.sh
-PHYSICSNEMO_ASV_DEVICE=cpu ./benchmarks/run_benchmarks.sh
-```
-
-## Benchmark Image Outputs
-
-Plots are written to:
-
-- `docs/nn/functional/<category>/<functional_name>/benchmark_forward.png`
-- `docs/nn/functional/<category>/<functional_name>/benchmark_backward.png`
+- `docs/img/nn/functional/<functional_name>/benchmark.png`

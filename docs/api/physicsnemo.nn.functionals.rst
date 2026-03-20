@@ -22,4 +22,4 @@ in the documentation for performance comparisons.
    nn/functionals/geometry
    nn/functionals/fourier_spectral
    nn/functionals/regularization_parameterization
-   nn/functionals/interpolation
+   nn/functionals/resampling_interpolation

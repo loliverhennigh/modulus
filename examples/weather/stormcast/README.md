@@ -42,7 +42,7 @@ These models can make longer forecasts (more than one timestep) during inference
 
 ### Preliminaries
 
-Start by installing PhysicsNeMo (if not already installed) and copying this folder (`examples/weather/stormcast`) to a system with a GPU available. Also, prepare a combined HRRR/ERA5 dataset in the form specified in `datasets/data_loader_hrrr_era5.py` or implement a custom dataset class as shown below under [Adding custom datasets](#adding-custom-datasets).
+Start by installing PhysicsNeMo (if not already installed) with the `datapipes-extras`, `nn-extras`, and `utils-extras` optional dependency groups, along with the packages in `requirements.txt`. Then, copy this folder (`examples/weather/stormcast`) to a system with a GPU available. Also, prepare a combined HRRR/ERA5 dataset in the form specified in `datasets/data_loader_hrrr_era5.py` or implement a custom dataset class as shown below under [Adding custom datasets](#adding-custom-datasets).
 
 PyTorch 2.10 or higher is recommended for this recipe and is _required_ to use domain parallelism. Tests using domain parallel features will likely fail with older PyTorch versions. To install all requirements beyond those of PhysicsNeMo itself, you can run
 
@@ -151,6 +151,21 @@ python train.py --config-name diffusion training.experiment_name=diffusion
 Similar to regression, diffusion training can be tested using a single GPU using `--config-name diffusion_lite` (U-Net with StormCast training data), `--config-name test_diffusion_unet` (U-Net without data) or `--config-name test_diffusion` (DiT without data).
 
 Note that the full training pipeline for StormCast diffusion model is fairly lengthy, requiring about 120 hours on 64 NVIDIA H100 GPUs. However, more lightweight training runs can still produce decent models if the diffusion model is not trained for as long. The example `regression` and `diffusion` configs use the configuration used in the StormCast paper. New configs can be easily added [as described above](#configuration-basics).
+
+#### Sigma-bin loss tracking
+
+For diffusion models, you can enable per-sigma-bin loss logging to diagnose which noise levels the model struggles with. This logs the mean training loss for equal-probability bins of the sampled sigma values to TensorBoard (under `loss/train_sigma_bin/`).
+
+To enable it, add the following to your diffusion training config:
+```yaml
+training:
+  loss:
+    track_sigma_bin_loss: true
+    sigma_bin_count: 8  # number of equal-probability bins (default: 8)
+    # sigma_bin_edges: []  # optional: explicit strictly-increasing bin edges
+```
+
+When `sigma_bin_edges` is not provided, bins are computed automatically so that each bin has equal probability mass under the configured sigma distribution (`lognormal` or `loguniform`). This feature is ignored for regression models.
 
 ### Distributed training
 

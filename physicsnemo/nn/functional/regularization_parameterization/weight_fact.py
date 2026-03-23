@@ -15,7 +15,6 @@
 # limitations under the License.
 
 import torch
-from jaxtyping import Float
 from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
@@ -44,11 +43,7 @@ class WeightFact(FunctionSpec):
     )
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
-    def torch_forward(
-        w: Float[Tensor, "rows cols"],
-        mean: float = 1.0,
-        stddev: float = 0.1,
-    ) -> tuple[Float[Tensor, "rows 1"], Float[Tensor, "rows cols"]]:
+    def torch_forward(w: Tensor, mean: float = 1.0, stddev: float = 0.1):
         g = torch.normal(mean, stddev, size=(w.shape[0], 1), device=w.device)
         g = torch.exp(g)
         v = w / g

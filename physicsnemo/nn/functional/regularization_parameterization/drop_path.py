@@ -15,18 +15,17 @@
 # limitations under the License.
 
 import torch
-from jaxtyping import Float
 from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
 
 
 def _drop_path_torch(
-    x: Float[Tensor, "batch ..."],
+    x: Tensor,
     drop_prob: float = 0.0,
     training: bool = False,
     scale_by_keep: bool = True,
-) -> Float[Tensor, "batch ..."]:
+) -> Tensor:
     """Apply stochastic depth per sample."""
     if drop_prob == 0.0 or not training:
         return x
@@ -77,11 +76,11 @@ class DropPath(FunctionSpec):
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
-        x: Float[Tensor, "batch ..."],
+        x: Tensor,
         drop_prob: float = 0.0,
         training: bool = False,
         scale_by_keep: bool = True,
-    ) -> Float[Tensor, "batch ..."]:
+    ) -> Tensor:
         return _drop_path_torch(
             x,
             drop_prob=drop_prob,

@@ -22,7 +22,6 @@ from typing import List, Optional, Tuple
 import torch
 import torch.fft
 import torch.onnx
-from jaxtyping import Complex, Float
 from torch import Tensor
 from torch.autograd import Function
 
@@ -363,7 +362,7 @@ class ViewAsComplex(FunctionSpec):
     """
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
-    def torch_forward(input: Float[Tensor, "... 2"]) -> Tensor:
+    def torch_forward(input: Tensor) -> Tensor:
         if not torch.onnx.is_in_onnx_export():
             return torch.view_as_complex(input)
 
@@ -401,7 +400,7 @@ class Real(FunctionSpec):
     """
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
-    def torch_forward(input: Complex[Tensor, "..."] | Float[Tensor, "... 2"]) -> Tensor:
+    def torch_forward(input: Tensor) -> Tensor:
         if not torch.onnx.is_in_onnx_export():
             return input.real
 
@@ -442,7 +441,7 @@ class Imag(FunctionSpec):
     """
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
-    def torch_forward(input: Complex[Tensor, "..."] | Float[Tensor, "... 2"]) -> Tensor:
+    def torch_forward(input: Tensor) -> Tensor:
         if not torch.onnx.is_in_onnx_export():
             return input.imag
 
@@ -490,7 +489,7 @@ class RFFT(FunctionSpec):
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
-        input: Float[Tensor, "..."],
+        input: Tensor,
         n: int | None = None,
         dim: int = -1,
         norm: str | None = None,
@@ -537,7 +536,7 @@ class RFFT2(FunctionSpec):
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
-        input: Float[Tensor, "..."],
+        input: Tensor,
         s: tuple[int, int] | None = None,
         dim: tuple[int, int] = (-2, -1),
         norm: str | None = None,
@@ -592,7 +591,7 @@ class IRFFT(FunctionSpec):
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
-        input: Complex[Tensor, "..."] | Float[Tensor, "... 2"],
+        input: Tensor,
         n: int | None = None,
         dim: int = -1,
         norm: str | None = None,
@@ -649,7 +648,7 @@ class IRFFT2(FunctionSpec):
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
-        input: Complex[Tensor, "..."] | Float[Tensor, "... 2"],
+        input: Tensor,
         s: tuple[int, int] | None = None,
         dim: tuple[int, int] = (-2, -1),
         norm: str | None = None,

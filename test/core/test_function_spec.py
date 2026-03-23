@@ -211,13 +211,16 @@ def test_missing_imports_handling():
     assert not FunctionSpec._check_imports(("not_a_real_module",))
 
 
-def test_make_inputs_and_compare_not_implemented():
+def test_make_inputs_forward_backward_and_compare_not_implemented():
     # This test is really just for code coverage.
 
     with pytest.raises(NotImplementedError):
-        FunctionSpec.make_inputs(device="cpu")
+        FunctionSpec.make_inputs_forward(device="cpu")
+    assert list(FunctionSpec.make_inputs_backward(device="cpu")) == []
     with pytest.raises(NotImplementedError):
-        FunctionSpec.compare(output=None, reference=None)
+        FunctionSpec.compare_forward(output=None, reference=None)
+    with pytest.raises(NotImplementedError):
+        FunctionSpec.compare_backward(output=None, reference=None)
 
 
 def test_duplicate_name_raises():

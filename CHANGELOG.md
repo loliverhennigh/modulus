@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (or plain `dict` for convenience).
 - Adds `physicsnemo.mesh.remeshing` subpackage with `partition_cells()` for
   creating Voronoi regions around seed points. BVH-accelerated.
+- Added support for 1D, 2D, and 3D neighborhood attention (natten) via
+  `physicsnemo.nn.functional` interface, with full `ShardTensor` support.
 
 ### Changed
 

@@ -24,6 +24,7 @@ from .equivariant_ops import (
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
 from .geometry import signed_distance_field
 from .interpolation import interpolation
+from .natten import na1d, na2d, na3d
 from .neighbors import knn, radius_search
 from .regularization_parameterization import drop_path, weight_fact
 
@@ -35,6 +36,9 @@ __all__ = [
     "interpolation",
     "knn",
     "legendre_polynomials",
+    "na1d",
+    "na2d",
+    "na3d",
     "polar_and_dipole_basis",
     "radius_search",
     "real",

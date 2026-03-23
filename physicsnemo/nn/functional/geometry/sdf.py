@@ -263,9 +263,9 @@ class SignedDistanceField(FunctionSpec):
     """
 
     _BENCHMARK_CASES = (
-        ("small-subdiv2-q4096", 2, 4096),
-        ("medium-subdiv3-q16384", 3, 16384),
-        ("large-subdiv4-q65536", 4, 65536),
+        ("small", 8, 20, 4096),
+        ("medium", 16, 40, 16384),
+        ("large", 32, 80, 65536),
     )
 
     @FunctionSpec.register(
@@ -288,30 +288,60 @@ class SignedDistanceField(FunctionSpec):
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        from physicsnemo.mesh.primitives.procedural.lumpy_sphere import (
-            load as load_lumpy_sphere,
-        )
-
         device = torch.device(device)
-        # Build benchmark cases with increasing lumpy-sphere mesh resolution.
-        for label, subdivisions, num_points in cls._BENCHMARK_CASES:
-            mesh = load_lumpy_sphere(subdivisions=subdivisions, device=str(device))
-            mesh_vertices = mesh.points.to(torch.float32).contiguous()
-            mesh_indices = mesh.cells.to(torch.int32).reshape(-1).contiguous()
+        for label, n_rings, n_segments, num_points in cls._BENCHMARK_CASES:
+            # Build UV-sphere vertex positions.
+            phi = torch.linspace(0, torch.pi, n_rings + 2, device=device)[1:-1]
+            theta = torch.linspace(0, 2 * torch.pi, n_segments + 1, device=device)[:-1]
+            phi_g, theta_g = torch.meshgrid(phi, theta, indexing="ij")
 
-            # Sample query points in a padded axis-aligned box around the surface.
-            bbox_min = mesh_vertices.min(dim=0).values
-            bbox_max = mesh_vertices.max(dim=0).values
-            span = bbox_max - bbox_min
-            padding = 0.25 * span.max()
-            box_min = bbox_min - padding
-            box_max = bbox_max + padding
-            input_points = (
-                torch.rand(num_points, 3, device=device) * (box_max - box_min) + box_min
+            sin_phi = phi_g.sin()
+            ring_points = torch.stack(
+                [sin_phi * theta_g.cos(), sin_phi * theta_g.sin(), phi_g.cos()],
+                dim=-1,
+            ).reshape(-1, 3)
+
+            mesh_vertices = torch.cat(
+                [
+                    torch.tensor([[0.0, 0.0, 1.0]], device=device),
+                    ring_points,
+                    torch.tensor([[0.0, 0.0, -1.0]], device=device),
+                ]
+            ).to(torch.float32)
+
+            # Build UV-sphere triangle connectivity (vectorized).
+            south_idx = n_rings * n_segments + 1
+            j = torch.arange(n_segments, device=device)
+            j_next = (j + 1) % n_segments
+
+            north_fan = torch.stack([torch.zeros_like(j), 1 + j, 1 + j_next], dim=1)
+
+            r = torch.arange(n_rings - 1, device=device).unsqueeze(1)
+            base = 1 + r * n_segments
+            p00, p01 = base + j, base + j_next
+            p10, p11 = base + n_segments + j, base + n_segments + j_next
+            body_tris = torch.stack(
+                [
+                    torch.stack([p00, p10, p11], dim=-1),
+                    torch.stack([p00, p11, p01], dim=-1),
+                ],
+                dim=2,
+            ).reshape(-1, 3)
+
+            last = south_idx - n_segments
+            south_fan = torch.stack(
+                [last + j, torch.full_like(j, south_idx), last + j_next], dim=1
             )
 
+            mesh_indices = (
+                torch.cat([north_fan, body_tris, south_fan]).to(torch.int32).reshape(-1)
+            )
+
+            # Sample query points in a padded box around the unit sphere.
+            input_points = 3.0 * torch.rand(num_points, 3, device=device) - 1.5
+
             yield (
-                label,
+                f"{label}-uv-sphere-tris{2 * n_rings * n_segments}-query-points{num_points}",
                 (mesh_vertices, mesh_indices, input_points),
                 {"max_dist": 10.0, "use_sign_winding_number": False},
             )

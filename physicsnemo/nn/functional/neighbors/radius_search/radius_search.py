@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import torch
+from jaxtyping import Float
 
 from physicsnemo.core.function_spec import FunctionSpec
 
@@ -98,26 +99,26 @@ class RadiusSearch(FunctionSpec):
 
     @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=0)
     def warp_forward(
-        points: torch.Tensor,
-        queries: torch.Tensor,
+        points: Float[torch.Tensor, "num_points 3"],
+        queries: Float[torch.Tensor, "num_queries 3"],
         radius: float,
         max_points: int | None = None,
         return_dists: bool = False,
         return_points: bool = False,
-    ):
+    ) -> tuple[torch.Tensor, ...]:
         return radius_search_warp(
             points, queries, radius, max_points, return_dists, return_points
         )
 
     @FunctionSpec.register(name="torch", rank=1, baseline=True)
     def torch_forward(
-        points: torch.Tensor,
-        queries: torch.Tensor,
+        points: Float[torch.Tensor, "num_points 3"],
+        queries: Float[torch.Tensor, "num_queries 3"],
         radius: float,
         max_points: int | None = None,
         return_dists: bool = False,
         return_points: bool = False,
-    ):
+    ) -> tuple[torch.Tensor, ...]:
         return radius_search_torch(
             points, queries, radius, max_points, return_dists, return_points
         )

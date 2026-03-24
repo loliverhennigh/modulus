@@ -17,6 +17,7 @@
 from typing import Literal
 
 import torch
+from jaxtyping import Float, Int
 
 from physicsnemo.core.function_spec import FunctionSpec
 
@@ -65,20 +66,32 @@ class KNN(FunctionSpec):
         name="cuml", required_imports=("cuml>=24.0.0", "cupy>=13.0.0"), rank=0
     )
     def cuml_forward(
-        points: torch.Tensor, queries: torch.Tensor, k: int
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        points: Float[torch.Tensor, "num_points dim"],
+        queries: Float[torch.Tensor, "num_queries dim"],
+        k: int,
+    ) -> tuple[
+        Int[torch.Tensor, "num_queries k"], Float[torch.Tensor, "num_queries k"]
+    ]:
         return knn_cuml(points, queries, k)
 
     @FunctionSpec.register(name="scipy", required_imports=("scipy>=1.7.0",), rank=1)
     def scipy_forward(
-        points: torch.Tensor, queries: torch.Tensor, k: int
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        points: Float[torch.Tensor, "num_points dim"],
+        queries: Float[torch.Tensor, "num_queries dim"],
+        k: int,
+    ) -> tuple[
+        Int[torch.Tensor, "num_queries k"], Float[torch.Tensor, "num_queries k"]
+    ]:
         return knn_scipy(points, queries, k)
 
     @FunctionSpec.register(name="torch", rank=2, baseline=True)
     def torch_forward(
-        points: torch.Tensor, queries: torch.Tensor, k: int
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        points: Float[torch.Tensor, "num_points dim"],
+        queries: Float[torch.Tensor, "num_queries dim"],
+        k: int,
+    ) -> tuple[
+        Int[torch.Tensor, "num_queries k"], Float[torch.Tensor, "num_queries k"]
+    ]:
         return knn_torch(points, queries, k)
 
     @classmethod
@@ -112,11 +125,13 @@ class KNN(FunctionSpec):
     @classmethod
     def dispatch(
         cls,
-        points: torch.Tensor,
-        queries: torch.Tensor,
+        points: Float[torch.Tensor, "num_points dim"],
+        queries: Float[torch.Tensor, "num_queries dim"],
         k: int,
         implementation: Literal["cuml", "torch", "scipy"] | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[
+        Int[torch.Tensor, "num_queries k"], Float[torch.Tensor, "num_queries k"]
+    ]:
         # Lookup the implementation registry for this FunctionSpec.
         impls = cls._get_impls()
 

@@ -76,6 +76,23 @@ class WeightFact(FunctionSpec):
                 {"mean": 1.0, "stddev": 0.1},
             )
 
+    @classmethod
+    def compare_forward(
+        cls,
+        output: tuple[torch.Tensor, torch.Tensor],
+        reference: tuple[torch.Tensor, torch.Tensor],
+    ) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        g, v = output
+        g_ref, v_ref = reference
+        torch.testing.assert_close(g, g_ref)
+        torch.testing.assert_close(v, v_ref)
+
+    @classmethod
+    def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
 
 weight_fact = WeightFact.make_function("weight_fact")
 

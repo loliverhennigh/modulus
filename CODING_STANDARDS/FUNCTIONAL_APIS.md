@@ -412,18 +412,30 @@ Use a consistent test layout when possible. This is **highly recommended** for
 readability and review speed, but it is **not strictly required** when a
 functional needs a different shape.
 
-Suggested naming/structure:
+Baseline spec-contract tests (expected for every functional):
 
 1. Backend/reference correctness:
    - `test_<functional_name>_<implementation_name>`
-2. Cross-backend parity:
+2. Benchmark-input contract:
+   - `test_<functional_name>_make_inputs_forward`
+   - `test_<functional_name>_make_inputs_backward` (only when backward is meaningful)
+3. Compare-hook contract:
+   - `test_<functional_name>_compare_forward_contract`
+   - `test_<functional_name>_compare_backward_contract` (only when backward is meaningful)
+4. Validation/deprecation path coverage:
+   - `test_<functional_name>_error_handling` (when validation branches exist)
+
+Cross-backend parity tests (required only when multiple implementations exist):
+
+1. Forward parity:
    - `test_<functional_name>_backend_forward_parity`
+2. Backward parity:
    - `test_<functional_name>_backend_backward_parity` (only for differentiable ops)
-3. Deprecation + validation paths:
-   - `test_<functional_name>_error_handling`
 
 Where possible, keep all backend parity checks in one functional test file and
 use the functional's `compare_forward`/`compare_backward` hooks for consistency.
+For single-implementation functionals, compare-hook contract tests should still
+exercise the compare hooks (for example with self-consistency checks).
 
 **Rationale:**
 

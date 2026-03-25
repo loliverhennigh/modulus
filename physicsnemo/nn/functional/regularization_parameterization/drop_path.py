@@ -111,6 +111,16 @@ class DropPath(FunctionSpec):
                 {"drop_prob": 0.1, "training": True, "scale_by_keep": True},
             )
 
+    @classmethod
+    def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
 
 drop_path = DropPath.make_function("drop_path")
 

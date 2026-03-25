@@ -189,3 +189,12 @@ def test_knn_make_inputs_forward(device: str):
     indices, distances = KNN.dispatch(*args, implementation="torch", **kwargs)
     assert indices.ndim == 2
     assert distances.ndim == 2
+
+
+# Validate compare-forward hook contract for KNN.
+def test_knn_compare_forward_contract(device: str):
+    _, args, kwargs = next(iter(KNN.make_inputs_forward(device=device)))
+    output = KNN.dispatch(*args, implementation="torch", **kwargs)
+    indices, distances = output
+    reference = (indices.detach().clone(), distances.detach().clone())
+    KNN.compare_forward(output, reference)

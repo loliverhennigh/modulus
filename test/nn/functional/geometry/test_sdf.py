@@ -154,3 +154,13 @@ def test_signed_distance_field_make_inputs_forward(device: str):
     assert sdf_out.ndim == 1
     assert hit_points.ndim == 2
     assert hit_points.shape[1] == 3
+
+
+# Validate compare-forward hook contract for SDF.
+@requires_module("warp")
+def test_signed_distance_field_compare_forward_contract(device: str):
+    _, args, kwargs = next(iter(SignedDistanceField.make_inputs_forward(device=device)))
+    output = SignedDistanceField.dispatch(*args, implementation="warp", **kwargs)
+    sdf_out, hit_points = output
+    reference = (sdf_out.detach().clone(), hit_points.detach().clone())
+    SignedDistanceField.compare_forward(output, reference)

@@ -387,6 +387,16 @@ class ViewAsComplex(FunctionSpec):
             signal = torch.randn(4, size, 2, device=device, requires_grad=True)
             yield (label, (signal,), {})
 
+    @classmethod
+    def compare_forward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
 
 class Real(FunctionSpec):
     """ONNX-compatible view of the real component from complex tensors.
@@ -428,6 +438,16 @@ class Real(FunctionSpec):
             complex_signal.requires_grad_(True)
             yield (label, (complex_signal,), {})
 
+    @classmethod
+    def compare_forward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
 
 class Imag(FunctionSpec):
     """ONNX-compatible view of the imaginary component from complex tensors.
@@ -468,6 +488,16 @@ class Imag(FunctionSpec):
             complex_signal = torch.view_as_complex(signal)
             complex_signal.requires_grad_(True)
             yield (label, (complex_signal,), {})
+
+    @classmethod
+    def compare_forward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
 
 
 class RFFT(FunctionSpec):
@@ -515,6 +545,16 @@ class RFFT(FunctionSpec):
         for label, size in _FFT_1D_CASES:
             signal = torch.randn(4, size, device=device, requires_grad=True)
             yield (label, (signal,), {"n": size})
+
+    @classmethod
+    def compare_forward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
 
 
 class RFFT2(FunctionSpec):
@@ -570,6 +610,16 @@ class RFFT2(FunctionSpec):
                 (signal,),
                 {"s": (height, width)},
             )
+
+    @classmethod
+    def compare_forward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
 
 
 class IRFFT(FunctionSpec):
@@ -628,6 +678,16 @@ class IRFFT(FunctionSpec):
                 {"n": size},
             )
 
+    @classmethod
+    def compare_forward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
 
 class IRFFT2(FunctionSpec):
     """ONNX-compatible inverse 2D real FFT.
@@ -684,6 +744,16 @@ class IRFFT2(FunctionSpec):
                 (spectrum,),
                 {"s": (height, width)},
             )
+
+    @classmethod
+    def compare_forward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate forward outputs for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
+
+    @classmethod
+    def compare_backward(cls, output: Tensor, reference: Tensor) -> None:
+        """Validate backward gradients for spec-contract tests."""
+        torch.testing.assert_close(output, reference)
 
 
 rfft = RFFT.make_function("rfft")

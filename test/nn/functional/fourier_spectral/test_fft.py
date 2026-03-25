@@ -21,6 +21,17 @@ import torch
 
 from physicsnemo.nn.functional import imag, irfft, irfft2, real, rfft, rfft2
 from physicsnemo.nn.functional import view_as_complex as functional_view_as_complex
+from physicsnemo.nn.functional.fourier_spectral import (
+    IRFFT,
+    IRFFT2,
+    RFFT,
+    RFFT2,
+    Imag,
+    Real,
+    ViewAsComplex,
+)
+
+_FFT_FUNCTION_SPECS = (ViewAsComplex, Real, Imag, RFFT, RFFT2, IRFFT, IRFFT2)
 
 
 # Validate the view_as_complex functional wrapper against torch behavior.
@@ -94,3 +105,50 @@ def test_fft_error_handling(device: str):
             torch.randn(4, 128, device=device, dtype=torch.float32),
             implementation="torch",
         )
+
+
+# Validate benchmark input generation contract for all FFT functionals.
+def test_fft_make_inputs_forward(device: str):
+    for spec in _FFT_FUNCTION_SPECS:
+        label, args, kwargs = next(iter(spec.make_inputs_forward(device=device)))
+        assert isinstance(label, str)
+        assert isinstance(args, tuple)
+        assert isinstance(kwargs, dict)
+        output = spec.dispatch(*args, implementation="torch", **kwargs)
+        assert isinstance(output, torch.Tensor)
+
+
+# Validate compare-forward contract for all FFT functionals.
+def test_fft_compare_forward_contract(device: str):
+    for spec in _FFT_FUNCTION_SPECS:
+        _, args, kwargs = next(iter(spec.make_inputs_forward(device=device)))
+        output = spec.dispatch(*args, implementation="torch", **kwargs)
+        reference = output.detach().clone()
+        spec.compare_forward(output, reference)
+
+
+# Validate benchmark backward-input and compare-backward contracts for FFT functionals.
+def test_fft_make_inputs_backward_and_compare_backward_contract(device: str):
+    for spec in _FFT_FUNCTION_SPECS:
+        label, args, kwargs = next(iter(spec.make_inputs_backward(device=device)))
+        assert isinstance(label, str)
+        assert isinstance(args, tuple)
+        assert isinstance(kwargs, dict)
+
+        differentiable_args = [
+            arg for arg in args if torch.is_tensor(arg) and arg.requires_grad
+        ]
+        assert differentiable_args, (
+            f"{spec.__name__} backward inputs must include requires_grad tensors"
+        )
+        grad_input = differentiable_args[0]
+
+        output = spec.dispatch(*args, implementation="torch", **kwargs)
+        if torch.is_complex(output):
+            output.real.sum().backward()
+        else:
+            output.sum().backward()
+
+        assert grad_input.grad is not None
+        grad_reference = grad_input.grad.detach().clone()
+        spec.compare_backward(grad_input.grad, grad_reference)

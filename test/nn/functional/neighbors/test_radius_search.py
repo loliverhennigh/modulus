@@ -341,3 +341,27 @@ def test_radius_search_make_inputs_backward():
     _, output_points = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
     output_points.sum().backward()
     assert points.grad is not None
+
+
+# Validate compare-forward hook contract for radius search.
+def test_radius_search_compare_forward_contract(device: str):
+    _, args, kwargs = next(iter(RadiusSearch.make_inputs_forward(device=device)))
+    output = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
+    reference = tuple(t.detach().clone() for t in output)
+    RadiusSearch.compare_forward(output, reference)
+
+
+# Validate compare-backward hook contract for radius search.
+def test_radius_search_compare_backward_contract(device: str):
+    _, args, kwargs = next(iter(RadiusSearch.make_inputs_backward(device=device)))
+    points = args[0]
+    queries = args[1]
+
+    _, output_points = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
+    output_points.sum().backward()
+    assert points.grad is not None
+    RadiusSearch.compare_backward(points.grad, points.grad.detach().clone())
+
+    # Query gradients are optional for this op contract.
+    if queries.grad is not None:
+        RadiusSearch.compare_backward(queries.grad, queries.grad.detach().clone())

@@ -5,6 +5,6 @@ Interpolation Functionals
 
 .. rubric:: Benchmarks (ASV)
 
-.. figure:: /img/nn/functional/interpolation/interpolation/benchmark_forward.png
+.. figure:: /img/nn/functional/interpolation/benchmark.png
    :alt: Interpolation benchmark comparison
    :width: 100%

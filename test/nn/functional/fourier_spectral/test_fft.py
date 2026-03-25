@@ -118,17 +118,8 @@ def test_fft_make_inputs_forward(device: str):
         assert isinstance(output, torch.Tensor)
 
 
-# Validate compare-forward contract for all FFT functionals.
-def test_fft_compare_forward_contract(device: str):
-    for spec in _FFT_FUNCTION_SPECS:
-        _, args, kwargs = next(iter(spec.make_inputs_forward(device=device)))
-        output = spec.dispatch(*args, implementation="torch", **kwargs)
-        reference = output.detach().clone()
-        spec.compare_forward(output, reference)
-
-
-# Validate benchmark backward-input and compare-backward contracts for FFT functionals.
-def test_fft_make_inputs_backward_and_compare_backward_contract(device: str):
+# Validate benchmark backward-input contract for all FFT functionals.
+def test_fft_make_inputs_backward(device: str):
     for spec in _FFT_FUNCTION_SPECS:
         label, args, kwargs = next(iter(spec.make_inputs_backward(device=device)))
         assert isinstance(label, str)
@@ -150,5 +141,3 @@ def test_fft_make_inputs_backward_and_compare_backward_contract(device: str):
             output.sum().backward()
 
         assert grad_input.grad is not None
-        grad_reference = grad_input.grad.detach().clone()
-        spec.compare_backward(grad_input.grad, grad_reference)

@@ -64,22 +64,3 @@ def test_weight_fact_make_inputs_backward(device: str):
     g, v = WeightFact.dispatch(*args, implementation="torch", **kwargs)
     (g * v).sum().backward()
     assert w.grad is not None
-
-
-# Validate compare-forward hook contract for weight_fact.
-def test_weight_fact_compare_forward_contract(device: str):
-    _, args, kwargs = next(iter(WeightFact.make_inputs_forward(device=device)))
-    output = WeightFact.dispatch(*args, implementation="torch", **kwargs)
-    g, v = output
-    reference = (g.detach().clone(), v.detach().clone())
-    WeightFact.compare_forward(output, reference)
-
-
-# Validate compare-backward hook contract for weight_fact.
-def test_weight_fact_compare_backward_contract(device: str):
-    _, args, kwargs = next(iter(WeightFact.make_inputs_backward(device=device)))
-    w = args[0]
-    g, v = WeightFact.dispatch(*args, implementation="torch", **kwargs)
-    (g * v).sum().backward()
-    assert w.grad is not None
-    WeightFact.compare_backward(w.grad, w.grad.detach().clone())

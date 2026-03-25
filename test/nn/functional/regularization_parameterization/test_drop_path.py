@@ -111,20 +111,3 @@ def test_drop_path_make_inputs_backward(device: str):
     output = DropPath.dispatch(*args, implementation="torch", **kwargs)
     output.sum().backward()
     assert x.grad is not None
-
-
-# Validate compare-forward hook contract for drop_path.
-def test_drop_path_compare_forward_contract(device: str):
-    _, args, kwargs = next(iter(DropPath.make_inputs_forward(device=device)))
-    output = DropPath.dispatch(*args, implementation="torch", **kwargs)
-    DropPath.compare_forward(output, output.detach().clone())
-
-
-# Validate compare-backward hook contract for drop_path.
-def test_drop_path_compare_backward_contract(device: str):
-    _, args, kwargs = next(iter(DropPath.make_inputs_backward(device=device)))
-    x = args[0]
-    output = DropPath.dispatch(*args, implementation="torch", **kwargs)
-    output.sum().backward()
-    assert x.grad is not None
-    DropPath.compare_backward(x.grad, x.grad.detach().clone())

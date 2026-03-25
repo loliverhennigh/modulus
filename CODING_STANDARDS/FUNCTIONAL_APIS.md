@@ -419,23 +419,23 @@ Baseline spec-contract tests (expected for every functional):
 2. Benchmark-input contract:
    - `test_<functional_name>_make_inputs_forward`
    - `test_<functional_name>_make_inputs_backward` (only when backward is meaningful)
-3. Compare-hook contract:
-   - `test_<functional_name>_compare_forward_contract`
-   - `test_<functional_name>_compare_backward_contract` (only when backward is meaningful)
-4. Validation/deprecation path coverage:
+3. Validation/deprecation path coverage:
    - `test_<functional_name>_error_handling` (when validation branches exist)
 
-Cross-backend parity tests (required only when multiple implementations exist):
+Cross-backend parity tests and compare-hook tests
+(required only when multiple implementations exist):
 
 1. Forward parity:
    - `test_<functional_name>_backend_forward_parity`
+   - `test_<functional_name>_compare_forward_contract`
 2. Backward parity:
    - `test_<functional_name>_backend_backward_parity` (only for differentiable ops)
+   - `test_<functional_name>_compare_backward_contract` (only when backward is meaningful)
 
 Where possible, keep all backend parity checks in one functional test file and
 use the functional's `compare_forward`/`compare_backward` hooks for consistency.
-For single-implementation functionals, compare-hook contract tests should still
-exercise the compare hooks (for example with self-consistency checks).
+For single-implementation functionals, `compare_forward`/`compare_backward`
+overrides and compare-hook contract tests are not required.
 
 **Rationale:**
 

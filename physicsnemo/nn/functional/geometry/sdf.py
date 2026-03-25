@@ -346,18 +346,6 @@ class SignedDistanceField(FunctionSpec):
                 {"max_dist": 10.0, "use_sign_winding_number": False},
             )
 
-    @classmethod
-    def compare_forward(
-        cls,
-        output: tuple[torch.Tensor, torch.Tensor],
-        reference: tuple[torch.Tensor, torch.Tensor],
-    ) -> None:
-        """Validate forward outputs for spec-contract tests."""
-        sdf, hit_points = output
-        sdf_ref, hit_points_ref = reference
-        torch.testing.assert_close(sdf, sdf_ref)
-        torch.testing.assert_close(hit_points, hit_points_ref)
-
 
 signed_distance_field = SignedDistanceField.make_function("signed_distance_field")
 

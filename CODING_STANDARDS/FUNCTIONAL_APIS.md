@@ -72,7 +72,7 @@ This document is structured in two main sections:
 
 All functionals must be implemented with `FunctionSpec`, even if only a single
 implementation exists. This ensures the operation participates in validation
-and benchmarking via input generators and `compare_forward` (and
+and benchmarking through input generators and `compare_forward` (and
 `compare_backward` where needed).
 
 **Rationale:**

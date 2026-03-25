@@ -42,48 +42,6 @@ def _tetrahedron_vertices() -> torch.Tensor:
     )
 
 
-# Build call arguments for parameterized error-path tests.
-def _case_bad_query_shape(
-    mesh_vertices: torch.Tensor,
-    mesh_indices_flat: torch.Tensor,
-    query_points: torch.Tensor,
-):
-    bad_queries = torch.randn(4, 2, device=query_points.device, dtype=torch.float32)
-    return (mesh_vertices, mesh_indices_flat, bad_queries), {}
-
-
-def _case_bad_connectivity_shape(
-    mesh_vertices: torch.Tensor,
-    mesh_indices_flat: torch.Tensor,
-    query_points: torch.Tensor,
-):
-    bad_indices = torch.zeros(4, 4, device=query_points.device, dtype=torch.int32)
-    return (mesh_vertices, bad_indices, query_points), {}
-
-
-def _case_bad_connectivity_rank(
-    mesh_vertices: torch.Tensor,
-    mesh_indices_flat: torch.Tensor,
-    query_points: torch.Tensor,
-):
-    bad_indices = torch.zeros(1, 2, 3, device=query_points.device, dtype=torch.int32)
-    return (mesh_vertices, bad_indices, query_points), {}
-
-
-_ERROR_CASE_BUILDERS = {
-    "bad_query_shape": _case_bad_query_shape,
-    "bad_connectivity_shape": _case_bad_connectivity_shape,
-    "bad_connectivity_rank": _case_bad_connectivity_rank,
-}
-
-
-_ERROR_CASE_EXPECTATIONS = {
-    "bad_query_shape": (ValueError, "last dimension of size 3"),
-    "bad_connectivity_shape": (ValueError, "shape \\(n_faces, 3\\)"),
-    "bad_connectivity_rank": (ValueError, "1D flattened indices or 2D"),
-}
-
-
 # Validate the warp-backed SDF implementation on a deterministic tetrahedron setup.
 @requires_module("warp")
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
@@ -152,15 +110,7 @@ def test_signed_distance_field_index_layout_compatibility(device: str):
 
 # Validate SDF input and shape error handling paths.
 @requires_module("warp")
-@pytest.mark.parametrize(
-    "error_case",
-    (
-        "bad_query_shape",
-        "bad_connectivity_shape",
-        "bad_connectivity_rank",
-    ),
-)
-def test_signed_distance_field_error_handling(device: str, error_case: str):
+def test_signed_distance_field_error_handling(device: str):
     device = torch.device(device)
     mesh_vertices = _tetrahedron_vertices().to(device=device, dtype=torch.float32)
     mesh_indices_flat = torch.tensor(
@@ -170,12 +120,20 @@ def test_signed_distance_field_error_handling(device: str, error_case: str):
     )
     query_points = torch.tensor([[0.1, 0.2, 0.3]], device=device, dtype=torch.float32)
 
-    call_builder = _ERROR_CASE_BUILDERS[error_case]
-    expected_exception, expected_match = _ERROR_CASE_EXPECTATIONS[error_case]
-    args, kwargs = call_builder(mesh_vertices, mesh_indices_flat, query_points)
+    # Query points must have xyz in the last dimension.
+    bad_queries = torch.randn(4, 2, device=device, dtype=torch.float32)
+    with pytest.raises(ValueError, match="last dimension of size 3"):
+        signed_distance_field(mesh_vertices, mesh_indices_flat, bad_queries)
 
-    with pytest.raises(expected_exception, match=expected_match):
-        signed_distance_field(*args, **kwargs)
+    # 2D mesh indices must be shaped as (n_faces, 3).
+    bad_connectivity_shape = torch.zeros(4, 4, device=device, dtype=torch.int32)
+    with pytest.raises(ValueError, match="shape \\(n_faces, 3\\)"):
+        signed_distance_field(mesh_vertices, bad_connectivity_shape, query_points)
+
+    # Connectivity may be 1D flattened or 2D triangular faces only.
+    bad_connectivity_rank = torch.zeros(1, 2, 3, device=device, dtype=torch.int32)
+    with pytest.raises(ValueError, match="1D flattened indices or 2D"):
+        signed_distance_field(mesh_vertices, bad_connectivity_rank, query_points)
 
 
 # Validate benchmark input generation contract for SDF.

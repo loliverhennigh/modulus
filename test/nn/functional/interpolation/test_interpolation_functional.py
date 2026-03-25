@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
 import torch
 
 from physicsnemo.nn.functional import interpolation
@@ -60,9 +61,9 @@ def test_interpolation_torch_wrapper(device: str):
     Interpolation.compare_forward(output, reference)
 
 
-# Validate warp and torch parity for both forward and backward paths.
+# Validate warp and torch parity for forward outputs.
 @requires_module("warp")
-def test_interpolation_backend_parity(device: str):
+def test_interpolation_backend_forward_parity(device: str):
     for case_index, (label, args, kwargs) in enumerate(
         Interpolation.make_inputs_forward(device=device)
     ):
@@ -79,6 +80,10 @@ def test_interpolation_backend_parity(device: str):
         )
         Interpolation.compare_forward(output_warp, output_torch)
 
+
+# Validate warp and torch parity for backward gradients.
+@requires_module("warp")
+def test_interpolation_backend_backward_parity(device: str):
     for case_index, (label, args, kwargs) in enumerate(
         Interpolation.make_inputs_backward(device=device)
     ):
@@ -117,3 +122,13 @@ def test_interpolation_backend_parity(device: str):
             Interpolation.compare_backward,
             mismatch_message=f"context-grid gradient mismatch for case '{label}'",
         )
+
+
+# Validate interpolation API error handling paths.
+def test_interpolation_error_handling(device: str):
+    _, args, kwargs = next(iter(Interpolation.make_inputs_forward(device=device)))
+    invalid_kwargs = dict(kwargs)
+    invalid_kwargs["interpolation_type"] = "not-a-valid-interpolation-type"
+
+    with pytest.raises(RuntimeError, match="not supported"):
+        interpolation(*args, implementation="torch", **invalid_kwargs)

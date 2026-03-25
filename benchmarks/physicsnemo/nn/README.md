@@ -60,3 +60,4 @@ Plots are written to:
 
 - `docs/nn/functional/<category>/<functional_name>/benchmark_forward.png`
 - `docs/nn/functional/<category>/<functional_name>/benchmark_backward.png`
+- `docs/img/nn/functional/<functional_name>/benchmark.png` (legacy forward compatibility)

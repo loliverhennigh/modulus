@@ -258,7 +258,6 @@ def _plot_phase_spec(
     case_map: CaseMap,
     metadata: BenchmarkSpecData,
     output_root: Path,
-    legacy_output_root: Path | None = None,
 ) -> None:
     """Render one grouped bar plot for one (phase, spec) pair."""
 
@@ -276,7 +275,7 @@ def _plot_phase_spec(
     if len(implementations) < 2:
         return
 
-    # Build output directory under docs/nn/functional/<category>/<functional_name>/.
+    # Build output directory under <output_root>/<category>/<functional_name>/.
     output_dir = output_root / metadata.slug
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -330,15 +329,6 @@ def _plot_phase_spec(
     )
     fig.savefig(output_dir / output_name)
 
-    # Backward compatibility for docs pages still pointing to:
-    # /img/nn/functional/<functional_name>/benchmark.png
-    # This is forward-only because legacy docs referenced a single benchmark image.
-    if legacy_output_root is not None and phase == "forward":
-        functional_name = metadata.slug.rsplit("/", maxsplit=1)[-1]
-        legacy_dir = legacy_output_root / functional_name
-        legacy_dir.mkdir(parents=True, exist_ok=True)
-        fig.savefig(legacy_dir / "benchmark.png")
-
     plt.close(fig)
 
 
@@ -346,7 +336,6 @@ def _plot_all(
     grouped: SpecPhaseMap,
     spec_data: dict[str, BenchmarkSpecData],
     output_root: Path,
-    legacy_output_root: Path | None = None,
 ) -> None:
     """Render all available benchmark plots from grouped benchmark data."""
 
@@ -358,7 +347,6 @@ def _plot_all(
                 case_map=case_map,
                 metadata=spec_data[spec_name],
                 output_root=output_root,
-                legacy_output_root=legacy_output_root,
             )
 
 
@@ -372,17 +360,8 @@ def main() -> int:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("docs/nn/functional"),
-        help="Root docs directory for benchmark images.",
-    )
-    parser.add_argument(
-        "--legacy-output-root",
-        type=Path,
         default=Path("docs/img/nn/functional"),
-        help=(
-            "Optional legacy docs image root for compatibility outputs. "
-            "Use --legacy-output-root '' to disable."
-        ),
+        help="Root docs directory for benchmark images.",
     )
     parser.add_argument(
         "--label-device",
@@ -403,14 +382,10 @@ def main() -> int:
 
     # Group raw vectors by phase/spec/case/implementation, then render plots.
     grouped = _collect_grouped_data(values=values, labels=labels, spec_data=spec_data)
-    legacy_output_root = (
-        None if str(args.legacy_output_root).strip() == "" else args.legacy_output_root
-    )
     _plot_all(
         grouped=grouped,
         spec_data=spec_data,
         output_root=args.output_root,
-        legacy_output_root=legacy_output_root,
     )
     return 0
 

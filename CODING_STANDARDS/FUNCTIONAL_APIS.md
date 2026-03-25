@@ -414,7 +414,7 @@ functional needs a different shape.
 
 Baseline spec-contract tests (expected for every functional):
 
-1. Backend/reference correctness:
+1. Backend and reference correctness:
    - `test_<functional_name>_<implementation_name>`
 2. Dispatch behavior (only when custom dispatch behavior exists):
    - `test_<functional_name>_dispatch_*`

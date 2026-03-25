@@ -416,10 +416,12 @@ Baseline spec-contract tests (expected for every functional):
 
 1. Backend/reference correctness:
    - `test_<functional_name>_<implementation_name>`
-2. Benchmark-input contract:
+2. Dispatch behavior (only when custom dispatch behavior exists):
+   - `test_<functional_name>_dispatch_*`
+3. Benchmark-input contract:
    - `test_<functional_name>_make_inputs_forward`
    - `test_<functional_name>_make_inputs_backward` (only when backward is meaningful)
-3. Validation/deprecation path coverage:
+4. Validation/deprecation path coverage:
    - `test_<functional_name>_error_handling` (when validation branches exist)
 
 Cross-backend parity tests and compare-hook tests

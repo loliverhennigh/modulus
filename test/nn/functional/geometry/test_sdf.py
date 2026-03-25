@@ -108,6 +108,26 @@ def test_signed_distance_field_index_layout_compatibility(device: str):
     torch.testing.assert_close(hit_flat, hit_faces)
 
 
+# Validate benchmark input generation contract for SDF.
+@requires_module("warp")
+def test_signed_distance_field_make_inputs_forward(device: str):
+    label, args, kwargs = next(
+        iter(SignedDistanceField.make_inputs_forward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    sdf_out, hit_points = SignedDistanceField.dispatch(
+        *args,
+        implementation="warp",
+        **kwargs,
+    )
+    assert sdf_out.ndim == 1
+    assert hit_points.ndim == 2
+    assert hit_points.shape[1] == 3
+
+
 # Validate SDF input and shape error handling paths.
 @requires_module("warp")
 def test_signed_distance_field_error_handling(device: str):
@@ -134,23 +154,3 @@ def test_signed_distance_field_error_handling(device: str):
     bad_connectivity_rank = torch.zeros(1, 2, 3, device=device, dtype=torch.int32)
     with pytest.raises(ValueError, match="1D flattened indices or 2D"):
         signed_distance_field(mesh_vertices, bad_connectivity_rank, query_points)
-
-
-# Validate benchmark input generation contract for SDF.
-@requires_module("warp")
-def test_signed_distance_field_make_inputs_forward(device: str):
-    label, args, kwargs = next(
-        iter(SignedDistanceField.make_inputs_forward(device=device))
-    )
-    assert isinstance(label, str)
-    assert isinstance(args, tuple)
-    assert isinstance(kwargs, dict)
-
-    sdf_out, hit_points = SignedDistanceField.dispatch(
-        *args,
-        implementation="warp",
-        **kwargs,
-    )
-    assert sdf_out.ndim == 1
-    assert hit_points.ndim == 2
-    assert hit_points.shape[1] == 3

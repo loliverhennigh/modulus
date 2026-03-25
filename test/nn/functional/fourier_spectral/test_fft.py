@@ -98,15 +98,6 @@ def test_irfft2_torch(device: str):
     torch.testing.assert_close(output, expected)
 
 
-# Validate API-level error handling for invalid view_as_complex input layout.
-def test_fft_error_handling(device: str):
-    with pytest.raises(RuntimeError):
-        functional_view_as_complex(
-            torch.randn(4, 128, device=device, dtype=torch.float32),
-            implementation="torch",
-        )
-
-
 # Validate benchmark input generation contract for all FFT functionals.
 def test_fft_make_inputs_forward(device: str):
     for spec in _FFT_FUNCTION_SPECS:
@@ -141,3 +132,12 @@ def test_fft_make_inputs_backward(device: str):
             output.sum().backward()
 
         assert grad_input.grad is not None
+
+
+# Validate API-level error handling for invalid view_as_complex input layout.
+def test_fft_error_handling(device: str):
+    with pytest.raises(RuntimeError):
+        functional_view_as_complex(
+            torch.randn(4, 128, device=device, dtype=torch.float32),
+            implementation="torch",
+        )

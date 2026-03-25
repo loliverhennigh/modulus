@@ -156,23 +156,31 @@ def test_radius_search_warp(
     )
 
 
-# Validate radius-search error handling paths.
-@requires_module("warp")
-def test_radius_search_error_handling(device: str):
-    points, queries = _build_problem(device)
-    if not torch.cuda.is_available():
-        pytest.skip("device mismatch path requires CUDA")
+# Validate benchmark input generation contract for radius search.
+def test_radius_search_make_inputs_forward(device: str):
+    label, args, kwargs = next(iter(RadiusSearch.make_inputs_forward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
 
-    # Device mismatch is rejected by the warp custom-op implementation.
-    cpu_points = points.to("cpu")
-    cuda_queries = queries.to("cuda")
-    with pytest.raises(ValueError, match="must be on the same device"):
-        radius_search(
-            points=cpu_points,
-            queries=cuda_queries,
-            radius=0.2,
-            implementation="warp",
-        )
+    output = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
+    assert isinstance(output, tuple)
+
+
+def test_radius_search_make_inputs_backward():
+    label, args, kwargs = next(iter(RadiusSearch.make_inputs_backward(device="cpu")))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    points = args[0]
+    queries = args[1]
+    assert points.requires_grad
+    assert queries.requires_grad
+
+    _, output_points = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
+    output_points.sum().backward()
+    assert points.grad is not None
 
 
 # Compare warp and torch forward outputs with order-invariant checks.
@@ -316,33 +324,6 @@ def test_radius_search_opcheck(device: str):
     )
 
 
-# Validate benchmark input generation contract for radius search.
-def test_radius_search_make_inputs_forward(device: str):
-    label, args, kwargs = next(iter(RadiusSearch.make_inputs_forward(device=device)))
-    assert isinstance(label, str)
-    assert isinstance(args, tuple)
-    assert isinstance(kwargs, dict)
-
-    output = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
-    assert isinstance(output, tuple)
-
-
-def test_radius_search_make_inputs_backward():
-    label, args, kwargs = next(iter(RadiusSearch.make_inputs_backward(device="cpu")))
-    assert isinstance(label, str)
-    assert isinstance(args, tuple)
-    assert isinstance(kwargs, dict)
-
-    points = args[0]
-    queries = args[1]
-    assert points.requires_grad
-    assert queries.requires_grad
-
-    _, output_points = RadiusSearch.dispatch(*args, implementation="torch", **kwargs)
-    output_points.sum().backward()
-    assert points.grad is not None
-
-
 # Validate compare-forward hook contract for radius search.
 def test_radius_search_compare_forward_contract(device: str):
     _, args, kwargs = next(iter(RadiusSearch.make_inputs_forward(device=device)))
@@ -365,3 +346,22 @@ def test_radius_search_compare_backward_contract(device: str):
     # Query gradients are optional for this op contract.
     if queries.grad is not None:
         RadiusSearch.compare_backward(queries.grad, queries.grad.detach().clone())
+
+
+# Validate radius-search error handling paths.
+@requires_module("warp")
+def test_radius_search_error_handling(device: str):
+    points, queries = _build_problem(device)
+    if not torch.cuda.is_available():
+        pytest.skip("device mismatch path requires CUDA")
+
+    # Device mismatch is rejected by the warp custom-op implementation.
+    cpu_points = points.to("cpu")
+    cuda_queries = queries.to("cuda")
+    with pytest.raises(ValueError, match="must be on the same device"):
+        radius_search(
+            points=cpu_points,
+            queries=cuda_queries,
+            radius=0.2,
+            implementation="warp",
+        )

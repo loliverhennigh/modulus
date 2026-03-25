@@ -96,26 +96,16 @@ def test_knn_scipy(device: str, k: int):
     _assert_knn_outputs(points, queries, indices, distances, k)
 
 
-# Validate KNN error handling paths.
-def test_knn_error_handling(device: str):
-    points, queries = _build_problem(device, torch.float32)
+# Validate benchmark input generation contract for KNN.
+def test_knn_make_inputs_forward(device: str):
+    label, args, kwargs = next(iter(KNN.make_inputs_forward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
 
-    # Mismatched dtypes are rejected by all implementations.
-    with pytest.raises(ValueError, match="must have the same dtype"):
-        knn(
-            points.to(torch.float32),
-            queries.to(torch.float64),
-            k=3,
-            implementation="torch",
-        )
-
-    # Accelerated implementation/device mismatch checks.
-    if "cpu" in device and check_version_spec("cuml", "24.0.0", hard_fail=False):
-        with pytest.raises(ValueError, match="does not support CPU"):
-            knn(points, queries, k=3, implementation="cuml")
-    if "cuda" in device and check_version_spec("scipy", "1.7.0", hard_fail=False):
-        with pytest.raises(ValueError, match="does not support CUDA"):
-            knn(points, queries, k=3, implementation="scipy")
+    indices, distances = KNN.dispatch(*args, implementation="torch", **kwargs)
+    assert indices.ndim == 2
+    assert distances.ndim == 2
 
 
 # Compare torch and accelerated forward outputs where both implementations are available.
@@ -135,6 +125,15 @@ def test_knn_backend_forward_parity(device: str):
 
     output_b = knn(points, queries, k, implementation="torch")
     KNN.compare_forward(output_a, output_b)
+
+
+# Validate compare-forward hook contract for KNN.
+def test_knn_compare_forward_contract(device: str):
+    _, args, kwargs = next(iter(KNN.make_inputs_forward(device=device)))
+    output = KNN.dispatch(*args, implementation="torch", **kwargs)
+    indices, distances = output
+    reference = (indices.detach().clone(), distances.detach().clone())
+    KNN.compare_forward(output, reference)
 
 
 # Validate torch.compile support path for KNN.
@@ -179,22 +178,23 @@ def test_knn_opcheck(device: str):
     torch.library.opcheck(op, args=(points, queries, k))
 
 
-# Validate benchmark input generation contract for KNN.
-def test_knn_make_inputs_forward(device: str):
-    label, args, kwargs = next(iter(KNN.make_inputs_forward(device=device)))
-    assert isinstance(label, str)
-    assert isinstance(args, tuple)
-    assert isinstance(kwargs, dict)
+# Validate KNN error handling paths.
+def test_knn_error_handling(device: str):
+    points, queries = _build_problem(device, torch.float32)
 
-    indices, distances = KNN.dispatch(*args, implementation="torch", **kwargs)
-    assert indices.ndim == 2
-    assert distances.ndim == 2
+    # Mismatched dtypes are rejected by all implementations.
+    with pytest.raises(ValueError, match="must have the same dtype"):
+        knn(
+            points.to(torch.float32),
+            queries.to(torch.float64),
+            k=3,
+            implementation="torch",
+        )
 
-
-# Validate compare-forward hook contract for KNN.
-def test_knn_compare_forward_contract(device: str):
-    _, args, kwargs = next(iter(KNN.make_inputs_forward(device=device)))
-    output = KNN.dispatch(*args, implementation="torch", **kwargs)
-    indices, distances = output
-    reference = (indices.detach().clone(), distances.detach().clone())
-    KNN.compare_forward(output, reference)
+    # Accelerated implementation/device mismatch checks.
+    if "cpu" in device and check_version_spec("cuml", "24.0.0", hard_fail=False):
+        with pytest.raises(ValueError, match="does not support CPU"):
+            knn(points, queries, k=3, implementation="cuml")
+    if "cuda" in device and check_version_spec("scipy", "1.7.0", hard_fail=False):
+        with pytest.raises(ValueError, match="does not support CUDA"):
+            knn(points, queries, k=3, implementation="scipy")

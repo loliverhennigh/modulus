@@ -23,6 +23,14 @@ from test.conftest import requires_module
 from test.nn.functional._parity_utils import assert_optional_match, clone_case
 
 
+# Validate torch backend wrapper path against direct dispatch.
+def test_interpolation_torch_wrapper(device: str):
+    _, args, kwargs = next(iter(Interpolation.make_inputs_forward(device=device)))
+    output = interpolation(*args, implementation="torch", **kwargs)
+    reference = Interpolation.dispatch(*args, implementation="torch", **kwargs)
+    Interpolation.compare_forward(output, reference)
+
+
 # Validate benchmark input generation contract for forward inputs.
 def test_interpolation_make_inputs_forward(device: str):
     label, args, kwargs = next(iter(Interpolation.make_inputs_forward(device=device)))
@@ -51,40 +59,6 @@ def test_interpolation_make_inputs_backward(device: str):
     # Query gradients can be implementation-dependent for this interpolation op.
     assert query_points.grad is None or query_points.grad.shape == query_points.shape
     assert context_grid.grad is not None
-
-
-# Validate compare-forward hook contract for interpolation.
-def test_interpolation_compare_forward_contract(device: str):
-    _, args, kwargs = next(iter(Interpolation.make_inputs_forward(device=device)))
-    output = Interpolation.dispatch(*args, implementation="torch", **kwargs)
-    reference = output.detach().clone()
-    Interpolation.compare_forward(output, reference)
-
-
-# Validate compare-backward hook contract for interpolation.
-def test_interpolation_compare_backward_contract(device: str):
-    _, args, kwargs = next(iter(Interpolation.make_inputs_backward(device=device)))
-    query_points, context_grid, _ = args
-
-    output = Interpolation.dispatch(*args, implementation="torch", **kwargs)
-    output.sum().backward()
-
-    assert context_grid.grad is not None
-    Interpolation.compare_backward(
-        context_grid.grad, context_grid.grad.detach().clone()
-    )
-    if query_points.grad is not None:
-        Interpolation.compare_backward(
-            query_points.grad, query_points.grad.detach().clone()
-        )
-
-
-# Validate torch backend wrapper path against direct dispatch.
-def test_interpolation_torch_wrapper(device: str):
-    label, args, kwargs = next(iter(Interpolation.make_inputs_forward(device=device)))
-    output = interpolation(*args, implementation="torch", **kwargs)
-    reference = Interpolation.dispatch(*args, implementation="torch", **kwargs)
-    Interpolation.compare_forward(output, reference)
 
 
 # Validate warp and torch parity for forward outputs.
@@ -147,6 +121,32 @@ def test_interpolation_backend_backward_parity(device: str):
             grid_torch.grad,
             Interpolation.compare_backward,
             mismatch_message=f"context-grid gradient mismatch for case '{label}'",
+        )
+
+
+# Validate compare-forward hook contract for interpolation.
+def test_interpolation_compare_forward_contract(device: str):
+    _, args, kwargs = next(iter(Interpolation.make_inputs_forward(device=device)))
+    output = Interpolation.dispatch(*args, implementation="torch", **kwargs)
+    reference = output.detach().clone()
+    Interpolation.compare_forward(output, reference)
+
+
+# Validate compare-backward hook contract for interpolation.
+def test_interpolation_compare_backward_contract(device: str):
+    _, args, kwargs = next(iter(Interpolation.make_inputs_backward(device=device)))
+    query_points, context_grid, _ = args
+
+    output = Interpolation.dispatch(*args, implementation="torch", **kwargs)
+    output.sum().backward()
+
+    assert context_grid.grad is not None
+    Interpolation.compare_backward(
+        context_grid.grad, context_grid.grad.detach().clone()
+    )
+    if query_points.grad is not None:
+        Interpolation.compare_backward(
+            query_points.grad, query_points.grad.detach().clone()
         )
 
 

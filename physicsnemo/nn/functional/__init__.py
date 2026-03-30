@@ -23,7 +23,11 @@ from .equivariant_ops import (
 )
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
 from .geometry import signed_distance_field
-from .interpolation import interpolation
+from .interpolation import (
+    grid_to_point_interpolation,
+    interpolation,
+    point_to_grid_interpolation,
+)
 from .natten import na1d, na2d, na3d
 from .neighbors import knn, radius_search
 from .regularization_parameterization import drop_path, weight_fact
@@ -32,6 +36,7 @@ __all__ = [
     "irfft",
     "irfft2",
     "drop_path",
+    "grid_to_point_interpolation",
     "imag",
     "interpolation",
     "knn",
@@ -40,6 +45,7 @@ __all__ = [
     "na2d",
     "na3d",
     "polar_and_dipole_basis",
+    "point_to_grid_interpolation",
     "radius_search",
     "real",
     "rfft",

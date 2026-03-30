@@ -16,6 +16,13 @@
 
 """Registry of FunctionSpec classes to benchmark with ASV."""
 
+from physicsnemo.nn.functional.equivariant_ops import (
+    LegendrePolynomials,
+    PolarAndDipoleBasis,
+    SmoothLog,
+    SphericalBasis,
+    VectorProject,
+)
 from physicsnemo.nn.functional.fourier_spectral import (
     IRFFT,
     IRFFT2,
@@ -32,6 +39,7 @@ from physicsnemo.nn.functional.regularization_parameterization import (
     DropPath,
     WeightFact,
 )
+from physicsnemo.nn.functional.transformer import NA1D, NA2D, NA3D
 
 # FunctionSpec classes listed here must implement ``make_inputs_forward`` for ASV.
 # ``make_inputs_backward`` is optional and only used when backward benchmarks run.
@@ -39,6 +47,16 @@ FUNCTIONAL_SPECS = (
     # Regularization / parameterization.
     DropPath,
     WeightFact,
+    # Equivariant ops.
+    SmoothLog,
+    LegendrePolynomials,
+    VectorProject,
+    PolarAndDipoleBasis,
+    SphericalBasis,
+    # Neighborhood attention.
+    NA1D,
+    NA2D,
+    NA3D,
     # Neighbor queries.
     KNN,
     RadiusSearch,

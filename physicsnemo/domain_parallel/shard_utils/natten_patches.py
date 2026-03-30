@@ -32,7 +32,7 @@ from physicsnemo.domain_parallel.shard_utils.patch_core import (
     MissingShardPatch,
     UndeterminedShardingError,
 )
-from physicsnemo.nn.functional.natten import na1d, na2d, na3d
+from physicsnemo.nn.functional.transformer.natten import na1d, na2d, na3d
 
 _natten = OptionalImport("natten")
 _raw_func_map = {
@@ -221,9 +221,9 @@ def _natten_wrapper(
     r"""Shared wrapper for natten functions to support sharded tensors.
 
     Registered with :meth:`ShardTensor.register_function_handler` so that calls
-    to :func:`~physicsnemo.nn.functional.natten.na1d`,
-    :func:`~physicsnemo.nn.functional.natten.na2d`, or
-    :func:`~physicsnemo.nn.functional.natten.na3d` automatically route through
+    to :func:`~physicsnemo.nn.functional.transformer.natten.na1d`,
+    :func:`~physicsnemo.nn.functional.transformer.natten.na2d`, or
+    :func:`~physicsnemo.nn.functional.transformer.natten.na3d` automatically route through
     this handler when any argument is a :class:`ShardTensor`.
 
     Parameters

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Lightweight unit tests for :mod:`physicsnemo.nn.functional.natten`.
+r"""Lightweight unit tests for :mod:`physicsnemo.nn.functional.transformer.natten`.
 
 Validates that the ``na1d``, ``na2d``, and ``na3d`` wrappers:
 
@@ -79,7 +79,7 @@ def _sdpa_reference(q, k, v):
 
 @requires_module("natten")
 class TestNA1D:
-    """Unit tests for :func:`physicsnemo.nn.functional.natten.na1d`."""
+    """Unit tests for :func:`physicsnemo.nn.functional.transformer.natten.na1d`."""
 
     @pytest.mark.parametrize("kernel_size", [3, 5])
     @pytest.mark.parametrize("dilation", [1, 2])
@@ -87,7 +87,7 @@ class TestNA1D:
         """Wrapper output must be identical to ``natten.functional.na1d``."""
         import natten.functional as nf
 
-        from physicsnemo.nn.functional.natten import na1d
+        from physicsnemo.nn.functional.transformer.natten import na1d
 
         B, L, H, D = 2, 16, 4, 8
         q = torch.randn(B, L, H, D, device=device)
@@ -101,7 +101,7 @@ class TestNA1D:
 
     def test_output_shape(self, device):
         """Output shape must equal the query shape."""
-        from physicsnemo.nn.functional.natten import na1d
+        from physicsnemo.nn.functional.transformer.natten import na1d
 
         B, L, H, D = 1, 12, 2, 16
         q = torch.randn(B, L, H, D, device=device)
@@ -110,7 +110,7 @@ class TestNA1D:
 
     def test_backward(self, device):
         """Gradients must flow back through all three inputs."""
-        from physicsnemo.nn.functional.natten import na1d
+        from physicsnemo.nn.functional.transformer.natten import na1d
 
         B, L, H, D = 1, 12, 2, 8
         q = torch.randn(B, L, H, D, device=device, requires_grad=True)
@@ -126,7 +126,7 @@ class TestNA1D:
 
     def test_torch_function_dispatch(self, device):
         """``__torch_function__`` must be invoked for tensor subclasses."""
-        from physicsnemo.nn.functional.natten import na1d
+        from physicsnemo.nn.functional.transformer.natten import na1d
 
         B, L, H, D = 1, 8, 2, 8
         q = torch.randn(B, L, H, D, device=device).as_subclass(_DispatchRecorder)
@@ -140,7 +140,7 @@ class TestNA1D:
 
     def test_full_window_matches_sdpa(self, device):
         """When kernel covers the entire sequence, NA degenerates to SDPA."""
-        from physicsnemo.nn.functional.natten import na1d
+        from physicsnemo.nn.functional.transformer.natten import na1d
 
         B, L, H, D = 2, 7, 2, 8
         q = torch.randn(B, L, H, D, device=device, dtype=torch.float32)
@@ -161,7 +161,7 @@ class TestNA1D:
 
 @requires_module("natten")
 class TestNA2D:
-    """Unit tests for :func:`physicsnemo.nn.functional.natten.na2d`."""
+    """Unit tests for :func:`physicsnemo.nn.functional.transformer.natten.na2d`."""
 
     @pytest.mark.parametrize("kernel_size", [3, 5])
     @pytest.mark.parametrize("dilation", [1, 2])
@@ -169,7 +169,7 @@ class TestNA2D:
         """Wrapper output must be identical to ``natten.functional.na2d``."""
         import natten.functional as nf
 
-        from physicsnemo.nn.functional.natten import na2d
+        from physicsnemo.nn.functional.transformer.natten import na2d
 
         B, Ht, W, H, D = 2, 16, 16, 4, 8
         q = torch.randn(B, Ht, W, H, D, device=device)
@@ -183,7 +183,7 @@ class TestNA2D:
 
     def test_output_shape(self, device):
         """Output shape must equal the query shape."""
-        from physicsnemo.nn.functional.natten import na2d
+        from physicsnemo.nn.functional.transformer.natten import na2d
 
         B, Ht, W, H, D = 1, 6, 6, 2, 16
         q = torch.randn(B, Ht, W, H, D, device=device)
@@ -192,7 +192,7 @@ class TestNA2D:
 
     def test_backward(self, device):
         """Gradients must flow back through all three inputs."""
-        from physicsnemo.nn.functional.natten import na2d
+        from physicsnemo.nn.functional.transformer.natten import na2d
 
         B, Ht, W, H, D = 1, 6, 6, 2, 8
         q = torch.randn(B, Ht, W, H, D, device=device, requires_grad=True)
@@ -208,7 +208,7 @@ class TestNA2D:
 
     def test_torch_function_dispatch(self, device):
         """``__torch_function__`` must be invoked for tensor subclasses."""
-        from physicsnemo.nn.functional.natten import na2d
+        from physicsnemo.nn.functional.transformer.natten import na2d
 
         B, Ht, W, H, D = 1, 4, 4, 2, 8
         q = torch.randn(B, Ht, W, H, D, device=device).as_subclass(_DispatchRecorder)
@@ -222,7 +222,7 @@ class TestNA2D:
 
     def test_full_window_matches_sdpa(self, device):
         """When kernel covers the full spatial extent, NA degenerates to SDPA."""
-        from physicsnemo.nn.functional.natten import na2d
+        from physicsnemo.nn.functional.transformer.natten import na2d
 
         B, Ht, W, H, D = 2, 5, 5, 2, 8
         q = torch.randn(B, Ht, W, H, D, device=device, dtype=torch.float32)
@@ -242,14 +242,14 @@ class TestNA2D:
 
 @requires_module("natten")
 class TestNA3D:
-    """Unit tests for :func:`physicsnemo.nn.functional.natten.na3d`."""
+    """Unit tests for :func:`physicsnemo.nn.functional.transformer.natten.na3d`."""
 
     @pytest.mark.parametrize("kernel_size", [3, 5])
     def test_matches_natten_directly(self, device, kernel_size):
         """Wrapper output must be identical to ``natten.functional.na3d``."""
         import natten.functional as nf
 
-        from physicsnemo.nn.functional.natten import na3d
+        from physicsnemo.nn.functional.transformer.natten import na3d
 
         B, X, Y, Z, H, D = 1, 16, 16, 16, 2, 8
         q = torch.randn(B, X, Y, Z, H, D, device=device)
@@ -263,7 +263,7 @@ class TestNA3D:
 
     def test_output_shape(self, device):
         """Output shape must equal the query shape."""
-        from physicsnemo.nn.functional.natten import na3d
+        from physicsnemo.nn.functional.transformer.natten import na3d
 
         B, X, Y, Z, H, D = 1, 4, 4, 4, 2, 8
         q = torch.randn(B, X, Y, Z, H, D, device=device)
@@ -272,7 +272,7 @@ class TestNA3D:
 
     def test_backward(self, device):
         """Gradients must flow back through all three inputs."""
-        from physicsnemo.nn.functional.natten import na3d
+        from physicsnemo.nn.functional.transformer.natten import na3d
 
         B, X, Y, Z, H, D = 1, 4, 4, 4, 2, 8
         q = torch.randn(B, X, Y, Z, H, D, device=device, requires_grad=True)
@@ -288,7 +288,7 @@ class TestNA3D:
 
     def test_torch_function_dispatch(self, device):
         """``__torch_function__`` must be invoked for tensor subclasses."""
-        from physicsnemo.nn.functional.natten import na3d
+        from physicsnemo.nn.functional.transformer.natten import na3d
 
         B, X, Y, Z, H, D = 1, 4, 4, 4, 2, 8
         q = torch.randn(B, X, Y, Z, H, D, device=device).as_subclass(_DispatchRecorder)
@@ -302,7 +302,7 @@ class TestNA3D:
 
     def test_full_window_matches_sdpa(self, device):
         """When kernel covers the full spatial extent, NA degenerates to SDPA."""
-        from physicsnemo.nn.functional.natten import na3d
+        from physicsnemo.nn.functional.transformer.natten import na3d
 
         B, X, Y, Z, H, D = 1, 5, 5, 5, 2, 8
         q = torch.randn(B, X, Y, Z, H, D, device=device, dtype=torch.float32)

@@ -27,7 +27,7 @@ from timm.layers import RmsNorm
 
 from physicsnemo.core import Module
 from physicsnemo.core.version_check import OptionalImport, check_version_spec
-from physicsnemo.nn.functional.natten import na2d as _na2d_func
+from physicsnemo.nn.functional.transformer.natten import na2d as _na2d_func
 from physicsnemo.nn.module.drop import DropPath
 from physicsnemo.nn.module.hpx.tokenizer import (
     HEALPixPatchDetokenizer,

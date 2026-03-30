@@ -14,19 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .grid_to_point_interpolation import (
-    GridToPointInterpolation,
-    grid_to_point_interpolation,
-    interpolation,
-)
+"""Warp backend package for grid-to-point interpolation."""
 
-# Preserve historical class import path:
-# `from physicsnemo.nn.functional.interpolation.interpolation import Interpolation`.
-Interpolation = GridToPointInterpolation
+from .op import interpolation_warp
 
-__all__ = [
-    "GridToPointInterpolation",
-    "Interpolation",
-    "grid_to_point_interpolation",
-    "interpolation",
-]
+__all__ = ["interpolation_warp"]

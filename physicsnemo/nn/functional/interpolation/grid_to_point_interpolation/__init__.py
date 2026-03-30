@@ -20,13 +20,4 @@ from .grid_to_point_interpolation import (
     interpolation,
 )
 
-# Preserve historical class import path:
-# `from physicsnemo.nn.functional.interpolation.interpolation import Interpolation`.
-Interpolation = GridToPointInterpolation
-
-__all__ = [
-    "GridToPointInterpolation",
-    "Interpolation",
-    "grid_to_point_interpolation",
-    "interpolation",
-]
+__all__ = ["GridToPointInterpolation", "grid_to_point_interpolation", "interpolation"]

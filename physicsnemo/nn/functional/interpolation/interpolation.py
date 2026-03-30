@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from typing import List, Tuple
 
 import torch
@@ -60,6 +61,7 @@ class Interpolation(FunctionSpec):
         interpolation_type: str = "smooth_step_2",
         mem_speed_trade: bool = True,
     ) -> Float[Tensor, "num_queries channels"]:
+        """Run interpolation with the Warp backend."""
         return interpolation_warp(
             query_points,
             context_grid,
@@ -76,6 +78,7 @@ class Interpolation(FunctionSpec):
         interpolation_type: str = "smooth_step_2",
         mem_speed_trade: bool = True,
     ) -> Float[Tensor, "num_queries channels"]:
+        """Run interpolation with the PyTorch backend."""
         return interpolation_torch(
             query_points,
             context_grid,
@@ -157,10 +160,24 @@ class Interpolation(FunctionSpec):
         torch.testing.assert_close(output, reference, atol=5e-5, rtol=1e-4)
 
 
-interpolation = Interpolation.make_function("interpolation")
+grid_to_point_interpolation = Interpolation.make_function("grid_to_point_interpolation")
+
+
+def interpolation(*args, **kwargs):
+    """Deprecated alias for ``grid_to_point_interpolation``."""
+    warnings.warn(
+        "`interpolation` is deprecated and will be removed in a later release. "
+        "Use `grid_to_point_interpolation` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # Preserve historical alias behavior unless explicitly overridden.
+    kwargs.setdefault("implementation", "torch")
+    return grid_to_point_interpolation(*args, **kwargs)
 
 
 __all__ = [
     "Interpolation",
+    "grid_to_point_interpolation",
     "interpolation",
 ]

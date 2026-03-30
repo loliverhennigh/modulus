@@ -14,6 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .interpolation import Interpolation, interpolation
+from .interpolation import (
+    Interpolation,
+    grid_to_point_interpolation,
+    interpolation,
+)
 
-__all__ = ["Interpolation", "interpolation"]
+__all__ = ["Interpolation", "grid_to_point_interpolation", "interpolation"]

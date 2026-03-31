@@ -17,7 +17,6 @@
 from .grid_to_point_interpolation import (
     GridToPointInterpolation,
     grid_to_point_interpolation,
-    interpolation,
 )
 
-__all__ = ["GridToPointInterpolation", "grid_to_point_interpolation", "interpolation"]
+__all__ = ["GridToPointInterpolation", "grid_to_point_interpolation"]

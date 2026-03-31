@@ -17,8 +17,8 @@
 from .grid_to_point_interpolation import (
     GridToPointInterpolation,
     grid_to_point_interpolation,
-    interpolation,
 )
+from .interpolation import interpolation
 from .point_to_grid_interpolation import (
     PointToGridInterpolation,
     point_to_grid_interpolation,

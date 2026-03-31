@@ -14,25 +14,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .grid_to_point_interpolation import (
-    GridToPointInterpolation,
-    grid_to_point_interpolation,
-    interpolation,
-)
-from .point_to_grid_interpolation import (
-    PointToGridInterpolation,
-    point_to_grid_interpolation,
-)
+import warnings
 
-# Preserve historical class import path:
-# `from physicsnemo.nn.functional.interpolation.interpolation import Interpolation`.
-Interpolation = GridToPointInterpolation
+from .grid_to_point_interpolation import grid_to_point_interpolation
 
-__all__ = [
-    "GridToPointInterpolation",
-    "Interpolation",
-    "PointToGridInterpolation",
-    "grid_to_point_interpolation",
-    "interpolation",
-    "point_to_grid_interpolation",
-]
+
+def interpolation(*args, **kwargs):
+    """Deprecated alias for ``grid_to_point_interpolation``."""
+    warnings.warn(
+        "`interpolation` is deprecated and will be removed in a future release. "
+        "Use `grid_to_point_interpolation` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # Preserve historical default behavior for the deprecated alias while still
+    # allowing explicit backend selection overrides.
+    kwargs.setdefault("implementation", "torch")
+    return grid_to_point_interpolation(*args, **kwargs)
+
+
+__all__ = ["interpolation"]

@@ -76,7 +76,7 @@ def _normalize_inputs(
     point_values: Tensor,
     grid: List[Tuple[float, float, int]],
     interpolation_type: str,
-) -> tuple[Tensor, Tensor, int, list[int], Tensor, Tensor]:
+) -> tuple[Tensor, Tensor, torch.dtype, int, list[int], Tensor, Tensor]:
     if interpolation_type not in _VALID_INTERP:
         raise RuntimeError(
             "interpolation_type is not supported; expected one of "
@@ -107,10 +107,20 @@ def _normalize_inputs(
         )
     if query_points.device != point_values.device:
         raise ValueError("query_points and point_values must be on the same device")
-    if query_points.dtype != torch.float32:
-        raise TypeError("query_points must be float32")
-    if point_values.dtype != torch.float32:
-        raise TypeError("point_values must be float32")
+
+    # Align torch behavior with warp: compute in float32 internally and cast
+    # the final grid output back to the input point-values dtype.
+    output_dtype = point_values.dtype
+    query_points = (
+        query_points
+        if query_points.dtype == torch.float32
+        else query_points.to(torch.float32)
+    )
+    point_values = (
+        point_values
+        if point_values.dtype == torch.float32
+        else point_values.to(torch.float32)
+    )
 
     sizes = [int(entry[2]) for entry in grid]
     starts = torch.tensor(
@@ -123,7 +133,7 @@ def _normalize_inputs(
         device=query_points.device,
         dtype=query_points.dtype,
     )
-    return query_points, point_values, dims, sizes, starts, dx
+    return query_points, point_values, output_dtype, dims, sizes, starts, dx
 
 
 # Torch backend implementation for point-to-grid interpolation.
@@ -140,6 +150,7 @@ def point_to_grid_interpolation_torch(
     (
         query_points,
         point_values,
+        output_dtype,
         dims,
         sizes,
         starts,
@@ -159,7 +170,7 @@ def point_to_grid_interpolation_torch(
         dtype=point_values.dtype,
     )
     if num_points == 0:
-        return output
+        return output.to(output_dtype)
     output_flat = output.view(channels, -1)
 
     pos = (query_points - starts) / dx
@@ -180,7 +191,7 @@ def point_to_grid_interpolation_torch(
                 dtype=point_values.dtype,
             ),
         )
-        return output
+        return output.to(output_dtype)
 
     # Linear and smooth-step scatter.
     if interpolation_type in {_INTERP_LINEAR, _INTERP_SMOOTH_1, _INTERP_SMOOTH_2}:
@@ -211,7 +222,7 @@ def point_to_grid_interpolation_torch(
                 point_values=point_values,
                 weight=weight,
             )
-        return output
+        return output.to(output_dtype)
 
     # Gaussian scatter over a 5-point stencil in each dimension.
     center = torch.floor(pos + 0.5).to(torch.int64)
@@ -244,7 +255,7 @@ def point_to_grid_interpolation_torch(
             point_values=point_values,
             weight=weight * inv_sum_w,
         )
-    return output
+    return output.to(output_dtype)
 
 
 __all__ = ["point_to_grid_interpolation_torch"]

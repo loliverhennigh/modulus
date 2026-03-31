@@ -61,10 +61,8 @@ class PointToGridInterpolation(FunctionSpec):
 
     Notes
     -----
-    - The ``torch`` backend requires ``query_points`` and ``point_values`` to be
-      ``torch.float32``.
-    - The ``warp`` backend computes in ``torch.float32`` internally and casts the
-      output grid back to the input ``point_values`` dtype.
+    - Both ``torch`` and ``warp`` backends compute in ``torch.float32`` internally.
+    - The output grid is cast back to the input ``point_values`` dtype.
     - The ``warp`` and ``torch`` backends are intended to be numerically aligned.
     - ``warp`` is the default dispatch path for ``point_to_grid_interpolation``.
     """

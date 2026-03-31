@@ -163,7 +163,7 @@ def linear_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     ----------
     dist_vec: Tensor
         Distance vector for interpolation points.
-    dx: Tensor
+    Parameters
         Spacing between points.
 
     Returns

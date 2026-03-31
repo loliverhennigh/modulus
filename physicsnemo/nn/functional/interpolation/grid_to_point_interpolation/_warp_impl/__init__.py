@@ -14,20 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .grid_to_point_interpolation import (
-    GridToPointInterpolation,
-    grid_to_point_interpolation,
-    interpolation,
-)
-from .point_to_grid_interpolation import (
-    PointToGridInterpolation,
-    point_to_grid_interpolation,
-)
+"""Warp backend package for grid-to-point interpolation."""
 
-__all__ = [
-    "GridToPointInterpolation",
-    "PointToGridInterpolation",
-    "grid_to_point_interpolation",
-    "interpolation",
-    "point_to_grid_interpolation",
-]
+from .op import interpolation_warp
+
+__all__ = ["interpolation_warp"]

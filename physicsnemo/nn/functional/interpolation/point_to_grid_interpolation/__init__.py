@@ -14,20 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .grid_to_point_interpolation import (
-    GridToPointInterpolation,
-    grid_to_point_interpolation,
-    interpolation,
-)
 from .point_to_grid_interpolation import (
     PointToGridInterpolation,
     point_to_grid_interpolation,
 )
 
-__all__ = [
-    "GridToPointInterpolation",
-    "PointToGridInterpolation",
-    "grid_to_point_interpolation",
-    "interpolation",
-    "point_to_grid_interpolation",
-]
+__all__ = ["PointToGridInterpolation", "point_to_grid_interpolation"]

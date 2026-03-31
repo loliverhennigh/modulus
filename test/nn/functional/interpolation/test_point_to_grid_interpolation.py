@@ -433,8 +433,7 @@ def test_point_to_grid_interpolation_make_inputs_backward(device: str):
     query_points, point_values, _ = args
     assert query_points.requires_grad
     assert point_values.requires_grad
-    if not point_values.is_leaf:
-        point_values.retain_grad()
+    assert point_values.is_leaf
 
     output = PointToGridInterpolation.dispatch(
         *args,

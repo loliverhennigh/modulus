@@ -152,10 +152,13 @@ class PointToGridInterpolation(FunctionSpec):
                 ],
                 axis=-1,
             ).requires_grad_(True)
+            # Build point values from detached coordinates so this tensor is a
+            # true leaf after requires_grad_(True), enabling direct grad parity checks.
+            query_points_detached = query_points.detach()
             point_values = torch.stack(
                 (
-                    torch.sin(query_points.sum(dim=-1)),
-                    torch.cos(query_points.prod(dim=-1)),
+                    torch.sin(query_points_detached.sum(dim=-1)),
+                    torch.cos(query_points_detached.prod(dim=-1)),
                 ),
                 dim=-1,
             ).requires_grad_(True)

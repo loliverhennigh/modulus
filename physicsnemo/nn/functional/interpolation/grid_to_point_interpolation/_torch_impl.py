@@ -212,7 +212,7 @@ def smooth_step_2_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     dist_vec: Tensor
         Distance vector for interpolation points.
     dx: Tensor
-        pacing between points.
+        Spacing between points.
 
     Returns
     -------

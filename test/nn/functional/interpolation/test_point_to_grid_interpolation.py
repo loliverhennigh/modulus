@@ -233,25 +233,38 @@ def test_point_to_grid_interpolation_error_handling(device: str):
     assert query_with_grad.grad is not None
     assert values_with_grad.grad is not None
 
-    # dtype checks.
-    with pytest.raises(TypeError, match="query_points must be float32"):
-        PointToGridInterpolation.dispatch(
+    # dtype behavior: both backends cast internally and return point-values dtype.
+    out_fp64 = PointToGridInterpolation.dispatch(
+        query_points.to(torch.float64),
+        point_values.to(torch.float64),
+        grid,
+        interpolation_type="linear",
+        mem_speed_trade=True,
+        implementation="torch",
+    )
+    assert out_fp64.dtype == torch.float64
+
+    out_mixed = PointToGridInterpolation.dispatch(
+        query_points.to(torch.float64),
+        point_values.to(torch.float32),
+        grid,
+        interpolation_type="linear",
+        mem_speed_trade=True,
+        implementation="torch",
+    )
+    assert out_mixed.dtype == torch.float32
+
+    if "warp" in PointToGridInterpolation.available_implementations():
+        out_warp_fp64 = PointToGridInterpolation.dispatch(
             query_points.to(torch.float64),
-            point_values,
-            grid,
-            interpolation_type="linear",
-            mem_speed_trade=True,
-            implementation="torch",
-        )
-    with pytest.raises(TypeError, match="point_values must be float32"):
-        PointToGridInterpolation.dispatch(
-            query_points,
             point_values.to(torch.float64),
             grid,
             interpolation_type="linear",
             mem_speed_trade=True,
-            implementation="torch",
+            implementation="warp",
         )
+        assert out_warp_fp64.dtype == torch.float64
+        PointToGridInterpolation.compare_forward(out_warp_fp64, out_fp64)
 
 
 # Compare torch and warp forward outputs on benchmark representative inputs.

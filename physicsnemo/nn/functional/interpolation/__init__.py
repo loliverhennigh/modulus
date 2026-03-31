@@ -24,8 +24,11 @@ from .point_to_grid_interpolation import (
     point_to_grid_interpolation,
 )
 
+Interpolation = GridToPointInterpolation
+
 __all__ = [
     "GridToPointInterpolation",
+    "Interpolation",
     "PointToGridInterpolation",
     "grid_to_point_interpolation",
     "interpolation",

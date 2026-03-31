@@ -61,7 +61,8 @@ class PointToGridInterpolation(FunctionSpec):
 
     Notes
     -----
-    - ``query_points`` and ``point_values`` currently support ``torch.float32``.
+    - Non-``float32`` floating inputs are internally cast to ``float32`` for
+      kernel execution and the output is cast back to ``point_values.dtype``.
     - The ``warp`` and ``torch`` backends are intended to be numerically aligned.
     - ``warp`` is the default dispatch path for ``point_to_grid_interpolation``.
     """

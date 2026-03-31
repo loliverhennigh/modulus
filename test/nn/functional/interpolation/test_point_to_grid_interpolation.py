@@ -171,6 +171,18 @@ def test_point_to_grid_interpolation_error_handling(device: str):
         )
         PointToGridInterpolation.compare_forward(output, warp_output)
 
+        # Warp path should match grid-to-point dtype behavior and accept
+        # non-float32 inputs by casting internally and restoring output dtype.
+        warp_output_fp64 = PointToGridInterpolation.dispatch(
+            query_points.to(torch.float64),
+            point_values.to(torch.float64),
+            grid,
+            interpolation_type="linear",
+            mem_speed_trade=True,
+            implementation="warp",
+        )
+        assert warp_output_fp64.dtype == torch.float64
+
     # Unsupported dimensionality.
     with pytest.raises(ValueError, match="supports 1-3D grids"):
         PointToGridInterpolation.dispatch(

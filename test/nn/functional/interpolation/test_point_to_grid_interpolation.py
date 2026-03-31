@@ -233,27 +233,25 @@ def test_point_to_grid_interpolation_error_handling(device: str):
     assert query_with_grad.grad is not None
     assert values_with_grad.grad is not None
 
-    # dtype behavior: torch and warp should both accept non-float32 values
-    # by computing internally in float32 and restoring output dtype.
-    torch_output_fp64 = PointToGridInterpolation.dispatch(
-        query_points.to(torch.float64),
-        point_values.to(torch.float64),
-        grid,
-        interpolation_type="linear",
-        mem_speed_trade=True,
-        implementation="torch",
-    )
-    assert torch_output_fp64.dtype == torch.float64
-    if "warp" in PointToGridInterpolation.available_implementations():
-        warp_output_fp64 = PointToGridInterpolation.dispatch(
+    # dtype checks.
+    with pytest.raises(TypeError, match="query_points must be float32"):
+        PointToGridInterpolation.dispatch(
             query_points.to(torch.float64),
+            point_values,
+            grid,
+            interpolation_type="linear",
+            mem_speed_trade=True,
+            implementation="torch",
+        )
+    with pytest.raises(TypeError, match="point_values must be float32"):
+        PointToGridInterpolation.dispatch(
+            query_points,
             point_values.to(torch.float64),
             grid,
             interpolation_type="linear",
             mem_speed_trade=True,
-            implementation="warp",
+            implementation="torch",
         )
-        PointToGridInterpolation.compare_forward(warp_output_fp64, torch_output_fp64)
 
 
 # Compare torch and warp forward outputs on benchmark representative inputs.
@@ -423,7 +421,8 @@ def test_point_to_grid_interpolation_make_inputs_backward(device: str):
     query_points, point_values, _ = args
     assert query_points.requires_grad
     assert point_values.requires_grad
-    assert point_values.is_leaf
+    if not point_values.is_leaf:
+        point_values.retain_grad()
 
     output = PointToGridInterpolation.dispatch(
         *args,

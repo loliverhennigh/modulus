@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from typing import List, Tuple
 
 import torch
@@ -57,6 +58,8 @@ class GridToPointInterpolation(FunctionSpec):
     - Grid spacing and extents are provided by ``grid``.
     - The ``warp`` and ``torch`` backends are intended to be numerically aligned.
     - ``warp`` is the default dispatch path for ``grid_to_point_interpolation``.
+    - The deprecated ``interpolation`` alias defaults to ``torch`` unless an
+      explicit ``implementation`` is provided.
 
     Parameters
     ----------
@@ -196,7 +199,22 @@ grid_to_point_interpolation = GridToPointInterpolation.make_function(
 )
 
 
+def interpolation(*args, **kwargs):
+    """Deprecated alias for ``grid_to_point_interpolation``."""
+    warnings.warn(
+        "`interpolation` is deprecated and will be removed in a future release. "
+        "Use `grid_to_point_interpolation` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # Preserve historical default behavior for the deprecated alias while still
+    # allowing explicit backend selection overrides.
+    kwargs.setdefault("implementation", "torch")
+    return grid_to_point_interpolation(*args, **kwargs)
+
+
 __all__ = [
     "GridToPointInterpolation",
     "grid_to_point_interpolation",
+    "interpolation",
 ]

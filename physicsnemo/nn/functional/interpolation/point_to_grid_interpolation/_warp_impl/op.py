@@ -218,6 +218,10 @@ def point_to_grid_interpolation_warp(
     interpolation_type: str = "smooth_step_2",
     mem_speed_trade: bool = True,
 ) -> torch.Tensor:
+    if query_points.dtype != torch.float32:
+        raise TypeError("query_points must be float32")
+    if point_values.dtype != torch.float32:
+        raise TypeError("point_values must be float32")
     if not mem_speed_trade:
         warnings.warn(
             "The Warp backend ignores mem_speed_trade and always runs the same kernel path.",

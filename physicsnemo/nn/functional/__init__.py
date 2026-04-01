@@ -14,6 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .derivatives import (
+    mesh_green_gauss_gradient,
+    mesh_lsq_gradient,
+    rectilinear_grid_gradient,
+    uniform_grid_gradient,
+)
 from .equivariant_ops import (
     legendre_polynomials,
     polar_and_dipole_basis,
@@ -36,17 +42,21 @@ __all__ = [
     "interpolation",
     "knn",
     "legendre_polynomials",
+    "mesh_green_gauss_gradient",
+    "mesh_lsq_gradient",
     "na1d",
     "na2d",
     "na3d",
     "polar_and_dipole_basis",
     "radius_search",
     "real",
+    "rectilinear_grid_gradient",
     "rfft",
     "rfft2",
     "signed_distance_field",
     "smooth_log",
     "spherical_basis",
+    "uniform_grid_gradient",
     "vector_project",
     "view_as_complex",
     "weight_fact",

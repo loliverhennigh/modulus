@@ -19,13 +19,10 @@ from __future__ import annotations
 import pytest
 import torch
 
-from physicsnemo.nn.functional import (
-    meshless_fd_derivatives,
-    meshless_fd_stencil_points,
-)
-from physicsnemo.nn.functional.derivatives import (
-    MeshlessFDDerivatives,
-    MeshlessFDStencilPoints,
+from physicsnemo.nn.functional import meshless_fd_derivatives
+from physicsnemo.nn.functional.derivatives import MeshlessFDDerivatives
+from physicsnemo.nn.functional.derivatives.meshless_finite_difference._torch_impl import (
+    meshless_fd_stencil_points_torch,
 )
 
 
@@ -207,11 +204,10 @@ def test_meshless_fd_stencil_points_torch(device: str, dim: int):
     points = torch.rand(32, dim, device=device, dtype=torch.float32)
     spacing = _spacing_for_dim(dim)
 
-    stencil_points = MeshlessFDStencilPoints.dispatch(
+    stencil_points = meshless_fd_stencil_points_torch(
         points,
         spacing=spacing,
         include_center=True,
-        implementation="torch",
     )
 
     assert stencil_points.shape == (32, 3**dim, dim)
@@ -224,7 +220,7 @@ def test_meshless_fd_stencil_points_torch(device: str, dim: int):
 def test_meshless_fd_derivatives_torch_first_order(device: str, dim: int):
     points = torch.rand(128, dim, device=device, dtype=torch.float32)
     spacing = _spacing_for_dim(dim)
-    stencil_points = meshless_fd_stencil_points(points, spacing=spacing)
+    stencil_points = meshless_fd_stencil_points_torch(points, spacing=spacing)
     stencil_values = _analytic_values(stencil_points)
     expected = _analytic_first_derivatives(points)
 
@@ -243,7 +239,7 @@ def test_meshless_fd_derivatives_torch_first_order(device: str, dim: int):
 def test_meshless_fd_derivatives_torch_second_order(device: str, dim: int):
     points = torch.rand(128, dim, device=device, dtype=torch.float32)
     spacing = _spacing_for_dim(dim)
-    stencil_points = meshless_fd_stencil_points(points, spacing=spacing)
+    stencil_points = meshless_fd_stencil_points_torch(points, spacing=spacing)
     stencil_values = _analytic_values(stencil_points)
     expected = _analytic_second_derivatives(points)
 
@@ -255,37 +251,6 @@ def test_meshless_fd_derivatives_torch_second_order(device: str, dim: int):
         implementation="torch",
     )
     torch.testing.assert_close(output, expected, atol=7e-3, rtol=7e-3)
-
-
-# Validate benchmark input generation contract for stencil-point forward inputs.
-def test_meshless_fd_stencil_points_make_inputs_forward(device: str):
-    label, args, kwargs = next(
-        iter(MeshlessFDStencilPoints.make_inputs_forward(device=device))
-    )
-    assert isinstance(label, str)
-    assert isinstance(args, tuple)
-    assert isinstance(kwargs, dict)
-
-    points = args[0]
-    output = MeshlessFDStencilPoints.dispatch(*args, implementation="torch", **kwargs)
-    assert output.shape[-1] == points.shape[-1]
-
-
-# Validate benchmark input generation contract for stencil-point backward inputs.
-def test_meshless_fd_stencil_points_make_inputs_backward(device: str):
-    label, args, kwargs = next(
-        iter(MeshlessFDStencilPoints.make_inputs_backward(device=device))
-    )
-    assert isinstance(label, str)
-    assert isinstance(args, tuple)
-    assert isinstance(kwargs, dict)
-
-    points = args[0]
-    assert points.requires_grad
-
-    output = MeshlessFDStencilPoints.dispatch(*args, implementation="torch", **kwargs)
-    output.square().mean().backward()
-    assert points.grad is not None
 
 
 # Validate benchmark input generation contract for derivative forward inputs.
@@ -321,7 +286,7 @@ def test_meshless_fd_derivatives_make_inputs_backward(device: str):
 # Validate exported API and error handling branches for meshless FD functionals.
 def test_meshless_fd_error_handling(device: str):
     points = torch.rand(16, 2, device=device, dtype=torch.float32)
-    stencil_points = meshless_fd_stencil_points(points, spacing=(0.01, 0.02))
+    stencil_points = meshless_fd_stencil_points_torch(points, spacing=(0.01, 0.02))
     assert stencil_points.shape == (16, 9, 2)
 
     values = _analytic_values(stencil_points)
@@ -329,29 +294,25 @@ def test_meshless_fd_error_handling(device: str):
     assert derivs.shape == (2, 16, 2)
 
     with pytest.raises(ValueError, match="shape"):
-        MeshlessFDStencilPoints.dispatch(
-            torch.rand(16, device=device, dtype=torch.float32),
-            implementation="torch",
+        meshless_fd_stencil_points_torch(
+            torch.rand(16, device=device, dtype=torch.float32)
         )
 
     with pytest.raises(TypeError, match="floating-point"):
-        MeshlessFDStencilPoints.dispatch(
-            torch.ones(16, 2, device=device, dtype=torch.int32),
-            implementation="torch",
+        meshless_fd_stencil_points_torch(
+            torch.ones(16, 2, device=device, dtype=torch.int32)
         )
 
     with pytest.raises(ValueError, match="must have 2 entries"):
-        MeshlessFDStencilPoints.dispatch(
+        meshless_fd_stencil_points_torch(
             torch.rand(16, 2, device=device, dtype=torch.float32),
             spacing=(0.1,),
-            implementation="torch",
         )
 
     with pytest.raises(ValueError, match="strictly positive"):
-        MeshlessFDStencilPoints.dispatch(
+        meshless_fd_stencil_points_torch(
             torch.rand(16, 2, device=device, dtype=torch.float32),
             spacing=(0.1, 0.0),
-            implementation="torch",
         )
 
     with pytest.raises(ValueError, match="must have shape"):

@@ -19,7 +19,6 @@
 from physicsnemo.nn.functional.derivatives import (
     MeshGreenGaussGradient,
     MeshlessFDDerivatives,
-    MeshlessFDStencilPoints,
     MeshLSQGradient,
     RectilinearGridGradient,
     SpectralGridGradient,
@@ -57,7 +56,6 @@ FUNCTIONAL_SPECS = (
     MeshLSQGradient,
     MeshGreenGaussGradient,
     SpectralGridGradient,
-    MeshlessFDStencilPoints,
     MeshlessFDDerivatives,
     # Geometry.
     SignedDistanceField,

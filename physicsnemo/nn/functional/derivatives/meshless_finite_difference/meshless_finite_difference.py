@@ -30,74 +30,6 @@ from ._torch_impl import (
 )
 
 
-class MeshlessFDStencilPoints(FunctionSpec):
-    """Generate canonical meshless finite-difference stencil points.
-
-    Parameters
-    ----------
-    points : torch.Tensor
-        Query points with shape ``(num_points, dim)`` and ``dim`` in ``{1, 2, 3}``.
-    spacing : float | Sequence[float], optional
-        Stencil spacing per axis.
-    include_center : bool, optional
-        Include the center point in the returned stencil.
-    implementation : {"torch"} or None
-        Implementation to use. When ``None``, dispatch selects the available
-        implementation.
-
-    Returns
-    -------
-    torch.Tensor
-        Stencil points of shape ``(num_points, stencil_size, dim)``.
-    """
-
-    _BENCHMARK_CASES = (
-        ("1d-n4096", 4096, 1, 0.01),
-        ("2d-n8192", 8192, 2, (0.01, 0.02)),
-        ("3d-n4096", 4096, 3, (0.01, 0.015, 0.02)),
-    )
-
-    @FunctionSpec.register(name="torch", rank=0, baseline=True)
-    def torch_forward(
-        points: Float[Tensor, "num_points dim"],
-        spacing: float | Sequence[float] = 1.0,
-        include_center: bool = True,
-    ) -> Float[Tensor, "num_points stencil_size dim"]:
-        """Dispatch stencil-point construction to the PyTorch backend."""
-        return meshless_fd_stencil_points_torch(
-            points=points,
-            spacing=spacing,
-            include_center=bool(include_center),
-        )
-
-    @classmethod
-    def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        """Yield representative forward benchmark and parity input cases."""
-        device = torch.device(device)
-        for label, num_points, dim, spacing in cls._BENCHMARK_CASES:
-            points = torch.rand(num_points, dim, device=device, dtype=torch.float32)
-            yield (label, (points,), {"spacing": spacing, "include_center": True})
-
-    @classmethod
-    def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        """Yield representative backward benchmark and parity input cases."""
-        device = torch.device(device)
-        backward_cases = (
-            ("1d-grad-n2048", 2048, 1, 0.01),
-            ("2d-grad-n4096", 4096, 2, (0.01, 0.02)),
-            ("3d-grad-n2048", 2048, 3, (0.01, 0.015, 0.02)),
-        )
-        for label, num_points, dim, spacing in backward_cases:
-            points = torch.rand(
-                num_points,
-                dim,
-                device=device,
-                dtype=torch.float32,
-                requires_grad=True,
-            )
-            yield (label, (points,), {"spacing": spacing, "include_center": True})
-
-
 class MeshlessFDDerivatives(FunctionSpec):
     """Compute meshless finite-difference derivatives from stencil values.
 
@@ -238,15 +170,10 @@ class MeshlessFDDerivatives(FunctionSpec):
         return stacked
 
 
-meshless_fd_stencil_points = MeshlessFDStencilPoints.make_function(
-    "meshless_fd_stencil_points"
-)
 meshless_fd_derivatives = MeshlessFDDerivatives.make_function("meshless_fd_derivatives")
 
 
 __all__ = [
-    "MeshlessFDStencilPoints",
     "MeshlessFDDerivatives",
-    "meshless_fd_stencil_points",
     "meshless_fd_derivatives",
 ]

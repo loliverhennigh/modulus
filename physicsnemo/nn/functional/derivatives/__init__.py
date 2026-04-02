@@ -18,9 +18,7 @@ from .mesh_green_gauss_gradient import MeshGreenGaussGradient, mesh_green_gauss_
 from .mesh_lsq_gradient import MeshLSQGradient, mesh_lsq_gradient
 from .meshless_finite_difference import (
     MeshlessFDDerivatives,
-    MeshlessFDStencilPoints,
     meshless_fd_derivatives,
-    meshless_fd_stencil_points,
 )
 from .rectilinear_grid_gradient import (
     RectilinearGridGradient,
@@ -32,14 +30,12 @@ from .uniform_grid_gradient import UniformGridGradient, uniform_grid_gradient
 __all__ = [
     "MeshGreenGaussGradient",
     "MeshlessFDDerivatives",
-    "MeshlessFDStencilPoints",
     "MeshLSQGradient",
     "RectilinearGridGradient",
     "SpectralGridGradient",
     "UniformGridGradient",
     "mesh_green_gauss_gradient",
     "meshless_fd_derivatives",
-    "meshless_fd_stencil_points",
     "mesh_lsq_gradient",
     "rectilinear_grid_gradient",
     "spectral_grid_gradient",

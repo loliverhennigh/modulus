@@ -16,14 +16,10 @@
 
 from .meshless_finite_difference import (
     MeshlessFDDerivatives,
-    MeshlessFDStencilPoints,
     meshless_fd_derivatives,
-    meshless_fd_stencil_points,
 )
 
 __all__ = [
-    "MeshlessFDStencilPoints",
     "MeshlessFDDerivatives",
-    "meshless_fd_stencil_points",
     "meshless_fd_derivatives",
 ]

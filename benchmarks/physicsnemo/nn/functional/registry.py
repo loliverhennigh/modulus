@@ -16,6 +16,15 @@
 
 """Registry of FunctionSpec classes to benchmark with ASV."""
 
+from physicsnemo.nn.functional.derivatives import (
+    MeshGreenGaussGradient,
+    MeshlessFDDerivatives,
+    MeshlessFDStencilPoints,
+    MeshLSQGradient,
+    RectilinearGridGradient,
+    SpectralGridGradient,
+    UniformGridGradient,
+)
 from physicsnemo.nn.functional.fourier_spectral import (
     IRFFT,
     IRFFT2,
@@ -42,6 +51,14 @@ FUNCTIONAL_SPECS = (
     # Neighbor queries.
     KNN,
     RadiusSearch,
+    # Derivatives.
+    UniformGridGradient,
+    RectilinearGridGradient,
+    MeshLSQGradient,
+    MeshGreenGaussGradient,
+    SpectralGridGradient,
+    MeshlessFDStencilPoints,
+    MeshlessFDDerivatives,
     # Geometry.
     SignedDistanceField,
     # Interpolation.

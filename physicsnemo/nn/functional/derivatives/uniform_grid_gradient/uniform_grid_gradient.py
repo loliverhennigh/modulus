@@ -36,16 +36,24 @@ _AUTO_3D_TORCH_COMPILED_MAX_NUMEL = 64 * 64 * 64
 class UniformGridGradient(FunctionSpec):
     r"""Compute periodic central-difference gradients on a uniform grid.
 
-    This functional computes first-order spatial derivatives of a scalar field
-    defined on a 1D/2D/3D uniform Cartesian grid using second-order central
-    differences with periodic indexing.
+    This functional computes first-order or pure axis-wise second-order
+    derivatives of a scalar field defined on a 1D/2D/3D uniform Cartesian
+    grid with periodic indexing.
 
-    For each axis :math:`k`, the derivative is:
+    For each axis :math:`k`, the first derivative is:
 
     .. math::
 
        \partial_k f(\mathbf{i}) \approx
        \frac{f(\mathbf{i}+\hat{e}_k) - f(\mathbf{i}-\hat{e}_k)}{2\,\Delta x_k}
+
+    and the pure second derivative is:
+
+    .. math::
+
+       \partial_{kk} f(\mathbf{i}) \approx
+       \frac{f(\mathbf{i}+\hat{e}_k)-2f(\mathbf{i})+f(\mathbf{i}-\hat{e}_k)}
+       {\Delta x_k^2}
 
     with periodic wrap-around at boundaries.
 
@@ -58,6 +66,12 @@ class UniformGridGradient(FunctionSpec):
         sequence matching field dimensionality.
     order : int, optional
         Central-difference accuracy order. Supported values are ``2`` and ``4``.
+    derivative_order : int, optional
+        Derivative order to compute. ``1`` returns first derivatives and ``2``
+        returns pure second derivatives.
+    include_mixed : bool, optional
+        Reserved for future mixed-derivative support when
+        ``derivative_order=2``. In phase-1 this must remain ``False``.
     implementation : {"warp", "torch_compiled", "torch"} or None
         Explicit backend selection. When ``None``, ``uniform_grid_gradient``
         applies a shape-aware auto-dispatch heuristic.
@@ -70,10 +84,12 @@ class UniformGridGradient(FunctionSpec):
 
     ### Benchmark input presets (small -> large workload).
     _BENCHMARK_CASES = (
-        ("1d-n8192-o2", (8192,), 0.01, 2),
-        ("1d-n8192-o4", (8192,), 0.01, 4),
-        ("2d-512x512-o2", (512, 512), (0.01, 0.02), 2),
-        ("3d-128x128x128-o2", (128, 128, 128), 0.02, 2),
+        ("1d-n8192-o2-d1", (8192,), 0.01, 2, 1),
+        ("1d-n8192-o4-d1", (8192,), 0.01, 4, 1),
+        ("2d-512x512-o2-d1", (512, 512), (0.01, 0.02), 2, 1),
+        ("2d-512x512-o2-d2", (512, 512), (0.01, 0.02), 2, 2),
+        ("3d-128x128x128-o2-d1", (128, 128, 128), 0.02, 2, 1),
+        ("3d-96x96x96-o2-d2", (96, 96, 96), 0.02, 2, 2),
     )
 
     _COMPARE_ATOL = 1e-5
@@ -86,25 +102,43 @@ class UniformGridGradient(FunctionSpec):
         field: torch.Tensor,
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
+        derivative_order: int = 1,
+        include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to the Warp backend."""
         ### Warp backend implementation.
-        return uniform_grid_gradient_warp(field=field, spacing=spacing, order=order)
+        return uniform_grid_gradient_warp(
+            field=field,
+            spacing=spacing,
+            order=order,
+            derivative_order=derivative_order,
+            include_mixed=include_mixed,
+        )
 
     @FunctionSpec.register(name="torch_compiled", rank=1)
     def torch_compiled_forward(
         field: torch.Tensor,
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
+        derivative_order: int = 1,
+        include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to torch.compile when available."""
         ### Compiled PyTorch backend implementation with safe fallback.
         if field.device.type != "cuda":
             return uniform_grid_gradient_torch(
-                field=field, spacing=spacing, order=order
+                field=field,
+                spacing=spacing,
+                order=order,
+                derivative_order=derivative_order,
+                include_mixed=include_mixed,
             )
         return _compiled_uniform_grid_gradient_torch(
-            field=field, spacing=spacing, order=order
+            field=field,
+            spacing=spacing,
+            order=order,
+            derivative_order=derivative_order,
+            include_mixed=include_mixed,
         )
 
     @FunctionSpec.register(name="torch", rank=2, baseline=True)
@@ -112,10 +146,18 @@ class UniformGridGradient(FunctionSpec):
         field: torch.Tensor,
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
+        derivative_order: int = 1,
+        include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to eager PyTorch."""
         ### PyTorch backend implementation.
-        return uniform_grid_gradient_torch(field=field, spacing=spacing, order=order)
+        return uniform_grid_gradient_torch(
+            field=field,
+            spacing=spacing,
+            order=order,
+            derivative_order=derivative_order,
+            include_mixed=include_mixed,
+        )
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
@@ -123,7 +165,7 @@ class UniformGridGradient(FunctionSpec):
         device = torch.device(device)
 
         ### Build periodic analytic fields for benchmark and parity coverage.
-        for label, shape, spacing, order in cls._BENCHMARK_CASES:
+        for label, shape, spacing, order, derivative_order in cls._BENCHMARK_CASES:
             if len(shape) == 1:
                 x = torch.linspace(0.0, 1.0, shape[0], device=device)
                 field = torch.sin(2.0 * torch.pi * x)
@@ -149,7 +191,12 @@ class UniformGridGradient(FunctionSpec):
             yield (
                 label,
                 (field.to(torch.float32),),
-                {"spacing": spacing, "order": order},
+                {
+                    "spacing": spacing,
+                    "order": order,
+                    "derivative_order": derivative_order,
+                    "include_mixed": False,
+                },
             )
 
     @classmethod
@@ -159,13 +206,15 @@ class UniformGridGradient(FunctionSpec):
 
         ### Build representative differentiable fields for backward parity.
         backward_cases = (
-            ("1d-grad-n4096-o2", (4096,), 0.01, 2),
-            ("2d-grad-256x256-o2", (256, 256), (0.01, 0.02), 2),
-            ("2d-grad-256x256-o4", (256, 256), (0.01, 0.02), 4),
-            ("3d-grad-96x96x96-o2", (96, 96, 96), 0.02, 2),
+            ("1d-grad-n4096-o2-d1", (4096,), 0.01, 2, 1),
+            ("2d-grad-256x256-o2-d1", (256, 256), (0.01, 0.02), 2, 1),
+            ("2d-grad-256x256-o2-d2", (256, 256), (0.01, 0.02), 2, 2),
+            ("2d-grad-256x256-o4-d1", (256, 256), (0.01, 0.02), 4, 1),
+            ("3d-grad-96x96x96-o2-d1", (96, 96, 96), 0.02, 2, 1),
+            ("3d-grad-64x64x64-o2-d2", (64, 64, 64), 0.02, 2, 2),
         )
 
-        for label, shape, spacing, order in backward_cases:
+        for label, shape, spacing, order, derivative_order in backward_cases:
             if len(shape) == 1:
                 x = torch.linspace(0.0, 1.0, shape[0], device=device)
                 field = torch.sin(2.0 * torch.pi * x)
@@ -191,7 +240,12 @@ class UniformGridGradient(FunctionSpec):
             yield (
                 label,
                 (field.to(torch.float32).detach().clone().requires_grad_(True),),
-                {"spacing": spacing, "order": order},
+                {
+                    "spacing": spacing,
+                    "order": order,
+                    "derivative_order": derivative_order,
+                    "include_mixed": False,
+                },
             )
 
     @classmethod
@@ -233,13 +287,27 @@ def _compiled_uniform_grid_gradient_torch(
     field: torch.Tensor,
     spacing: float | Sequence[float],
     order: int,
+    derivative_order: int,
+    include_mixed: bool,
 ) -> torch.Tensor:
     ### Dispatch to torch.compile path while preserving torch fallback behavior.
     try:
         compiled = _get_compiled_uniform_grid_gradient_torch()
     except Exception:
-        return uniform_grid_gradient_torch(field=field, spacing=spacing, order=order)
-    return compiled(field=field, spacing=spacing, order=order)
+        return uniform_grid_gradient_torch(
+            field=field,
+            spacing=spacing,
+            order=order,
+            derivative_order=derivative_order,
+            include_mixed=include_mixed,
+        )
+    return compiled(
+        field=field,
+        spacing=spacing,
+        order=order,
+        derivative_order=derivative_order,
+        include_mixed=include_mixed,
+    )
 
 
 def _auto_select_implementation(field: torch.Tensor) -> str:
@@ -284,9 +352,11 @@ def uniform_grid_gradient(
     field: torch.Tensor,
     spacing: float | Sequence[float] = 1.0,
     order: int = 2,
+    derivative_order: int = 1,
+    include_mixed: bool = False,
     implementation: str | None = None,
 ) -> torch.Tensor:
-    """Compute periodic central-difference gradients on a uniform grid.
+    """Compute periodic first or pure second derivatives on a uniform grid.
 
     When ``implementation`` is ``None``, a shape-aware backend heuristic is
     used: on CUDA, 1D/2D fields prefer ``torch``; 3D fields use a two-threshold
@@ -300,6 +370,8 @@ def uniform_grid_gradient(
         field,
         spacing=spacing,
         order=order,
+        derivative_order=derivative_order,
+        include_mixed=include_mixed,
         implementation=implementation,
     )
 

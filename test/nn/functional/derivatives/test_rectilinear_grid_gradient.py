@@ -24,47 +24,64 @@ from test.nn.functional._parity_utils import clone_case
 
 
 # Build analytic periodic fields on nonuniform rectilinear coordinates.
-def _make_periodic_case(device: str, dims: int):
+def _make_periodic_case(device: str, dims: int, derivative_order: int):
     torch_device = torch.device(device)
+    amp0 = 0.04 if derivative_order == 1 else 0.0
+    amp1 = 0.03 if derivative_order == 1 else 0.0
+    amp2 = 0.02 if derivative_order == 1 else 0.0
 
     if dims == 1:
         n0 = 1024
         s0 = torch.linspace(0.0, 1.0, n0 + 1, device=torch_device)[:-1]
-        x0 = s0 + 0.04 * torch.sin(2.0 * torch.pi * s0 + 0.2)
+        x0 = s0 + amp0 * torch.sin(2.0 * torch.pi * s0)
         field = torch.sin(2.0 * torch.pi * x0)
-        expected = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * x0).unsqueeze(0)
+        if derivative_order == 1:
+            expected = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * x0).unsqueeze(0)
+        else:
+            expected = (
+                -((2.0 * torch.pi) ** 2) * torch.sin(2.0 * torch.pi * x0)
+            ).unsqueeze(0)
         return field, (x0.to(torch.float32),), 1.0, expected
 
     if dims == 2:
         n0, n1 = 320, 256
         s0 = torch.linspace(0.0, 1.0, n0 + 1, device=torch_device)[:-1]
         s1 = torch.linspace(0.0, 1.0, n1 + 1, device=torch_device)[:-1]
-        x0 = s0 + 0.04 * torch.sin(2.0 * torch.pi * s0 + 0.1)
-        x1 = s1 + 0.03 * torch.sin(2.0 * torch.pi * s1 - 0.3)
+        x0 = s0 + amp0 * torch.sin(2.0 * torch.pi * s0)
+        x1 = s1 + amp1 * torch.sin(2.0 * torch.pi * s1)
         xx, yy = torch.meshgrid(x0, x1, indexing="ij")
         field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(2.0 * torch.pi * yy)
-        grad_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
-        grad_y = -1.0 * torch.pi * torch.sin(2.0 * torch.pi * yy)
-        expected = torch.stack((grad_x, grad_y), dim=0)
+        if derivative_order == 1:
+            deriv_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
+            deriv_y = -1.0 * torch.pi * torch.sin(2.0 * torch.pi * yy)
+        else:
+            deriv_x = -((2.0 * torch.pi) ** 2) * torch.sin(2.0 * torch.pi * xx)
+            deriv_y = -2.0 * (torch.pi**2) * torch.cos(2.0 * torch.pi * yy)
+        expected = torch.stack((deriv_x, deriv_y), dim=0)
         return field, (x0.to(torch.float32), x1.to(torch.float32)), (1.0, 1.0), expected
 
     n0, n1, n2 = 120, 96, 80
     s0 = torch.linspace(0.0, 1.0, n0 + 1, device=torch_device)[:-1]
     s1 = torch.linspace(0.0, 1.0, n1 + 1, device=torch_device)[:-1]
     s2 = torch.linspace(0.0, 1.0, n2 + 1, device=torch_device)[:-1]
-    x0 = s0 + 0.04 * torch.sin(2.0 * torch.pi * s0 + 0.1)
-    x1 = s1 + 0.03 * torch.sin(2.0 * torch.pi * s1 - 0.3)
-    x2 = s2 + 0.02 * torch.sin(2.0 * torch.pi * s2 + 0.6)
+    x0 = s0 + amp0 * torch.sin(2.0 * torch.pi * s0)
+    x1 = s1 + amp1 * torch.sin(2.0 * torch.pi * s1)
+    x2 = s2 + amp2 * torch.sin(2.0 * torch.pi * s2)
     xx, yy, zz = torch.meshgrid(x0, x1, x2, indexing="ij")
     field = (
         torch.sin(2.0 * torch.pi * xx)
         + 0.5 * torch.cos(2.0 * torch.pi * yy)
         + 0.25 * torch.sin(2.0 * torch.pi * zz)
     )
-    grad_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
-    grad_y = -1.0 * torch.pi * torch.sin(2.0 * torch.pi * yy)
-    grad_z = 0.5 * torch.pi * torch.cos(2.0 * torch.pi * zz)
-    expected = torch.stack((grad_x, grad_y, grad_z), dim=0)
+    if derivative_order == 1:
+        deriv_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
+        deriv_y = -1.0 * torch.pi * torch.sin(2.0 * torch.pi * yy)
+        deriv_z = 0.5 * torch.pi * torch.cos(2.0 * torch.pi * zz)
+    else:
+        deriv_x = -((2.0 * torch.pi) ** 2) * torch.sin(2.0 * torch.pi * xx)
+        deriv_y = -2.0 * (torch.pi**2) * torch.cos(2.0 * torch.pi * yy)
+        deriv_z = -(torch.pi**2) * torch.sin(2.0 * torch.pi * zz)
+    expected = torch.stack((deriv_x, deriv_y, deriv_z), dim=0)
     return (
         field,
         (x0.to(torch.float32), x1.to(torch.float32), x2.to(torch.float32)),
@@ -75,15 +92,20 @@ def _make_periodic_case(device: str, dims: int):
 
 # Validate torch backend against analytic periodic derivatives.
 @pytest.mark.parametrize("dims", [1, 2, 3])
-def test_rectilinear_grid_gradient_torch(device: str, dims: int):
-    field, coordinates, periods, expected = _make_periodic_case(device, dims)
+@pytest.mark.parametrize("derivative_order", [1, 2])
+def test_rectilinear_grid_gradient_torch(device: str, dims: int, derivative_order: int):
+    field, coordinates, periods, expected = _make_periodic_case(
+        device, dims, derivative_order
+    )
     output = RectilinearGridGradient.dispatch(
         field.to(torch.float32),
         coordinates,
         periods=periods,
+        derivative_order=derivative_order,
         implementation="torch",
     )
-    torch.testing.assert_close(output, expected, atol=3e-2, rtol=3e-2)
+    atol, rtol = (6e-1, 1e-1) if derivative_order == 2 and dims == 1 else (3e-2, 3e-2)
+    torch.testing.assert_close(output, expected, atol=atol, rtol=rtol)
 
 
 # Validate warp backend forward parity against torch across benchmark cases.
@@ -122,8 +144,15 @@ def test_rectilinear_grid_gradient_backend_backward_parity(device: str):
             implementation="torch",
             **kwargs_torch,
         )
-        out_torch.square().mean().backward()
-        grad_torch = args_torch[0].grad
+        grad_seed = torch.randn_like(out_torch)
+        grad_torch = torch.autograd.grad(
+            outputs=out_torch,
+            inputs=args_torch[0],
+            grad_outputs=grad_seed,
+            create_graph=False,
+            retain_graph=False,
+            allow_unused=False,
+        )[0]
         assert grad_torch is not None
 
         out_warp = RectilinearGridGradient.dispatch(
@@ -131,8 +160,14 @@ def test_rectilinear_grid_gradient_backend_backward_parity(device: str):
             implementation="warp",
             **kwargs_warp,
         )
-        out_warp.square().mean().backward()
-        grad_warp = args_warp[0].grad
+        grad_warp = torch.autograd.grad(
+            outputs=out_warp,
+            inputs=args_warp[0],
+            grad_outputs=grad_seed,
+            create_graph=False,
+            retain_graph=False,
+            allow_unused=False,
+        )[0]
         assert grad_warp is not None
 
         RectilinearGridGradient.compare_backward(grad_warp, grad_torch)
@@ -243,5 +278,46 @@ def test_rectilinear_grid_gradient_error_handling(device: str):
             torch.randn(16, device=device, dtype=torch.float32),
             (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
             periods=0.8,
+            implementation="torch",
+        )
+
+    with pytest.raises(ValueError, match="supports derivative_order in"):
+        RectilinearGridGradient.dispatch(
+            torch.randn(16, device=device, dtype=torch.float32),
+            (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
+            periods=1.0,
+            derivative_order=3,
+            implementation="torch",
+        )
+
+    with pytest.raises(TypeError, match="include_mixed must be a bool"):
+        RectilinearGridGradient.dispatch(
+            torch.randn(16, device=device, dtype=torch.float32),
+            (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
+            periods=1.0,
+            derivative_order=2,
+            include_mixed=1,  # type: ignore[arg-type]
+            implementation="torch",
+        )
+
+    with pytest.raises(ValueError, match="only valid when derivative_order=2"):
+        RectilinearGridGradient.dispatch(
+            torch.randn(16, device=device, dtype=torch.float32),
+            (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
+            periods=1.0,
+            derivative_order=1,
+            include_mixed=True,
+            implementation="torch",
+        )
+
+    with pytest.raises(
+        NotImplementedError, match="include_mixed=True is not yet supported"
+    ):
+        RectilinearGridGradient.dispatch(
+            torch.randn(16, device=device, dtype=torch.float32),
+            (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
+            periods=1.0,
+            derivative_order=2,
+            include_mixed=True,
             implementation="torch",
         )

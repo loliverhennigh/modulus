@@ -21,6 +21,7 @@ from collections.abc import Sequence
 import torch
 
 _SUPPORTED_ORDERS = (2, 4)
+_SUPPORTED_DERIVATIVE_ORDERS = (1, 2)
 
 
 def _normalize_spacing(
@@ -48,6 +49,37 @@ def _validate_order(order: int) -> int:
     return order
 
 
+def _validate_derivative_order(derivative_order: int) -> int:
+    ### Validate derivative-order selection (first vs pure second derivative).
+    if not isinstance(derivative_order, int):
+        raise TypeError(
+            f"derivative_order must be an integer, got {type(derivative_order)}"
+        )
+    if derivative_order not in _SUPPORTED_DERIVATIVE_ORDERS:
+        raise ValueError(
+            "uniform_grid_gradient supports derivative_order in [1, 2], "
+            f"got derivative_order={derivative_order}"
+        )
+    return derivative_order
+
+
+def _validate_include_mixed(
+    *,
+    derivative_order: int,
+    include_mixed: bool,
+) -> None:
+    ### Phase-1 guard: mixed second derivatives are intentionally not yet exposed.
+    if not isinstance(include_mixed, bool):
+        raise TypeError(f"include_mixed must be a bool, got {type(include_mixed)}")
+    if include_mixed and derivative_order != 2:
+        raise ValueError("include_mixed is only valid when derivative_order=2")
+    if include_mixed:
+        raise NotImplementedError(
+            "include_mixed=True is not yet supported; phase-1 supports pure axis-wise "
+            "second derivatives only"
+        )
+
+
 def _central_derivative_order2(
     field: torch.Tensor, axis: int, dx: float
 ) -> torch.Tensor:
@@ -70,12 +102,39 @@ def _central_derivative_order4(
     ) / (12.0 * dx)
 
 
+def _second_derivative_order2(
+    field: torch.Tensor, axis: int, dx: float
+) -> torch.Tensor:
+    ### Second-order periodic second derivative.
+    return (
+        torch.roll(field, shifts=-1, dims=axis)
+        - 2.0 * field
+        + torch.roll(field, shifts=1, dims=axis)
+    ) / (dx * dx)
+
+
+def _second_derivative_order4(
+    field: torch.Tensor, axis: int, dx: float
+) -> torch.Tensor:
+    ### Fourth-order periodic second derivative.
+    # d2/dx2 f_i ≈ (-f_{i+2} + 16 f_{i+1} - 30 f_i + 16 f_{i-1} - f_{i-2}) / (12 dx^2)
+    return (
+        -torch.roll(field, shifts=-2, dims=axis)
+        + 16.0 * torch.roll(field, shifts=-1, dims=axis)
+        - 30.0 * field
+        + 16.0 * torch.roll(field, shifts=1, dims=axis)
+        - torch.roll(field, shifts=2, dims=axis)
+    ) / (12.0 * dx * dx)
+
+
 def uniform_grid_gradient_torch(
     field: torch.Tensor,
     spacing: float | Sequence[float] = 1.0,
     order: int = 2,
+    derivative_order: int = 1,
+    include_mixed: bool = False,
 ) -> torch.Tensor:
-    """Compute periodic uniform-grid gradients with PyTorch tensor ops."""
+    """Compute periodic first or pure second derivatives on a uniform grid."""
     ### Validate field shape and dtype.
     if field.ndim < 1 or field.ndim > 3:
         raise ValueError(
@@ -84,6 +143,11 @@ def uniform_grid_gradient_torch(
     if not torch.is_floating_point(field):
         raise TypeError("field must be a floating-point tensor")
     order = _validate_order(order)
+    derivative_order = _validate_derivative_order(derivative_order)
+    _validate_include_mixed(
+        derivative_order=derivative_order,
+        include_mixed=include_mixed,
+    )
 
     ### Expand spacing to one entry per field axis.
     spacing_tuple = _normalize_spacing(spacing, field.ndim)
@@ -93,12 +157,16 @@ def uniform_grid_gradient_torch(
     for axis, dx in enumerate(spacing_tuple):
         if dx <= 0.0:
             raise ValueError("all spacing entries must be strictly positive")
-        ### Periodic central difference with configurable accuracy order.
-        if order == 2:
+        ### Periodic axis-wise derivative with configurable derivative/stencil order.
+        if derivative_order == 1 and order == 2:
             grad_axis = _central_derivative_order2(field, axis=axis, dx=dx)
-        else:
+        elif derivative_order == 1 and order == 4:
             grad_axis = _central_derivative_order4(field, axis=axis, dx=dx)
+        elif derivative_order == 2 and order == 2:
+            grad_axis = _second_derivative_order2(field, axis=axis, dx=dx)
+        else:
+            grad_axis = _second_derivative_order4(field, axis=axis, dx=dx)
         gradients.append(grad_axis)
 
-    ### Stack axis-wise derivatives into (dims, *field.shape).
+    ### Stack per-axis derivative terms into (dims, *field.shape).
     return torch.stack(gradients, dim=0)

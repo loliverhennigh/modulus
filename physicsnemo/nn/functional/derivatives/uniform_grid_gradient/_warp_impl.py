@@ -22,6 +22,7 @@ import torch
 import warp as wp
 
 _SUPPORTED_ORDERS = (2, 4)
+_SUPPORTED_DERIVATIVE_ORDERS = (1, 2)
 
 ### Warp runtime initialization for custom kernels.
 wp.init()
@@ -222,6 +223,187 @@ def _uniform_grid_gradient_3d_order4_kernel(
     ) * (inv_dx2 / 12.0)
 
 
+@wp.kernel
+def _uniform_grid_second_derivative_1d_kernel(
+    field: wp.array(dtype=wp.float32),
+    inv_dx2: float,
+    grad0: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = field.shape[0]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    grad0[i] = (field[ip] - 2.0 * field[i] + field[im]) * inv_dx2
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_1d_order4_kernel(
+    field: wp.array(dtype=wp.float32),
+    inv_dx2: float,
+    grad0: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = field.shape[0]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+    grad0[i] = (
+        -field[ip2]
+        + 16.0 * field[ip1]
+        - 30.0 * field[i]
+        + 16.0 * field[im1]
+        - field[im2]
+    ) * (inv_dx2 / 12.0)
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_2d_kernel(
+    field: wp.array2d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+
+    grad0[i, j] = (field[ip, j] - 2.0 * field[i, j] + field[im, j]) * inv_dx20
+    grad1[i, j] = (field[i, jp] - 2.0 * field[i, j] + field[i, jm]) * inv_dx21
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_2d_order4_kernel(
+    field: wp.array2d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+
+    grad0[i, j] = (
+        -field[ip2, j]
+        + 16.0 * field[ip1, j]
+        - 30.0 * field[i, j]
+        + 16.0 * field[im1, j]
+        - field[im2, j]
+    ) * (inv_dx20 / 12.0)
+    grad1[i, j] = (
+        -field[i, jp2]
+        + 16.0 * field[i, jp1]
+        - 30.0 * field[i, j]
+        + 16.0 * field[i, jm1]
+        - field[i, jm2]
+    ) * (inv_dx21 / 12.0)
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_3d_kernel(
+    field: wp.array3d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    inv_dx22: float,
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+    n2 = field.shape[2]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+    km = _wrap_minus1(k, n2)
+    kp = _wrap_plus1(k, n2)
+
+    grad0[i, j, k] = (
+        field[ip, j, k] - 2.0 * field[i, j, k] + field[im, j, k]
+    ) * inv_dx20
+    grad1[i, j, k] = (
+        field[i, jp, k] - 2.0 * field[i, j, k] + field[i, jm, k]
+    ) * inv_dx21
+    grad2[i, j, k] = (
+        field[i, j, kp] - 2.0 * field[i, j, k] + field[i, j, km]
+    ) * inv_dx22
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_3d_order4_kernel(
+    field: wp.array3d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    inv_dx22: float,
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+    n2 = field.shape[2]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+
+    km1 = _wrap_minus1(k, n2)
+    kp1 = _wrap_plus1(k, n2)
+    km2 = _wrap_minus2(k, n2)
+    kp2 = _wrap_plus2(k, n2)
+
+    grad0[i, j, k] = (
+        -field[ip2, j, k]
+        + 16.0 * field[ip1, j, k]
+        - 30.0 * field[i, j, k]
+        + 16.0 * field[im1, j, k]
+        - field[im2, j, k]
+    ) * (inv_dx20 / 12.0)
+    grad1[i, j, k] = (
+        -field[i, jp2, k]
+        + 16.0 * field[i, jp1, k]
+        - 30.0 * field[i, j, k]
+        + 16.0 * field[i, jm1, k]
+        - field[i, jm2, k]
+    ) * (inv_dx21 / 12.0)
+    grad2[i, j, k] = (
+        -field[i, j, kp2]
+        + 16.0 * field[i, j, kp1]
+        - 30.0 * field[i, j, k]
+        + 16.0 * field[i, j, km1]
+        - field[i, j, km2]
+    ) * (inv_dx22 / 12.0)
+
+
 ### ============================================================
 ### Backward kernels (adjoint central differences)
 ### ============================================================
@@ -393,6 +575,176 @@ def _uniform_grid_gradient_3d_order4_backward_kernel(
     grad_field[i, j, k] = gx + gy + gz
 
 
+@wp.kernel
+def _uniform_grid_second_derivative_1d_backward_kernel(
+    grad0: wp.array(dtype=wp.float32),
+    inv_dx2: float,
+    grad_field: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = grad0.shape[0]
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    grad_field[i] = (grad0[ip] - 2.0 * grad0[i] + grad0[im]) * inv_dx2
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_1d_order4_backward_kernel(
+    grad0: wp.array(dtype=wp.float32),
+    inv_dx2: float,
+    grad_field: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = grad0.shape[0]
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+    grad_field[i] = (
+        -grad0[ip2]
+        + 16.0 * grad0[ip1]
+        - 30.0 * grad0[i]
+        + 16.0 * grad0[im1]
+        - grad0[im2]
+    ) * (inv_dx2 / 12.0)
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_2d_backward_kernel(
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    grad_field: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+
+    gxx = (grad0[ip, j] - 2.0 * grad0[i, j] + grad0[im, j]) * inv_dx20
+    gyy = (grad1[i, jp] - 2.0 * grad1[i, j] + grad1[i, jm]) * inv_dx21
+    grad_field[i, j] = gxx + gyy
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_2d_order4_backward_kernel(
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    grad_field: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+
+    gxx = (
+        -grad0[ip2, j]
+        + 16.0 * grad0[ip1, j]
+        - 30.0 * grad0[i, j]
+        + 16.0 * grad0[im1, j]
+        - grad0[im2, j]
+    ) * (inv_dx20 / 12.0)
+    gyy = (
+        -grad1[i, jp2]
+        + 16.0 * grad1[i, jp1]
+        - 30.0 * grad1[i, j]
+        + 16.0 * grad1[i, jm1]
+        - grad1[i, jm2]
+    ) * (inv_dx21 / 12.0)
+    grad_field[i, j] = gxx + gyy
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_3d_backward_kernel(
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    inv_dx22: float,
+    grad_field: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+    n2 = grad0.shape[2]
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+    km = _wrap_minus1(k, n2)
+    kp = _wrap_plus1(k, n2)
+
+    gxx = (grad0[ip, j, k] - 2.0 * grad0[i, j, k] + grad0[im, j, k]) * inv_dx20
+    gyy = (grad1[i, jp, k] - 2.0 * grad1[i, j, k] + grad1[i, jm, k]) * inv_dx21
+    gzz = (grad2[i, j, kp] - 2.0 * grad2[i, j, k] + grad2[i, j, km]) * inv_dx22
+    grad_field[i, j, k] = gxx + gyy + gzz
+
+
+@wp.kernel
+def _uniform_grid_second_derivative_3d_order4_backward_kernel(
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+    inv_dx20: float,
+    inv_dx21: float,
+    inv_dx22: float,
+    grad_field: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+    n2 = grad0.shape[2]
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+    km1 = _wrap_minus1(k, n2)
+    kp1 = _wrap_plus1(k, n2)
+    km2 = _wrap_minus2(k, n2)
+    kp2 = _wrap_plus2(k, n2)
+
+    gxx = (
+        -grad0[ip2, j, k]
+        + 16.0 * grad0[ip1, j, k]
+        - 30.0 * grad0[i, j, k]
+        + 16.0 * grad0[im1, j, k]
+        - grad0[im2, j, k]
+    ) * (inv_dx20 / 12.0)
+    gyy = (
+        -grad1[i, jp2, k]
+        + 16.0 * grad1[i, jp1, k]
+        - 30.0 * grad1[i, j, k]
+        + 16.0 * grad1[i, jm1, k]
+        - grad1[i, jm2, k]
+    ) * (inv_dx21 / 12.0)
+    gzz = (
+        -grad2[i, j, kp2]
+        + 16.0 * grad2[i, j, kp1]
+        - 30.0 * grad2[i, j, k]
+        + 16.0 * grad2[i, j, km1]
+        - grad2[i, j, km2]
+    ) * (inv_dx22 / 12.0)
+    grad_field[i, j, k] = gxx + gyy + gzz
+
+
 def _normalize_spacing(
     spacing: float | Sequence[float], ndim: int
 ) -> tuple[float, ...]:
@@ -416,6 +768,37 @@ def _validate_order(order: int) -> int:
             f"uniform_grid_gradient supports {list(_SUPPORTED_ORDERS)} central orders, got order={order}"
         )
     return order
+
+
+def _validate_derivative_order(derivative_order: int) -> int:
+    ### Validate derivative-order selection (first vs pure second derivative).
+    if not isinstance(derivative_order, int):
+        raise TypeError(
+            f"derivative_order must be an integer, got {type(derivative_order)}"
+        )
+    if derivative_order not in _SUPPORTED_DERIVATIVE_ORDERS:
+        raise ValueError(
+            "uniform_grid_gradient supports derivative_order in [1, 2], "
+            f"got derivative_order={derivative_order}"
+        )
+    return derivative_order
+
+
+def _validate_include_mixed(
+    *,
+    derivative_order: int,
+    include_mixed: bool,
+) -> None:
+    ### Phase-1 guard: mixed second derivatives are intentionally not yet exposed.
+    if not isinstance(include_mixed, bool):
+        raise TypeError(f"include_mixed must be a bool, got {type(include_mixed)}")
+    if include_mixed and derivative_order != 2:
+        raise ValueError("include_mixed is only valid when derivative_order=2")
+    if include_mixed:
+        raise NotImplementedError(
+            "include_mixed=True is not yet supported; phase-1 supports pure axis-wise "
+            "second derivatives only"
+        )
 
 
 def _validate_field(field: torch.Tensor) -> None:
@@ -461,6 +844,7 @@ def _launch_forward(
     field_fp32: torch.Tensor,
     spacing_tuple: tuple[float, ...],
     order: int,
+    derivative_order: int,
     grad_components: list[torch.Tensor],
     wp_device,
     wp_stream,
@@ -470,13 +854,22 @@ def _launch_forward(
         if field_fp32.ndim == 1:
             wp_field = wp.from_torch(field_fp32, dtype=wp.float32)
             wp_grad0 = wp.from_torch(grad_components[0], dtype=wp.float32)
-            inv_dx0 = 1.0 / float(spacing_tuple[0])
-            _wp_launch(
-                kernel=(
+            if derivative_order == 1:
+                inv_dx0 = 1.0 / float(spacing_tuple[0])
+                kernel = (
                     _uniform_grid_gradient_1d_kernel
                     if order == 2
                     else _uniform_grid_gradient_1d_order4_kernel
-                ),
+                )
+            else:
+                inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
+                kernel = (
+                    _uniform_grid_second_derivative_1d_kernel
+                    if order == 2
+                    else _uniform_grid_second_derivative_1d_order4_kernel
+                )
+            _wp_launch(
+                kernel=kernel,
                 dim=field_fp32.shape[0],
                 inputs=[wp_field, inv_dx0, wp_grad0],
                 device=wp_device,
@@ -488,14 +881,24 @@ def _launch_forward(
             wp_field = wp.from_torch(field_fp32, dtype=wp.float32)
             wp_grad0 = wp.from_torch(grad_components[0], dtype=wp.float32)
             wp_grad1 = wp.from_torch(grad_components[1], dtype=wp.float32)
-            inv_dx0 = 1.0 / float(spacing_tuple[0])
-            inv_dx1 = 1.0 / float(spacing_tuple[1])
-            _wp_launch(
-                kernel=(
+            if derivative_order == 1:
+                inv_dx0 = 1.0 / float(spacing_tuple[0])
+                inv_dx1 = 1.0 / float(spacing_tuple[1])
+                kernel = (
                     _uniform_grid_gradient_2d_kernel
                     if order == 2
                     else _uniform_grid_gradient_2d_order4_kernel
-                ),
+                )
+            else:
+                inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
+                inv_dx1 = 1.0 / float(spacing_tuple[1] * spacing_tuple[1])
+                kernel = (
+                    _uniform_grid_second_derivative_2d_kernel
+                    if order == 2
+                    else _uniform_grid_second_derivative_2d_order4_kernel
+                )
+            _wp_launch(
+                kernel=kernel,
                 dim=field_fp32.shape,
                 inputs=[
                     wp_field,
@@ -513,15 +916,26 @@ def _launch_forward(
         wp_grad0 = wp.from_torch(grad_components[0], dtype=wp.float32)
         wp_grad1 = wp.from_torch(grad_components[1], dtype=wp.float32)
         wp_grad2 = wp.from_torch(grad_components[2], dtype=wp.float32)
-        inv_dx0 = 1.0 / float(spacing_tuple[0])
-        inv_dx1 = 1.0 / float(spacing_tuple[1])
-        inv_dx2 = 1.0 / float(spacing_tuple[2])
-        _wp_launch(
-            kernel=(
+        if derivative_order == 1:
+            inv_dx0 = 1.0 / float(spacing_tuple[0])
+            inv_dx1 = 1.0 / float(spacing_tuple[1])
+            inv_dx2 = 1.0 / float(spacing_tuple[2])
+            kernel = (
                 _uniform_grid_gradient_3d_kernel
                 if order == 2
                 else _uniform_grid_gradient_3d_order4_kernel
-            ),
+            )
+        else:
+            inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
+            inv_dx1 = 1.0 / float(spacing_tuple[1] * spacing_tuple[1])
+            inv_dx2 = 1.0 / float(spacing_tuple[2] * spacing_tuple[2])
+            kernel = (
+                _uniform_grid_second_derivative_3d_kernel
+                if order == 2
+                else _uniform_grid_second_derivative_3d_order4_kernel
+            )
+        _wp_launch(
+            kernel=kernel,
             dim=field_fp32.shape,
             inputs=[
                 wp_field,
@@ -542,6 +956,7 @@ def _launch_backward(
     grad_output_fp32: torch.Tensor,
     spacing_tuple: tuple[float, ...],
     order: int,
+    derivative_order: int,
     grad_field: torch.Tensor,
     wp_device,
     wp_stream,
@@ -551,13 +966,22 @@ def _launch_backward(
         if grad_output_fp32.ndim == 2:
             wp_grad0 = wp.from_torch(grad_output_fp32[0], dtype=wp.float32)
             wp_grad_field = wp.from_torch(grad_field, dtype=wp.float32)
-            inv_dx0 = 1.0 / float(spacing_tuple[0])
-            _wp_launch(
-                kernel=(
+            if derivative_order == 1:
+                inv_dx0 = 1.0 / float(spacing_tuple[0])
+                kernel = (
                     _uniform_grid_gradient_1d_backward_kernel
                     if order == 2
                     else _uniform_grid_gradient_1d_order4_backward_kernel
-                ),
+                )
+            else:
+                inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
+                kernel = (
+                    _uniform_grid_second_derivative_1d_backward_kernel
+                    if order == 2
+                    else _uniform_grid_second_derivative_1d_order4_backward_kernel
+                )
+            _wp_launch(
+                kernel=kernel,
                 dim=grad_field.shape[0],
                 inputs=[wp_grad0, inv_dx0, wp_grad_field],
                 device=wp_device,
@@ -569,14 +993,24 @@ def _launch_backward(
             wp_grad0 = wp.from_torch(grad_output_fp32[0], dtype=wp.float32)
             wp_grad1 = wp.from_torch(grad_output_fp32[1], dtype=wp.float32)
             wp_grad_field = wp.from_torch(grad_field, dtype=wp.float32)
-            inv_dx0 = 1.0 / float(spacing_tuple[0])
-            inv_dx1 = 1.0 / float(spacing_tuple[1])
-            _wp_launch(
-                kernel=(
+            if derivative_order == 1:
+                inv_dx0 = 1.0 / float(spacing_tuple[0])
+                inv_dx1 = 1.0 / float(spacing_tuple[1])
+                kernel = (
                     _uniform_grid_gradient_2d_backward_kernel
                     if order == 2
                     else _uniform_grid_gradient_2d_order4_backward_kernel
-                ),
+                )
+            else:
+                inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
+                inv_dx1 = 1.0 / float(spacing_tuple[1] * spacing_tuple[1])
+                kernel = (
+                    _uniform_grid_second_derivative_2d_backward_kernel
+                    if order == 2
+                    else _uniform_grid_second_derivative_2d_order4_backward_kernel
+                )
+            _wp_launch(
+                kernel=kernel,
                 dim=grad_field.shape,
                 inputs=[
                     wp_grad0,
@@ -594,15 +1028,26 @@ def _launch_backward(
         wp_grad1 = wp.from_torch(grad_output_fp32[1], dtype=wp.float32)
         wp_grad2 = wp.from_torch(grad_output_fp32[2], dtype=wp.float32)
         wp_grad_field = wp.from_torch(grad_field, dtype=wp.float32)
-        inv_dx0 = 1.0 / float(spacing_tuple[0])
-        inv_dx1 = 1.0 / float(spacing_tuple[1])
-        inv_dx2 = 1.0 / float(spacing_tuple[2])
-        _wp_launch(
-            kernel=(
+        if derivative_order == 1:
+            inv_dx0 = 1.0 / float(spacing_tuple[0])
+            inv_dx1 = 1.0 / float(spacing_tuple[1])
+            inv_dx2 = 1.0 / float(spacing_tuple[2])
+            kernel = (
                 _uniform_grid_gradient_3d_backward_kernel
                 if order == 2
                 else _uniform_grid_gradient_3d_order4_backward_kernel
-            ),
+            )
+        else:
+            inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
+            inv_dx1 = 1.0 / float(spacing_tuple[1] * spacing_tuple[1])
+            inv_dx2 = 1.0 / float(spacing_tuple[2] * spacing_tuple[2])
+            kernel = (
+                _uniform_grid_second_derivative_3d_backward_kernel
+                if order == 2
+                else _uniform_grid_second_derivative_3d_order4_backward_kernel
+            )
+        _wp_launch(
+            kernel=kernel,
             dim=grad_field.shape,
             inputs=[
                 wp_grad0,
@@ -625,125 +1070,151 @@ def _warp_launch_context(field: torch.Tensor):
     return "cpu", None
 
 
-class _UniformGridGradientWarpAutograd(torch.autograd.Function):
-    ### Wrap warp forward/backward kernels for torch autograd interoperability.
-    @staticmethod
-    def forward(  # type: ignore[override]
-        ctx,
-        field: torch.Tensor,
-        spacing_tuple: tuple[float, ...],
-        order: int,
-    ) -> torch.Tensor:
-        orig_dtype = field.dtype
-        field_fp32 = (
-            field
-            if field.dtype == torch.float32 and field.is_contiguous()
-            else field.to(dtype=torch.float32).contiguous()
-        )
+@torch.library.custom_op(
+    "physicsnemo::uniform_grid_gradient_warp_impl", mutates_args=()
+)
+def uniform_grid_gradient_impl(
+    field: torch.Tensor,
+    spacing_meta: torch.Tensor,
+    order: int,
+    derivative_order: int,
+    include_mixed: bool,
+) -> torch.Tensor:
+    """Compute periodic first or pure second derivatives on a uniform grid."""
+    _validate_field(field)
+    spacing_tuple = tuple(float(v) for v in spacing_meta.tolist())
+    for dx in spacing_tuple:
+        if dx <= 0.0:
+            raise ValueError("all spacing entries must be strictly positive")
+    order = _validate_order(int(order))
+    derivative_order = _validate_derivative_order(int(derivative_order))
+    _validate_include_mixed(
+        derivative_order=derivative_order,
+        include_mixed=bool(include_mixed),
+    )
 
-        ### Write gradients directly into preallocated output slices to avoid stack copy.
-        output_fp32 = torch.empty(
-            (field_fp32.ndim, *field_fp32.shape),
-            device=field_fp32.device,
-            dtype=torch.float32,
-        )
-        grad_components = [output_fp32[axis] for axis in range(field_fp32.ndim)]
+    orig_dtype = field.dtype
+    field_fp32 = (
+        field
+        if field.dtype == torch.float32 and field.is_contiguous()
+        else field.to(dtype=torch.float32).contiguous()
+    )
 
-        wp_device, wp_stream = _warp_launch_context(field_fp32)
-        _launch_forward(
-            field_fp32=field_fp32,
-            spacing_tuple=spacing_tuple,
-            order=order,
-            grad_components=grad_components,
-            wp_device=wp_device,
-            wp_stream=wp_stream,
-        )
+    ### Write gradients directly into preallocated output slices to avoid stack copy.
+    output_fp32 = torch.empty(
+        (field_fp32.ndim, *field_fp32.shape),
+        device=field_fp32.device,
+        dtype=torch.float32,
+    )
+    grad_components = [output_fp32[axis] for axis in range(field_fp32.ndim)]
 
-        output = output_fp32
-        if output.dtype != orig_dtype:
-            output = output.to(dtype=orig_dtype)
+    wp_device, wp_stream = _warp_launch_context(field_fp32)
+    _launch_forward(
+        field_fp32=field_fp32,
+        spacing_tuple=spacing_tuple,
+        order=order,
+        derivative_order=derivative_order,
+        grad_components=grad_components,
+        wp_device=wp_device,
+        wp_stream=wp_stream,
+    )
 
-        ### Save metadata needed to evaluate the adjoint operator.
-        ctx.spacing_tuple = spacing_tuple
-        ctx.order = order
-        ctx.orig_dtype = orig_dtype
-        return output
+    if output_fp32.dtype != orig_dtype:
+        return output_fp32.to(dtype=orig_dtype)
+    return output_fp32
 
-    @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):  # type: ignore[override]
-        spacing_tuple = tuple(float(v) for v in ctx.spacing_tuple)
-        order = int(ctx.order)
-        orig_dtype = ctx.orig_dtype
 
-        if grad_output is None:
-            return None, None, None
+@uniform_grid_gradient_impl.register_fake
+def _uniform_grid_gradient_impl_fake(
+    field: torch.Tensor,
+    spacing_meta: torch.Tensor,
+    order: int,
+    derivative_order: int,
+    include_mixed: bool,
+) -> torch.Tensor:
+    """Fake tensor propagation for uniform-grid custom op."""
+    _ = (spacing_meta, order, derivative_order, include_mixed)
+    return torch.empty(
+        (field.ndim, *field.shape),
+        device=field.device,
+        dtype=field.dtype,
+    )
 
-        grad_output_fp32 = (
-            grad_output
-            if grad_output.dtype == torch.float32 and grad_output.is_contiguous()
-            else grad_output.to(dtype=torch.float32).contiguous()
-        )
-        grad_field = torch.empty_like(grad_output_fp32[0])
 
-        wp_device, wp_stream = _warp_launch_context(grad_output_fp32)
-        _launch_backward(
-            grad_output_fp32=grad_output_fp32,
-            spacing_tuple=spacing_tuple,
-            order=order,
-            grad_field=grad_field,
-            wp_device=wp_device,
-            wp_stream=wp_stream,
-        )
+def setup_uniform_grid_gradient_context(
+    ctx: torch.autograd.function.FunctionCtx, inputs: tuple, output: torch.Tensor
+) -> None:
+    """Store backward context for uniform-grid custom-op autograd."""
+    field, spacing_meta, order, derivative_order, include_mixed = inputs
+    _ = output
+    ctx.spacing_tuple = tuple(float(v) for v in spacing_meta.tolist())
+    ctx.order = int(order)
+    ctx.derivative_order = int(derivative_order)
+    ctx.include_mixed = bool(include_mixed)
+    ctx.orig_dtype = field.dtype
 
-        if grad_field.dtype != orig_dtype:
-            grad_field = grad_field.to(dtype=orig_dtype)
-        return grad_field, None, None
+
+def backward_uniform_grid_gradient(
+    ctx: torch.autograd.function.FunctionCtx,
+    grad_output: torch.Tensor,
+) -> tuple[torch.Tensor | None, None, None, None, None]:
+    """Backward pass for uniform-grid custom op (gradients wrt field only)."""
+    if grad_output is None or not ctx.needs_input_grad[0]:
+        return None, None, None, None, None
+
+    grad_output_fp32 = (
+        grad_output
+        if grad_output.dtype == torch.float32 and grad_output.is_contiguous()
+        else grad_output.to(dtype=torch.float32).contiguous()
+    )
+    grad_field = torch.empty_like(grad_output_fp32[0])
+
+    wp_device, wp_stream = _warp_launch_context(grad_output_fp32)
+    _launch_backward(
+        grad_output_fp32=grad_output_fp32,
+        spacing_tuple=ctx.spacing_tuple,
+        order=ctx.order,
+        derivative_order=ctx.derivative_order,
+        grad_field=grad_field,
+        wp_device=wp_device,
+        wp_stream=wp_stream,
+    )
+
+    if grad_field.dtype != ctx.orig_dtype:
+        grad_field = grad_field.to(dtype=ctx.orig_dtype)
+    return grad_field, None, None, None, None
+
+
+uniform_grid_gradient_impl.register_autograd(
+    backward_uniform_grid_gradient,
+    setup_context=setup_uniform_grid_gradient_context,
+)
 
 
 def uniform_grid_gradient_warp(
     field: torch.Tensor,
     spacing: float | Sequence[float] = 1.0,
     order: int = 2,
+    derivative_order: int = 1,
+    include_mixed: bool = False,
 ) -> torch.Tensor:
-    """Compute periodic uniform-grid gradients with Warp kernels."""
-    ### Ensure Warp backend is available before dispatch.
-    ### Validate field shape, dtype, spacing, and order.
+    """Compute periodic first or pure second derivatives on a uniform grid."""
     _validate_field(field)
     spacing_tuple = _normalize_spacing(spacing, field.ndim)
     for dx in spacing_tuple:
         if dx <= 0.0:
             raise ValueError("all spacing entries must be strictly positive")
     order = _validate_order(order)
-
-    ### Use a direct forward path when no gradients are needed.
-    if not field.requires_grad:
-        orig_dtype = field.dtype
-        field_fp32 = (
-            field
-            if field.dtype == torch.float32 and field.is_contiguous()
-            else field.to(dtype=torch.float32).contiguous()
-        )
-
-        output_fp32 = torch.empty(
-            (field_fp32.ndim, *field_fp32.shape),
-            device=field_fp32.device,
-            dtype=torch.float32,
-        )
-        grad_components = [output_fp32[axis] for axis in range(field_fp32.ndim)]
-
-        wp_device, wp_stream = _warp_launch_context(field_fp32)
-        _launch_forward(
-            field_fp32=field_fp32,
-            spacing_tuple=spacing_tuple,
-            order=order,
-            grad_components=grad_components,
-            wp_device=wp_device,
-            wp_stream=wp_stream,
-        )
-
-        if output_fp32.dtype != orig_dtype:
-            return output_fp32.to(dtype=orig_dtype)
-        return output_fp32
-
-    ### Route differentiable inputs through the autograd wrapper.
-    return _UniformGridGradientWarpAutograd.apply(field, spacing_tuple, int(order))
+    derivative_order = _validate_derivative_order(derivative_order)
+    _validate_include_mixed(
+        derivative_order=derivative_order,
+        include_mixed=include_mixed,
+    )
+    spacing_meta = torch.tensor(spacing_tuple, dtype=torch.float32, device="cpu")
+    return uniform_grid_gradient_impl(
+        field,
+        spacing_meta,
+        int(order),
+        int(derivative_order),
+        bool(include_mixed),
+    )

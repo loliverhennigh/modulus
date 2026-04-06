@@ -22,7 +22,9 @@ import torch
 
 from .utils import (
     axis_central_weights,
+    axis_second_derivative_weights,
     validate_and_normalize_coordinates,
+    validate_derivative_request,
     validate_field,
 )
 
@@ -31,10 +33,16 @@ def rectilinear_grid_gradient_torch(
     field: torch.Tensor,
     coordinates: Sequence[torch.Tensor],
     periods: float | Sequence[float] | None = None,
+    derivative_order: int = 1,
+    include_mixed: bool = False,
 ) -> torch.Tensor:
-    """Compute periodic rectilinear-grid gradients with PyTorch tensor ops."""
+    """Compute periodic first or pure second derivatives on rectilinear grids."""
     ### Validate field and coordinate inputs.
     validate_field(field)
+    derivative_order = validate_derivative_request(
+        derivative_order=derivative_order,
+        include_mixed=include_mixed,
+    )
 
     coords_tuple, period_tuple = validate_and_normalize_coordinates(
         field=field,
@@ -47,10 +55,16 @@ def rectilinear_grid_gradient_torch(
     ### Compute per-axis nonuniform periodic central-difference derivatives.
     gradients: list[torch.Tensor] = []
     for axis in range(field.ndim):
-        w_minus, w_center, w_plus = axis_central_weights(
-            coords_tuple[axis],
-            period_tuple[axis],
-        )
+        if derivative_order == 1:
+            w_minus, w_center, w_plus = axis_central_weights(
+                coords_tuple[axis],
+                period_tuple[axis],
+            )
+        else:
+            w_minus, w_center, w_plus = axis_second_derivative_weights(
+                coords_tuple[axis],
+                period_tuple[axis],
+            )
 
         view_shape = [1] * field.ndim
         view_shape[axis] = field.shape[axis]
@@ -65,5 +79,5 @@ def rectilinear_grid_gradient_torch(
         )
         gradients.append(grad_axis)
 
-    ### Stack axis-wise derivatives into (dims, *field.shape).
+    ### Stack per-axis derivative terms into (dims, *field.shape).
     return torch.stack(gradients, dim=0)

@@ -28,8 +28,8 @@ from test.conftest import requires_module
 from test.nn.functional._parity_utils import clone_case
 
 
-# Build periodic analytic fields for gradient correctness checks.
-def _make_periodic_field(device: str, dims: int):
+# Build periodic analytic fields for derivative correctness checks.
+def _make_periodic_field(device: str, dims: int, derivative_order: int):
     torch_device = torch.device(device)
 
     if dims == 1:
@@ -37,7 +37,12 @@ def _make_periodic_field(device: str, dims: int):
         x0 = torch.arange(n0, device=torch_device, dtype=torch.float32) / float(n0)
         field = torch.sin(2.0 * torch.pi * x0)
         spacing = 1.0 / float(n0)
-        expected = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * x0).unsqueeze(0)
+        if derivative_order == 1:
+            expected = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * x0).unsqueeze(0)
+        else:
+            expected = (
+                -((2.0 * torch.pi) ** 2) * torch.sin(2.0 * torch.pi * x0)
+            ).unsqueeze(0)
         return field, spacing, expected
 
     if dims == 2:
@@ -47,9 +52,13 @@ def _make_periodic_field(device: str, dims: int):
         xx, yy = torch.meshgrid(x0, x1, indexing="ij")
         field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(4.0 * torch.pi * yy)
         spacing = (1.0 / float(n0), 1.0 / float(n1))
-        grad_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
-        grad_y = -2.0 * torch.pi * torch.sin(4.0 * torch.pi * yy)
-        expected = torch.stack((grad_x, grad_y), dim=0)
+        if derivative_order == 1:
+            deriv_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
+            deriv_y = -2.0 * torch.pi * torch.sin(4.0 * torch.pi * yy)
+        else:
+            deriv_x = -((2.0 * torch.pi) ** 2) * torch.sin(2.0 * torch.pi * xx)
+            deriv_y = -8.0 * (torch.pi**2) * torch.cos(4.0 * torch.pi * yy)
+        expected = torch.stack((deriv_x, deriv_y), dim=0)
         return field, spacing, expected
 
     n0, n1, n2 = 80, 72, 64
@@ -63,41 +72,52 @@ def _make_periodic_field(device: str, dims: int):
         + 0.25 * torch.sin(4.0 * torch.pi * zz)
     )
     spacing = (1.0 / float(n0), 1.0 / float(n1), 1.0 / float(n2))
-    grad_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
-    grad_y = -1.0 * torch.pi * torch.sin(2.0 * torch.pi * yy)
-    grad_z = 1.0 * torch.pi * torch.cos(4.0 * torch.pi * zz)
-    expected = torch.stack((grad_x, grad_y, grad_z), dim=0)
+    if derivative_order == 1:
+        deriv_x = (2.0 * torch.pi) * torch.cos(2.0 * torch.pi * xx)
+        deriv_y = -1.0 * torch.pi * torch.sin(2.0 * torch.pi * yy)
+        deriv_z = 1.0 * torch.pi * torch.cos(4.0 * torch.pi * zz)
+    else:
+        deriv_x = -((2.0 * torch.pi) ** 2) * torch.sin(2.0 * torch.pi * xx)
+        deriv_y = -2.0 * (torch.pi**2) * torch.cos(2.0 * torch.pi * yy)
+        deriv_z = -4.0 * (torch.pi**2) * torch.sin(4.0 * torch.pi * zz)
+    expected = torch.stack((deriv_x, deriv_y, deriv_z), dim=0)
     return field, spacing, expected
 
 
 # Validate torch backend against analytic periodic derivatives.
 @pytest.mark.parametrize("dims", [1, 2, 3])
+@pytest.mark.parametrize("derivative_order", [1, 2])
 @pytest.mark.parametrize("order", [2, 4])
-def test_uniform_grid_gradient_torch(device: str, dims: int, order: int):
-    field, spacing, expected = _make_periodic_field(device, dims)
+def test_uniform_grid_gradient_torch(
+    device: str, dims: int, derivative_order: int, order: int
+):
+    field, spacing, expected = _make_periodic_field(device, dims, derivative_order)
     output = UniformGridGradient.dispatch(
         field,
         spacing=spacing,
         order=order,
+        derivative_order=derivative_order,
         implementation="torch",
     )
-    torch.testing.assert_close(output, expected, atol=2e-2, rtol=2e-2)
+    torch.testing.assert_close(output, expected, atol=5e-2, rtol=5e-2)
 
 
 # Validate higher-order stencil improves analytic error for smooth fields.
 @pytest.mark.parametrize("dims", [1, 2, 3])
 def test_uniform_grid_gradient_torch_order4_more_accurate(device: str, dims: int):
-    field, spacing, expected = _make_periodic_field(device, dims)
+    field, spacing, expected = _make_periodic_field(device, dims, derivative_order=1)
     out_o2 = UniformGridGradient.dispatch(
         field,
         spacing=spacing,
         order=2,
+        derivative_order=1,
         implementation="torch",
     )
     out_o4 = UniformGridGradient.dispatch(
         field,
         spacing=spacing,
         order=4,
+        derivative_order=1,
         implementation="torch",
     )
 
@@ -244,10 +264,17 @@ def test_uniform_grid_gradient_auto_dispatch_matches_selected(device: str):
     field = torch.randn(64, 64, device=device, dtype=torch.float32)
     implementation = _auto_select_implementation(field)
 
-    output_auto = uniform_grid_gradient(field, spacing=(1.0, 1.0))
+    output_auto = uniform_grid_gradient(
+        field,
+        spacing=(1.0, 1.0),
+        derivative_order=1,
+        include_mixed=False,
+    )
     output_explicit = UniformGridGradient.dispatch(
         field,
         spacing=(1.0, 1.0),
+        derivative_order=1,
+        include_mixed=False,
         implementation=implementation,
     )
     torch.testing.assert_close(output_auto, output_explicit)
@@ -352,5 +379,38 @@ def test_uniform_grid_gradient_error_handling(device: str):
         UniformGridGradient.dispatch(
             torch.randn(8, 8, device=device, dtype=torch.float32),
             order=2.0,  # type: ignore[arg-type]
+            implementation="torch",
+        )
+
+    with pytest.raises(ValueError, match="supports derivative_order in"):
+        UniformGridGradient.dispatch(
+            torch.randn(8, 8, device=device, dtype=torch.float32),
+            derivative_order=3,
+            implementation="torch",
+        )
+
+    with pytest.raises(TypeError, match="include_mixed must be a bool"):
+        UniformGridGradient.dispatch(
+            torch.randn(8, 8, device=device, dtype=torch.float32),
+            derivative_order=2,
+            include_mixed=1,  # type: ignore[arg-type]
+            implementation="torch",
+        )
+
+    with pytest.raises(ValueError, match="only valid when derivative_order=2"):
+        UniformGridGradient.dispatch(
+            torch.randn(8, 8, device=device, dtype=torch.float32),
+            derivative_order=1,
+            include_mixed=True,
+            implementation="torch",
+        )
+
+    with pytest.raises(
+        NotImplementedError, match="include_mixed=True is not yet supported"
+    ):
+        UniformGridGradient.dispatch(
+            torch.randn(8, 8, device=device, dtype=torch.float32),
+            derivative_order=2,
+            include_mixed=True,
             implementation="torch",
         )

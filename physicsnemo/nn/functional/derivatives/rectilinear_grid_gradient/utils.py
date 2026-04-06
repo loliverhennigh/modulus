@@ -20,6 +20,8 @@ from collections.abc import Sequence
 
 import torch
 
+_SUPPORTED_DERIVATIVE_ORDERS = (1, 2)
+
 
 def validate_field(field: torch.Tensor) -> None:
     """Validate shared rectilinear field input constraints."""
@@ -120,6 +122,33 @@ def validate_and_normalize_coordinates(
     return tuple(normalized_coords), period_tuple
 
 
+def validate_derivative_request(
+    *,
+    derivative_order: int,
+    include_mixed: bool,
+) -> int:
+    """Validate derivative-order/mixed-term request for phase-1 behavior."""
+    if not isinstance(derivative_order, int):
+        raise TypeError(
+            f"derivative_order must be an integer, got {type(derivative_order)}"
+        )
+    if derivative_order not in _SUPPORTED_DERIVATIVE_ORDERS:
+        raise ValueError(
+            "rectilinear_grid_gradient supports derivative_order in [1, 2], "
+            f"got derivative_order={derivative_order}"
+        )
+    if not isinstance(include_mixed, bool):
+        raise TypeError(f"include_mixed must be a bool, got {type(include_mixed)}")
+    if include_mixed and derivative_order != 2:
+        raise ValueError("include_mixed is only valid when derivative_order=2")
+    if include_mixed:
+        raise NotImplementedError(
+            "include_mixed=True is not yet supported; phase-1 supports pure axis-wise "
+            "second derivatives only"
+        )
+    return derivative_order
+
+
 def axis_central_weights(
     coords: torch.Tensor,
     period: float,
@@ -144,4 +173,31 @@ def axis_central_weights(
     w_minus = -h_plus / (h_minus * denom)
     w_center = (h_plus - h_minus) / (h_minus * h_plus)
     w_plus = h_minus / (h_plus * denom)
+    return w_minus, w_center, w_plus
+
+
+def axis_second_derivative_weights(
+    coords: torch.Tensor,
+    period: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Build periodic nonuniform second-derivative weights."""
+    diffs = coords[1:] - coords[:-1]
+
+    h_plus = torch.empty_like(coords)
+    h_plus[:-1] = diffs
+    h_plus[-1] = period - (coords[-1] - coords[0])
+
+    h_minus = torch.empty_like(coords)
+    h_minus[1:] = diffs
+    h_minus[0] = h_plus[-1]
+
+    if torch.any(h_minus <= 0.0) or torch.any(h_plus <= 0.0):
+        raise ValueError(
+            "rectilinear coordinates/period produce non-positive periodic spacing"
+        )
+
+    denom = h_minus + h_plus
+    w_minus = 2.0 / (h_minus * denom)
+    w_center = -2.0 / (h_minus * h_plus)
+    w_plus = 2.0 / (h_plus * denom)
     return w_minus, w_center, w_plus

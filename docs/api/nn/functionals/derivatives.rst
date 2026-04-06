@@ -32,7 +32,3 @@ Derivative Functionals
    :width: 100%
 
 .. autofunction:: physicsnemo.nn.functional.meshless_fd_derivatives
-
-.. figure:: /img/nn/functional/derivatives/meshless_fd_derivatives.png
-   :alt: Meshless finite-difference derivatives example
-   :width: 100%

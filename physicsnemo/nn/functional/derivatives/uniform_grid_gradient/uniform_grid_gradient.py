@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
@@ -75,6 +87,7 @@ class UniformGridGradient(FunctionSpec):
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
     ) -> torch.Tensor:
+        """Dispatch uniform-grid gradients to the Warp backend."""
         ### Warp backend implementation.
         return uniform_grid_gradient_warp(field=field, spacing=spacing, order=order)
 
@@ -84,10 +97,15 @@ class UniformGridGradient(FunctionSpec):
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
     ) -> torch.Tensor:
+        """Dispatch uniform-grid gradients to torch.compile when available."""
         ### Compiled PyTorch backend implementation with safe fallback.
         if field.device.type != "cuda":
-            return uniform_grid_gradient_torch(field=field, spacing=spacing, order=order)
-        return _compiled_uniform_grid_gradient_torch(field=field, spacing=spacing, order=order)
+            return uniform_grid_gradient_torch(
+                field=field, spacing=spacing, order=order
+            )
+        return _compiled_uniform_grid_gradient_torch(
+            field=field, spacing=spacing, order=order
+        )
 
     @FunctionSpec.register(name="torch", rank=2, baseline=True)
     def torch_forward(
@@ -95,11 +113,13 @@ class UniformGridGradient(FunctionSpec):
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
     ) -> torch.Tensor:
+        """Dispatch uniform-grid gradients to eager PyTorch."""
         ### PyTorch backend implementation.
         return uniform_grid_gradient_torch(field=field, spacing=spacing, order=order)
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        """Yield representative forward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build periodic analytic fields for benchmark and parity coverage.
@@ -111,7 +131,9 @@ class UniformGridGradient(FunctionSpec):
                 x0 = torch.linspace(0.0, 1.0, shape[0], device=device)
                 x1 = torch.linspace(0.0, 1.0, shape[1], device=device)
                 xx, yy = torch.meshgrid(x0, x1, indexing="ij")
-                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(2.0 * torch.pi * yy)
+                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(
+                    2.0 * torch.pi * yy
+                )
             else:
                 x0 = torch.linspace(0.0, 1.0, shape[0], device=device)
                 x1 = torch.linspace(0.0, 1.0, shape[1], device=device)
@@ -132,6 +154,7 @@ class UniformGridGradient(FunctionSpec):
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        """Yield representative backward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build representative differentiable fields for backward parity.
@@ -150,7 +173,9 @@ class UniformGridGradient(FunctionSpec):
                 x0 = torch.linspace(0.0, 1.0, shape[0], device=device)
                 x1 = torch.linspace(0.0, 1.0, shape[1], device=device)
                 xx, yy = torch.meshgrid(x0, x1, indexing="ij")
-                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(2.0 * torch.pi * yy)
+                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(
+                    2.0 * torch.pi * yy
+                )
             else:
                 x0 = torch.linspace(0.0, 1.0, shape[0], device=device)
                 x1 = torch.linspace(0.0, 1.0, shape[1], device=device)
@@ -171,6 +196,7 @@ class UniformGridGradient(FunctionSpec):
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare forward outputs across implementations."""
         ### Validate forward parity across backends.
         torch.testing.assert_close(
             output,
@@ -181,6 +207,7 @@ class UniformGridGradient(FunctionSpec):
 
     @classmethod
     def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare backward gradients across implementations."""
         ### Validate backward parity across backends.
         torch.testing.assert_close(
             output,

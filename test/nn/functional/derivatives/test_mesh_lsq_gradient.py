@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import pytest
 import torch
@@ -35,7 +47,9 @@ def _make_case(device: str, n_entities: int, n_dims: int, k_neighbors: int):
 # Validate torch LSQ reconstruction on an affine scalar field.
 @pytest.mark.parametrize("n_dims", [1, 2, 3])
 def test_mesh_lsq_gradient_torch(device: str, n_dims: int):
-    points, offsets, indices = _make_case(device, n_entities=1024, n_dims=n_dims, k_neighbors=16)
+    points, offsets, indices = _make_case(
+        device, n_entities=1024, n_dims=n_dims, k_neighbors=16
+    )
 
     coeff = torch.arange(1, n_dims + 1, device=points.device, dtype=torch.float32)
     values = (points * coeff).sum(dim=-1)
@@ -54,7 +68,7 @@ def test_mesh_lsq_gradient_torch(device: str, n_dims: int):
 
 # Validate warp backend parity against torch across benchmark representative inputs.
 @requires_module("warp")
-def test_mesh_lsq_gradient_warp(device: str):
+def test_mesh_lsq_gradient_backend_forward_parity(device: str):
     for _label, args, kwargs in MeshLSQGradient.make_inputs_forward(device=device):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
@@ -74,7 +88,7 @@ def test_mesh_lsq_gradient_warp(device: str):
 
 # Validate warp backward parity against torch on differentiable value fields.
 @requires_module("warp")
-def test_mesh_lsq_gradient_warp_backward(device: str):
+def test_mesh_lsq_gradient_backend_backward_parity(device: str):
     for _label, args, kwargs in MeshLSQGradient.make_inputs_backward(device=device):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
@@ -103,7 +117,9 @@ def test_mesh_lsq_gradient_warp_backward(device: str):
 # Validate warp backend on 1D input parity against torch.
 @requires_module("warp")
 def test_mesh_lsq_gradient_warp_1d(device: str):
-    points, offsets, indices = _make_case(device, n_entities=512, n_dims=1, k_neighbors=16)
+    points, offsets, indices = _make_case(
+        device, n_entities=512, n_dims=1, k_neighbors=16
+    )
     values = torch.sin(2.0 * torch.pi * points[:, 0]).to(torch.float32)
 
     out_torch = MeshLSQGradient.dispatch(
@@ -123,9 +139,78 @@ def test_mesh_lsq_gradient_warp_1d(device: str):
     MeshLSQGradient.compare_forward(out_warp, out_torch)
 
 
+# Validate benchmark input generation contract for forward inputs.
+def test_mesh_lsq_gradient_make_inputs_forward(device: str):
+    label, args, kwargs = next(iter(MeshLSQGradient.make_inputs_forward(device=device)))
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    points, values, offsets, indices = args
+    assert points.ndim == 2
+    assert values.shape[0] == points.shape[0]
+    assert offsets.ndim == 1
+    assert indices.ndim == 1
+
+    output = MeshLSQGradient.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    assert output.shape[0] == points.shape[0]
+    assert output.shape[1] == points.shape[1]
+
+
+# Validate benchmark input generation contract for backward inputs.
+def test_mesh_lsq_gradient_make_inputs_backward(device: str):
+    label, args, kwargs = next(
+        iter(MeshLSQGradient.make_inputs_backward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    values = args[1]
+    assert values.requires_grad
+
+    output = MeshLSQGradient.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    output.square().mean().backward()
+    assert values.grad is not None
+
+
+# Validate compare-forward hook contract.
+def test_mesh_lsq_gradient_compare_forward_contract(device: str):
+    _label, args, kwargs = next(
+        iter(MeshLSQGradient.make_inputs_forward(device=device))
+    )
+    output = MeshLSQGradient.dispatch(*args, implementation="torch", **kwargs)
+    reference = output.detach().clone()
+    MeshLSQGradient.compare_forward(output, reference)
+
+
+# Validate compare-backward hook contract.
+def test_mesh_lsq_gradient_compare_backward_contract(device: str):
+    _label, args, kwargs = next(
+        iter(MeshLSQGradient.make_inputs_backward(device=device))
+    )
+    values = args[1]
+
+    output = MeshLSQGradient.dispatch(*args, implementation="torch", **kwargs)
+    output.square().mean().backward()
+
+    assert values.grad is not None
+    MeshLSQGradient.compare_backward(values.grad, values.grad.detach().clone())
+
+
 # Validate exported API and input validation paths.
 def test_mesh_lsq_gradient_error_handling(device: str):
-    points, offsets, indices = _make_case(device, n_entities=128, n_dims=3, k_neighbors=8)
+    points, offsets, indices = _make_case(
+        device, n_entities=128, n_dims=3, k_neighbors=8
+    )
     values = torch.sin(points[:, 0])
 
     output = mesh_lsq_gradient(points, values, offsets, indices)
@@ -193,6 +278,18 @@ def test_mesh_lsq_gradient_error_handling(device: str):
             implementation="torch",
         )
 
+    with pytest.raises(
+        ValueError, match="safe_epsilon must be a finite positive value"
+    ):
+        MeshLSQGradient.dispatch(
+            points,
+            values,
+            offsets,
+            indices,
+            safe_epsilon=0.0,
+            implementation="torch",
+        )
+
     if torch.cuda.is_available():
         other_device = torch.device("cuda" if points.device.type == "cpu" else "cpu")
         with pytest.raises(ValueError, match="must be on the same device"):
@@ -208,7 +305,9 @@ def test_mesh_lsq_gradient_error_handling(device: str):
 # Validate warp backend input validation paths mirror torch behavior.
 @requires_module("warp")
 def test_mesh_lsq_gradient_warp_error_handling(device: str):
-    points, offsets, indices = _make_case(device, n_entities=128, n_dims=3, k_neighbors=8)
+    points, offsets, indices = _make_case(
+        device, n_entities=128, n_dims=3, k_neighbors=8
+    )
     values = torch.sin(points[:, 0])
 
     with pytest.raises(ValueError, match="neighbor_offsets must be non-decreasing"):
@@ -220,6 +319,18 @@ def test_mesh_lsq_gradient_warp_error_handling(device: str):
             values,
             bad_offsets,
             indices,
+            implementation="warp",
+        )
+
+    with pytest.raises(
+        ValueError, match="safe_epsilon must be a finite positive value"
+    ):
+        MeshLSQGradient.dispatch(
+            points,
+            values,
+            offsets,
+            indices,
+            safe_epsilon=-1.0,
             implementation="warp",
         )
 

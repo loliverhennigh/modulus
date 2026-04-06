@@ -31,7 +31,13 @@ from ._torch_impl import (
 
 
 class MeshlessFDDerivatives(FunctionSpec):
-    """Compute meshless finite-difference derivatives from stencil values.
+    """Compute meshless finite-difference derivatives from local stencil values.
+
+    This functional expects values already sampled on a canonical
+    Cartesian ``{-1, 0, 1}`` stencil around each query point (for example via
+    :func:`meshless_fd_stencil_points_torch` followed by model evaluation).
+    It does not build stencil coordinates internally; it only maps stencil
+    values to derivative estimates using central finite-difference formulas.
 
     Parameters
     ----------
@@ -54,6 +60,24 @@ class MeshlessFDDerivatives(FunctionSpec):
     torch.Tensor
         Stacked derivatives with shape ``(num_derivatives, num_points)`` for scalar
         input or ``(num_derivatives, num_points, channels)`` for vector input.
+
+    Notes
+    -----
+    Derivative stack ordering is deterministic:
+
+    - ``order=1``:
+      ``[d/dx]`` (1D), ``[d/dx, d/dy]`` (2D),
+      ``[d/dx, d/dy, d/dz]`` (3D)
+    - ``order=2``:
+      pure second derivatives first,
+      ``[d2/dx2, d2/dy2, d2/dz2]`` (truncated by dimension)
+    - ``order=2`` with ``return_mixed_derivs=True``:
+      mixed derivatives are appended in axis-combination order:
+      ``d2/dxdy`` (2D),
+      ``d2/dxdy, d2/dxdz, d2/dydz`` (3D)
+
+    The stencil size infers dimensionality:
+    ``3 -> 1D``, ``9 -> 2D``, ``27 -> 3D``.
     """
 
     _BENCHMARK_CASES = (

@@ -1,379 +1,401 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import torch
+import warp as wp
 
 _SUPPORTED_ORDERS = (2, 4)
 
-_WARP_AVAILABLE = True
-_WARP_IMPORT_ERROR: Exception | None = None
+### Warp runtime initialization for custom kernels.
+wp.init()
+wp.config.quiet = True
 
-### Optional Warp dependency detection for backend availability.
-try:  # pragma: no cover - import guard exercised in CI variants
-    import warp as wp
-except Exception as exc:  # pragma: no cover - import guard
-    _WARP_AVAILABLE = False
-    _WARP_IMPORT_ERROR = exc
+### Optional launch block size override; <=0 uses Warp default autotuning.
+_WARP_BLOCK_DIM = -1
 
-if _WARP_AVAILABLE:
-    ### Warp runtime initialization for custom kernels.
-    wp.init()
-    wp.config.quiet = True
-
-    ### Optional launch block size override; <=0 uses Warp default autotuning.
-    _WARP_BLOCK_DIM = -1
-
-    ### ============================================================
-    ### Index wrapping helpers (periodic boundaries without modulo)
-    ### ============================================================
-
-    @wp.func
-    def _wrap_plus1(i: int, n: int) -> int:
-        return (i + 1) % n
-
-    @wp.func
-    def _wrap_minus1(i: int, n: int) -> int:
-        return (i + n - 1) % n
-
-    @wp.func
-    def _wrap_plus2(i: int, n: int) -> int:
-        return (i + 2) % n
-
-    @wp.func
-    def _wrap_minus2(i: int, n: int) -> int:
-        return (i + n - 2) % n
-
-    ### ============================================================
-    ### Forward kernels (periodic central differences)
-    ### ============================================================
-
-    @wp.kernel
-    def _uniform_grid_gradient_1d_kernel(
-        field: wp.array(dtype=wp.float32),
-        inv_dx: float,
-        grad0: wp.array(dtype=wp.float32),
-    ):
-        i = wp.tid()
-        n0 = field.shape[0]
-
-        im = _wrap_minus1(i, n0)
-        ip = _wrap_plus1(i, n0)
-
-        grad0[i] = (field[ip] - field[im]) * (0.5 * inv_dx)
-
-    @wp.kernel
-    def _uniform_grid_gradient_1d_order4_kernel(
-        field: wp.array(dtype=wp.float32),
-        inv_dx: float,
-        grad0: wp.array(dtype=wp.float32),
-    ):
-        i = wp.tid()
-        n0 = field.shape[0]
-
-        im1 = _wrap_minus1(i, n0)
-        ip1 = _wrap_plus1(i, n0)
-        im2 = _wrap_minus2(i, n0)
-        ip2 = _wrap_plus2(i, n0)
-
-        grad0[i] = (-field[ip2] + 8.0 * field[ip1] - 8.0 * field[im1] + field[im2]) * (
-            inv_dx / 12.0
-        )
-
-    @wp.kernel
-    def _uniform_grid_gradient_2d_kernel(
-        field: wp.array2d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        grad0: wp.array2d(dtype=wp.float32),
-        grad1: wp.array2d(dtype=wp.float32),
-    ):
-        i, j = wp.tid()
-        n0 = field.shape[0]
-        n1 = field.shape[1]
-
-        im = _wrap_minus1(i, n0)
-        ip = _wrap_plus1(i, n0)
-        jm = _wrap_minus1(j, n1)
-        jp = _wrap_plus1(j, n1)
-
-        grad0[i, j] = (field[ip, j] - field[im, j]) * (0.5 * inv_dx0)
-        grad1[i, j] = (field[i, jp] - field[i, jm]) * (0.5 * inv_dx1)
-
-    @wp.kernel
-    def _uniform_grid_gradient_2d_order4_kernel(
-        field: wp.array2d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        grad0: wp.array2d(dtype=wp.float32),
-        grad1: wp.array2d(dtype=wp.float32),
-    ):
-        i, j = wp.tid()
-        n0 = field.shape[0]
-        n1 = field.shape[1]
-
-        im1 = _wrap_minus1(i, n0)
-        ip1 = _wrap_plus1(i, n0)
-        im2 = _wrap_minus2(i, n0)
-        ip2 = _wrap_plus2(i, n0)
-
-        jm1 = _wrap_minus1(j, n1)
-        jp1 = _wrap_plus1(j, n1)
-        jm2 = _wrap_minus2(j, n1)
-        jp2 = _wrap_plus2(j, n1)
-
-        grad0[i, j] = (
-            -field[ip2, j] + 8.0 * field[ip1, j] - 8.0 * field[im1, j] + field[im2, j]
-        ) * (inv_dx0 / 12.0)
-        grad1[i, j] = (
-            -field[i, jp2] + 8.0 * field[i, jp1] - 8.0 * field[i, jm1] + field[i, jm2]
-        ) * (inv_dx1 / 12.0)
-
-    @wp.kernel
-    def _uniform_grid_gradient_3d_kernel(
-        field: wp.array3d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        inv_dx2: float,
-        grad0: wp.array3d(dtype=wp.float32),
-        grad1: wp.array3d(dtype=wp.float32),
-        grad2: wp.array3d(dtype=wp.float32),
-    ):
-        i, j, k = wp.tid()
-        n0 = field.shape[0]
-        n1 = field.shape[1]
-        n2 = field.shape[2]
-
-        im = _wrap_minus1(i, n0)
-        ip = _wrap_plus1(i, n0)
-        jm = _wrap_minus1(j, n1)
-        jp = _wrap_plus1(j, n1)
-        km = _wrap_minus1(k, n2)
-        kp = _wrap_plus1(k, n2)
-
-        grad0[i, j, k] = (field[ip, j, k] - field[im, j, k]) * (0.5 * inv_dx0)
-        grad1[i, j, k] = (field[i, jp, k] - field[i, jm, k]) * (0.5 * inv_dx1)
-        grad2[i, j, k] = (field[i, j, kp] - field[i, j, km]) * (0.5 * inv_dx2)
-
-    @wp.kernel
-    def _uniform_grid_gradient_3d_order4_kernel(
-        field: wp.array3d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        inv_dx2: float,
-        grad0: wp.array3d(dtype=wp.float32),
-        grad1: wp.array3d(dtype=wp.float32),
-        grad2: wp.array3d(dtype=wp.float32),
-    ):
-        i, j, k = wp.tid()
-        n0 = field.shape[0]
-        n1 = field.shape[1]
-        n2 = field.shape[2]
-
-        im1 = _wrap_minus1(i, n0)
-        ip1 = _wrap_plus1(i, n0)
-        im2 = _wrap_minus2(i, n0)
-        ip2 = _wrap_plus2(i, n0)
-
-        jm1 = _wrap_minus1(j, n1)
-        jp1 = _wrap_plus1(j, n1)
-        jm2 = _wrap_minus2(j, n1)
-        jp2 = _wrap_plus2(j, n1)
-
-        km1 = _wrap_minus1(k, n2)
-        kp1 = _wrap_plus1(k, n2)
-        km2 = _wrap_minus2(k, n2)
-        kp2 = _wrap_plus2(k, n2)
-
-        grad0[i, j, k] = (
-            -field[ip2, j, k]
-            + 8.0 * field[ip1, j, k]
-            - 8.0 * field[im1, j, k]
-            + field[im2, j, k]
-        ) * (inv_dx0 / 12.0)
-        grad1[i, j, k] = (
-            -field[i, jp2, k]
-            + 8.0 * field[i, jp1, k]
-            - 8.0 * field[i, jm1, k]
-            + field[i, jm2, k]
-        ) * (inv_dx1 / 12.0)
-        grad2[i, j, k] = (
-            -field[i, j, kp2]
-            + 8.0 * field[i, j, kp1]
-            - 8.0 * field[i, j, km1]
-            + field[i, j, km2]
-        ) * (inv_dx2 / 12.0)
-
-    ### ============================================================
-    ### Backward kernels (adjoint central differences)
-    ### ============================================================
-
-    @wp.kernel
-    def _uniform_grid_gradient_1d_backward_kernel(
-        grad0: wp.array(dtype=wp.float32),
-        inv_dx: float,
-        grad_field: wp.array(dtype=wp.float32),
-    ):
-        i = wp.tid()
-        n0 = grad0.shape[0]
-
-        im = _wrap_minus1(i, n0)
-        ip = _wrap_plus1(i, n0)
-
-        grad_field[i] = (grad0[im] - grad0[ip]) * (0.5 * inv_dx)
-
-    @wp.kernel
-    def _uniform_grid_gradient_1d_order4_backward_kernel(
-        grad0: wp.array(dtype=wp.float32),
-        inv_dx: float,
-        grad_field: wp.array(dtype=wp.float32),
-    ):
-        i = wp.tid()
-        n0 = grad0.shape[0]
-
-        im1 = _wrap_minus1(i, n0)
-        ip1 = _wrap_plus1(i, n0)
-        im2 = _wrap_minus2(i, n0)
-        ip2 = _wrap_plus2(i, n0)
-
-        grad_field[i] = (grad0[ip2] - 8.0 * grad0[ip1] + 8.0 * grad0[im1] - grad0[im2]) * (
-            inv_dx / 12.0
-        )
-
-    @wp.kernel
-    def _uniform_grid_gradient_2d_backward_kernel(
-        grad0: wp.array2d(dtype=wp.float32),
-        grad1: wp.array2d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        grad_field: wp.array2d(dtype=wp.float32),
-    ):
-        i, j = wp.tid()
-        n0 = grad0.shape[0]
-        n1 = grad0.shape[1]
-
-        im = _wrap_minus1(i, n0)
-        ip = _wrap_plus1(i, n0)
-        jm = _wrap_minus1(j, n1)
-        jp = _wrap_plus1(j, n1)
-
-        gx = (grad0[im, j] - grad0[ip, j]) * (0.5 * inv_dx0)
-        gy = (grad1[i, jm] - grad1[i, jp]) * (0.5 * inv_dx1)
-        grad_field[i, j] = gx + gy
-
-    @wp.kernel
-    def _uniform_grid_gradient_2d_order4_backward_kernel(
-        grad0: wp.array2d(dtype=wp.float32),
-        grad1: wp.array2d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        grad_field: wp.array2d(dtype=wp.float32),
-    ):
-        i, j = wp.tid()
-        n0 = grad0.shape[0]
-        n1 = grad0.shape[1]
-
-        im1 = _wrap_minus1(i, n0)
-        ip1 = _wrap_plus1(i, n0)
-        im2 = _wrap_minus2(i, n0)
-        ip2 = _wrap_plus2(i, n0)
-
-        jm1 = _wrap_minus1(j, n1)
-        jp1 = _wrap_plus1(j, n1)
-        jm2 = _wrap_minus2(j, n1)
-        jp2 = _wrap_plus2(j, n1)
-
-        gx = (grad0[ip2, j] - 8.0 * grad0[ip1, j] + 8.0 * grad0[im1, j] - grad0[im2, j]) * (
-            inv_dx0 / 12.0
-        )
-        gy = (grad1[i, jp2] - 8.0 * grad1[i, jp1] + 8.0 * grad1[i, jm1] - grad1[i, jm2]) * (
-            inv_dx1 / 12.0
-        )
-        grad_field[i, j] = gx + gy
-
-    @wp.kernel
-    def _uniform_grid_gradient_3d_backward_kernel(
-        grad0: wp.array3d(dtype=wp.float32),
-        grad1: wp.array3d(dtype=wp.float32),
-        grad2: wp.array3d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        inv_dx2: float,
-        grad_field: wp.array3d(dtype=wp.float32),
-    ):
-        i, j, k = wp.tid()
-        n0 = grad0.shape[0]
-        n1 = grad0.shape[1]
-        n2 = grad0.shape[2]
-
-        im = _wrap_minus1(i, n0)
-        ip = _wrap_plus1(i, n0)
-        jm = _wrap_minus1(j, n1)
-        jp = _wrap_plus1(j, n1)
-        km = _wrap_minus1(k, n2)
-        kp = _wrap_plus1(k, n2)
-
-        gx = (grad0[im, j, k] - grad0[ip, j, k]) * (0.5 * inv_dx0)
-        gy = (grad1[i, jm, k] - grad1[i, jp, k]) * (0.5 * inv_dx1)
-        gz = (grad2[i, j, km] - grad2[i, j, kp]) * (0.5 * inv_dx2)
-        grad_field[i, j, k] = gx + gy + gz
-
-    @wp.kernel
-    def _uniform_grid_gradient_3d_order4_backward_kernel(
-        grad0: wp.array3d(dtype=wp.float32),
-        grad1: wp.array3d(dtype=wp.float32),
-        grad2: wp.array3d(dtype=wp.float32),
-        inv_dx0: float,
-        inv_dx1: float,
-        inv_dx2: float,
-        grad_field: wp.array3d(dtype=wp.float32),
-    ):
-        i, j, k = wp.tid()
-        n0 = grad0.shape[0]
-        n1 = grad0.shape[1]
-        n2 = grad0.shape[2]
-
-        im1 = _wrap_minus1(i, n0)
-        ip1 = _wrap_plus1(i, n0)
-        im2 = _wrap_minus2(i, n0)
-        ip2 = _wrap_plus2(i, n0)
-
-        jm1 = _wrap_minus1(j, n1)
-        jp1 = _wrap_plus1(j, n1)
-        jm2 = _wrap_minus2(j, n1)
-        jp2 = _wrap_plus2(j, n1)
-
-        km1 = _wrap_minus1(k, n2)
-        kp1 = _wrap_plus1(k, n2)
-        km2 = _wrap_minus2(k, n2)
-        kp2 = _wrap_plus2(k, n2)
-
-        gx = (
-            grad0[ip2, j, k]
-            - 8.0 * grad0[ip1, j, k]
-            + 8.0 * grad0[im1, j, k]
-            - grad0[im2, j, k]
-        ) * (inv_dx0 / 12.0)
-        gy = (
-            grad1[i, jp2, k]
-            - 8.0 * grad1[i, jp1, k]
-            + 8.0 * grad1[i, jm1, k]
-            - grad1[i, jm2, k]
-        ) * (inv_dx1 / 12.0)
-        gz = (
-            grad2[i, j, kp2]
-            - 8.0 * grad2[i, j, kp1]
-            + 8.0 * grad2[i, j, km1]
-            - grad2[i, j, km2]
-        ) * (inv_dx2 / 12.0)
-        grad_field[i, j, k] = gx + gy + gz
+### ============================================================
+### Index wrapping helpers (periodic boundaries without modulo)
+### ============================================================
 
 
-def _normalize_spacing(spacing: float | Sequence[float], ndim: int) -> tuple[float, ...]:
+@wp.func
+def _wrap_plus1(i: int, n: int) -> int:
+    return (i + 1) % n
+
+
+@wp.func
+def _wrap_minus1(i: int, n: int) -> int:
+    return (i + n - 1) % n
+
+
+@wp.func
+def _wrap_plus2(i: int, n: int) -> int:
+    return (i + 2) % n
+
+
+@wp.func
+def _wrap_minus2(i: int, n: int) -> int:
+    return (i + n - 2) % n
+
+
+### ============================================================
+### Forward kernels (periodic central differences)
+### ============================================================
+
+
+@wp.kernel
+def _uniform_grid_gradient_1d_kernel(
+    field: wp.array(dtype=wp.float32),
+    inv_dx: float,
+    grad0: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = field.shape[0]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+
+    grad0[i] = (field[ip] - field[im]) * (0.5 * inv_dx)
+
+
+@wp.kernel
+def _uniform_grid_gradient_1d_order4_kernel(
+    field: wp.array(dtype=wp.float32),
+    inv_dx: float,
+    grad0: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = field.shape[0]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    grad0[i] = (-field[ip2] + 8.0 * field[ip1] - 8.0 * field[im1] + field[im2]) * (
+        inv_dx / 12.0
+    )
+
+
+@wp.kernel
+def _uniform_grid_gradient_2d_kernel(
+    field: wp.array2d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+
+    grad0[i, j] = (field[ip, j] - field[im, j]) * (0.5 * inv_dx0)
+    grad1[i, j] = (field[i, jp] - field[i, jm]) * (0.5 * inv_dx1)
+
+
+@wp.kernel
+def _uniform_grid_gradient_2d_order4_kernel(
+    field: wp.array2d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+
+    grad0[i, j] = (
+        -field[ip2, j] + 8.0 * field[ip1, j] - 8.0 * field[im1, j] + field[im2, j]
+    ) * (inv_dx0 / 12.0)
+    grad1[i, j] = (
+        -field[i, jp2] + 8.0 * field[i, jp1] - 8.0 * field[i, jm1] + field[i, jm2]
+    ) * (inv_dx1 / 12.0)
+
+
+@wp.kernel
+def _uniform_grid_gradient_3d_kernel(
+    field: wp.array3d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    inv_dx2: float,
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+    n2 = field.shape[2]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+    km = _wrap_minus1(k, n2)
+    kp = _wrap_plus1(k, n2)
+
+    grad0[i, j, k] = (field[ip, j, k] - field[im, j, k]) * (0.5 * inv_dx0)
+    grad1[i, j, k] = (field[i, jp, k] - field[i, jm, k]) * (0.5 * inv_dx1)
+    grad2[i, j, k] = (field[i, j, kp] - field[i, j, km]) * (0.5 * inv_dx2)
+
+
+@wp.kernel
+def _uniform_grid_gradient_3d_order4_kernel(
+    field: wp.array3d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    inv_dx2: float,
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = field.shape[0]
+    n1 = field.shape[1]
+    n2 = field.shape[2]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+
+    km1 = _wrap_minus1(k, n2)
+    kp1 = _wrap_plus1(k, n2)
+    km2 = _wrap_minus2(k, n2)
+    kp2 = _wrap_plus2(k, n2)
+
+    grad0[i, j, k] = (
+        -field[ip2, j, k]
+        + 8.0 * field[ip1, j, k]
+        - 8.0 * field[im1, j, k]
+        + field[im2, j, k]
+    ) * (inv_dx0 / 12.0)
+    grad1[i, j, k] = (
+        -field[i, jp2, k]
+        + 8.0 * field[i, jp1, k]
+        - 8.0 * field[i, jm1, k]
+        + field[i, jm2, k]
+    ) * (inv_dx1 / 12.0)
+    grad2[i, j, k] = (
+        -field[i, j, kp2]
+        + 8.0 * field[i, j, kp1]
+        - 8.0 * field[i, j, km1]
+        + field[i, j, km2]
+    ) * (inv_dx2 / 12.0)
+
+
+### ============================================================
+### Backward kernels (adjoint central differences)
+### ============================================================
+
+
+@wp.kernel
+def _uniform_grid_gradient_1d_backward_kernel(
+    grad0: wp.array(dtype=wp.float32),
+    inv_dx: float,
+    grad_field: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = grad0.shape[0]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+
+    grad_field[i] = (grad0[im] - grad0[ip]) * (0.5 * inv_dx)
+
+
+@wp.kernel
+def _uniform_grid_gradient_1d_order4_backward_kernel(
+    grad0: wp.array(dtype=wp.float32),
+    inv_dx: float,
+    grad_field: wp.array(dtype=wp.float32),
+):
+    i = wp.tid()
+    n0 = grad0.shape[0]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    grad_field[i] = (grad0[ip2] - 8.0 * grad0[ip1] + 8.0 * grad0[im1] - grad0[im2]) * (
+        inv_dx / 12.0
+    )
+
+
+@wp.kernel
+def _uniform_grid_gradient_2d_backward_kernel(
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    grad_field: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+
+    gx = (grad0[im, j] - grad0[ip, j]) * (0.5 * inv_dx0)
+    gy = (grad1[i, jm] - grad1[i, jp]) * (0.5 * inv_dx1)
+    grad_field[i, j] = gx + gy
+
+
+@wp.kernel
+def _uniform_grid_gradient_2d_order4_backward_kernel(
+    grad0: wp.array2d(dtype=wp.float32),
+    grad1: wp.array2d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    grad_field: wp.array2d(dtype=wp.float32),
+):
+    i, j = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+
+    gx = (grad0[ip2, j] - 8.0 * grad0[ip1, j] + 8.0 * grad0[im1, j] - grad0[im2, j]) * (
+        inv_dx0 / 12.0
+    )
+    gy = (grad1[i, jp2] - 8.0 * grad1[i, jp1] + 8.0 * grad1[i, jm1] - grad1[i, jm2]) * (
+        inv_dx1 / 12.0
+    )
+    grad_field[i, j] = gx + gy
+
+
+@wp.kernel
+def _uniform_grid_gradient_3d_backward_kernel(
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    inv_dx2: float,
+    grad_field: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+    n2 = grad0.shape[2]
+
+    im = _wrap_minus1(i, n0)
+    ip = _wrap_plus1(i, n0)
+    jm = _wrap_minus1(j, n1)
+    jp = _wrap_plus1(j, n1)
+    km = _wrap_minus1(k, n2)
+    kp = _wrap_plus1(k, n2)
+
+    gx = (grad0[im, j, k] - grad0[ip, j, k]) * (0.5 * inv_dx0)
+    gy = (grad1[i, jm, k] - grad1[i, jp, k]) * (0.5 * inv_dx1)
+    gz = (grad2[i, j, km] - grad2[i, j, kp]) * (0.5 * inv_dx2)
+    grad_field[i, j, k] = gx + gy + gz
+
+
+@wp.kernel
+def _uniform_grid_gradient_3d_order4_backward_kernel(
+    grad0: wp.array3d(dtype=wp.float32),
+    grad1: wp.array3d(dtype=wp.float32),
+    grad2: wp.array3d(dtype=wp.float32),
+    inv_dx0: float,
+    inv_dx1: float,
+    inv_dx2: float,
+    grad_field: wp.array3d(dtype=wp.float32),
+):
+    i, j, k = wp.tid()
+    n0 = grad0.shape[0]
+    n1 = grad0.shape[1]
+    n2 = grad0.shape[2]
+
+    im1 = _wrap_minus1(i, n0)
+    ip1 = _wrap_plus1(i, n0)
+    im2 = _wrap_minus2(i, n0)
+    ip2 = _wrap_plus2(i, n0)
+
+    jm1 = _wrap_minus1(j, n1)
+    jp1 = _wrap_plus1(j, n1)
+    jm2 = _wrap_minus2(j, n1)
+    jp2 = _wrap_plus2(j, n1)
+
+    km1 = _wrap_minus1(k, n2)
+    kp1 = _wrap_plus1(k, n2)
+    km2 = _wrap_minus2(k, n2)
+    kp2 = _wrap_plus2(k, n2)
+
+    gx = (
+        grad0[ip2, j, k]
+        - 8.0 * grad0[ip1, j, k]
+        + 8.0 * grad0[im1, j, k]
+        - grad0[im2, j, k]
+    ) * (inv_dx0 / 12.0)
+    gy = (
+        grad1[i, jp2, k]
+        - 8.0 * grad1[i, jp1, k]
+        + 8.0 * grad1[i, jm1, k]
+        - grad1[i, jm2, k]
+    ) * (inv_dx1 / 12.0)
+    gz = (
+        grad2[i, j, kp2]
+        - 8.0 * grad2[i, j, kp1]
+        + 8.0 * grad2[i, j, km1]
+        - grad2[i, j, km2]
+    ) * (inv_dx2 / 12.0)
+    grad_field[i, j, k] = gx + gy + gz
+
+
+def _normalize_spacing(
+    spacing: float | Sequence[float], ndim: int
+) -> tuple[float, ...]:
     ### Normalize scalar/list spacing into one value per axis.
     if isinstance(spacing, (float, int)):
         return tuple(float(spacing) for _ in range(ndim))
@@ -399,7 +421,9 @@ def _validate_order(order: int) -> int:
 def _validate_field(field: torch.Tensor) -> None:
     ### Validate field shape and dtype.
     if field.ndim < 1 or field.ndim > 3:
-        raise ValueError(f"uniform_grid_gradient supports 1D-3D fields, got {field.shape=}")
+        raise ValueError(
+            f"uniform_grid_gradient supports 1D-3D fields, got {field.shape=}"
+        )
     if not torch.is_floating_point(field):
         raise TypeError("field must be a floating-point tensor")
 
@@ -681,12 +705,8 @@ def uniform_grid_gradient_warp(
     spacing: float | Sequence[float] = 1.0,
     order: int = 2,
 ) -> torch.Tensor:
+    """Compute periodic uniform-grid gradients with Warp kernels."""
     ### Ensure Warp backend is available before dispatch.
-    if not _WARP_AVAILABLE:
-        raise ImportError(
-            "uniform_grid_gradient warp backend requires warp>=0.6.0"
-        ) from _WARP_IMPORT_ERROR
-
     ### Validate field shape, dtype, spacing, and order.
     _validate_field(field)
     spacing_tuple = _normalize_spacing(spacing, field.ndim)

@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
@@ -11,7 +23,9 @@ import torch
 _SUPPORTED_ORDERS = (2, 4)
 
 
-def _normalize_spacing(spacing: float | Sequence[float], ndim: int) -> tuple[float, ...]:
+def _normalize_spacing(
+    spacing: float | Sequence[float], ndim: int
+) -> tuple[float, ...]:
     ### Normalize scalar/list spacing into one value per axis.
     if isinstance(spacing, (float, int)):
         return tuple(float(spacing) for _ in range(ndim))
@@ -34,14 +48,18 @@ def _validate_order(order: int) -> int:
     return order
 
 
-def _central_derivative_order2(field: torch.Tensor, axis: int, dx: float) -> torch.Tensor:
+def _central_derivative_order2(
+    field: torch.Tensor, axis: int, dx: float
+) -> torch.Tensor:
     ### Second-order periodic central difference.
-    return (torch.roll(field, shifts=-1, dims=axis) - torch.roll(field, shifts=1, dims=axis)) / (
-        2.0 * dx
-    )
+    return (
+        torch.roll(field, shifts=-1, dims=axis) - torch.roll(field, shifts=1, dims=axis)
+    ) / (2.0 * dx)
 
 
-def _central_derivative_order4(field: torch.Tensor, axis: int, dx: float) -> torch.Tensor:
+def _central_derivative_order4(
+    field: torch.Tensor, axis: int, dx: float
+) -> torch.Tensor:
     ### Fourth-order periodic central difference.
     # d/dx f_i ≈ (-f_{i+2} + 8 f_{i+1} - 8 f_{i-1} + f_{i-2}) / (12 dx)
     return (
@@ -57,9 +75,12 @@ def uniform_grid_gradient_torch(
     spacing: float | Sequence[float] = 1.0,
     order: int = 2,
 ) -> torch.Tensor:
+    """Compute periodic uniform-grid gradients with PyTorch tensor ops."""
     ### Validate field shape and dtype.
     if field.ndim < 1 or field.ndim > 3:
-        raise ValueError(f"uniform_grid_gradient supports 1D-3D fields, got {field.shape=}")
+        raise ValueError(
+            f"uniform_grid_gradient supports 1D-3D fields, got {field.shape=}"
+        )
     if not torch.is_floating_point(field):
         raise TypeError("field must be a floating-point tensor")
     order = _validate_order(order)

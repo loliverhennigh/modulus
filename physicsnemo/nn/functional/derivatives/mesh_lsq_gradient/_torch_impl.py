@@ -1,101 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
 import torch
 
-
-def _validate_inputs(
-    points: torch.Tensor,
-    values: torch.Tensor,
-    neighbor_offsets: torch.Tensor,
-    neighbor_indices: torch.Tensor,
-    *,
-    min_neighbors: int,
-) -> None:
-    ### Validate core tensor shapes and dimensions.
-    if points.ndim != 2:
-        raise ValueError(f"points must have shape (n_entities, dims), got {points.shape=}")
-    if points.shape[1] < 1 or points.shape[1] > 3:
-        raise ValueError(f"points must be 1D/2D/3D, got dims={points.shape[1]}")
-    if values.ndim < 1:
-        raise ValueError(f"values must have shape (n_entities, ...), got {values.shape=}")
-    if values.shape[0] != points.shape[0]:
-        raise ValueError(
-            f"values leading dimension must match points: {values.shape[0]} != {points.shape[0]}"
-        )
-    if neighbor_offsets.ndim != 1:
-        raise ValueError("neighbor_offsets must be rank-1")
-    if neighbor_offsets.shape[0] != points.shape[0] + 1:
-        raise ValueError(
-            "neighbor_offsets must have shape (n_entities + 1,), "
-            f"got {neighbor_offsets.shape} for n_entities={points.shape[0]}"
-        )
-    if neighbor_indices.ndim != 1:
-        raise ValueError("neighbor_indices must be rank-1")
-    if min_neighbors < 0:
-        raise ValueError("min_neighbors must be non-negative")
-
-    ### Validate all inputs are co-located on the same device.
-    if not (
-        points.device == values.device
-        and points.device == neighbor_offsets.device
-        and points.device == neighbor_indices.device
-    ):
-        raise ValueError(
-            "points, values, neighbor_offsets, and neighbor_indices must be on the same device"
-        )
-
-    ### Validate floating-point and index dtypes.
-    if not torch.is_floating_point(points):
-        raise TypeError("points must be floating-point")
-    if not torch.is_floating_point(values):
-        raise TypeError("values must be floating-point")
-
-    if neighbor_offsets.dtype not in (torch.int32, torch.int64):
-        raise TypeError("neighbor_offsets must be int32 or int64")
-    if neighbor_indices.dtype not in (torch.int32, torch.int64):
-        raise TypeError("neighbor_indices must be int32 or int64")
-
-    ### Validate CSR range invariants.
-    if int(neighbor_offsets[0].item()) != 0:
-        raise ValueError("neighbor_offsets must start at 0")
-    if int(neighbor_offsets[-1].item()) != neighbor_indices.shape[0]:
-        raise ValueError("neighbor_offsets[-1] must equal len(neighbor_indices)")
-    if torch.any(neighbor_offsets[1:] < neighbor_offsets[:-1]):
-        raise ValueError("neighbor_offsets must be non-decreasing")
-
-    if neighbor_indices.numel() > 0:
-        idx_min = int(neighbor_indices.min().item())
-        idx_max = int(neighbor_indices.max().item())
-        if idx_min < 0 or idx_max >= points.shape[0]:
-            raise ValueError(
-                f"neighbor_indices must satisfy 0 <= index < n_entities ({points.shape[0]})"
-            )
-
-
-### Convert CSR adjacency to a padded (N, K_max) matrix with -1 sentinels.
-def _csr_to_padded(neighbor_offsets: torch.Tensor, neighbor_indices: torch.Tensor) -> torch.Tensor:
-    n_entities = neighbor_offsets.shape[0] - 1
-    counts = neighbor_offsets[1:] - neighbor_offsets[:-1]
-    max_count = int(counts.max().item()) if n_entities > 0 else 0
-
-    padded = torch.full(
-        (n_entities, max_count),
-        -1,
-        dtype=torch.int64,
-        device=neighbor_offsets.device,
-    )
-    if max_count == 0:
-        return padded
-
-    col_idx = torch.arange(max_count, device=neighbor_offsets.device).unsqueeze(0)
-    valid = col_idx < counts.unsqueeze(1)
-    gather_idx = neighbor_offsets[:-1].unsqueeze(1) + col_idx
-    padded[valid] = neighbor_indices[gather_idx[valid]]
-    return padded
+from .utils import resolve_safe_epsilon, validate_inputs
 
 
 def mesh_lsq_gradient_torch(
@@ -105,9 +28,11 @@ def mesh_lsq_gradient_torch(
     neighbor_indices: torch.Tensor,
     weight_power: float = 2.0,
     min_neighbors: int = 0,
+    safe_epsilon: float | None = None,
 ) -> torch.Tensor:
+    """Compute weighted LSQ mesh gradients with PyTorch tensor ops."""
     ### Validate inputs before building LSQ systems.
-    _validate_inputs(
+    validate_inputs(
         points=points,
         values=values,
         neighbor_offsets=neighbor_offsets,
@@ -118,51 +43,66 @@ def mesh_lsq_gradient_torch(
     ### Normalize dtypes/layout for stable downstream linear algebra.
     points = points.contiguous()
     values = values.contiguous()
-    neighbor_offsets = neighbor_offsets.to(dtype=torch.int64, device=points.device).contiguous()
-    neighbor_indices = neighbor_indices.to(dtype=torch.int64, device=points.device).contiguous()
+    neighbor_offsets = neighbor_offsets.to(
+        dtype=torch.int64, device=points.device
+    ).contiguous()
+    neighbor_indices = neighbor_indices.to(
+        dtype=torch.int64, device=points.device
+    ).contiguous()
 
     n_entities = points.shape[0]
     n_dims = points.shape[1]
     value_shape = values.shape[1:]
-
-    ### Expand CSR adjacency into padded gather format.
-    neighbors = _csr_to_padded(neighbor_offsets, neighbor_indices)
     counts = neighbor_offsets[1:] - neighbor_offsets[:-1]
 
-    ### Build neighbor gathers with mask for padded entries.
-    idx = neighbors.clamp_min(0).to(torch.long)
-    valid = neighbors >= 0
-
-    ### Build weighted LSQ matrices A and b for all entities/components.
-    points_cast = points.to(dtype=values.dtype)
-    center = points_cast.unsqueeze(1)
-    neigh_points = points_cast[idx]
-    dx = neigh_points - center
-
+    ### Flatten component dimensions so scalar and tensor fields share one solve path.
     values_flat = values.reshape(n_entities, -1)
-    dphi_flat = values_flat[idx] - values_flat.unsqueeze(1)
+    n_components = values_flat.shape[1]
+    gradients_flat = torch.zeros(
+        (n_entities, n_dims, n_components),
+        dtype=values.dtype,
+        device=values.device,
+    )
 
-    dist2 = (dx * dx).sum(dim=-1).clamp_min(1.0e-20)
-    weights = dist2.pow(-0.5 * weight_power)
-    weights = torch.where(valid, weights, torch.zeros_like(weights))
+    points_cast = points.to(dtype=values.dtype)
+    dist_eps = resolve_safe_epsilon(safe_epsilon=safe_epsilon, dtype=points_cast.dtype)
 
-    sqrt_w = weights.sqrt().unsqueeze(-1)
-    A_weighted = sqrt_w * dx
+    ### Process one dense batch per neighbor-count group (mesh-module strategy).
+    unique_counts = torch.unique(counts)
+    for count_tensor in unique_counts:
+        n_neighbors = int(count_tensor.item())
+        if n_neighbors < min_neighbors or n_neighbors == 0:
+            continue
 
-    b_weighted = sqrt_w * dphi_flat
-    ### Solve batched weighted least-squares systems.
-    solution = torch.linalg.lstsq(
-        A_weighted,
-        b_weighted,
-        rcond=None,
-    ).solution
+        entity_indices = torch.where(counts == count_tensor)[0]
+        if entity_indices.numel() == 0:
+            continue
+
+        offsets_group = neighbor_offsets[entity_indices]
+        col_range = torch.arange(n_neighbors, device=points.device, dtype=torch.int64)
+        flat_indices = offsets_group.unsqueeze(1) + col_range.unsqueeze(0)
+        neighbors = neighbor_indices[flat_indices].to(torch.long)
+
+        center_points = points_cast[entity_indices]
+        relative = points_cast[neighbors] - center_points.unsqueeze(1)
+
+        values_center = values_flat[entity_indices]
+        delta_values = values_flat[neighbors] - values_center.unsqueeze(1)
+
+        dist2 = (relative * relative).sum(dim=-1).clamp_min(dist_eps)
+        sqrt_w = dist2.pow(-0.25 * weight_power).unsqueeze(-1)
+
+        A_weighted = sqrt_w * relative
+        b_weighted = sqrt_w * delta_values
+
+        solution = torch.linalg.lstsq(
+            A_weighted,
+            b_weighted,
+            rcond=None,
+        ).solution
+        gradients_flat[entity_indices] = solution
 
     ### Restore gradient output shape.
-    gradients = solution.reshape(n_entities, n_dims, *value_shape)
-
-    ### Enforce explicit zero gradients for rows below min-neighbor threshold.
-    if min_neighbors > 0:
-        valid_row = counts >= min_neighbors
-        gradients = gradients * valid_row.view(-1, *([1] * (gradients.ndim - 1)))
+    gradients = gradients_flat.reshape(n_entities, n_dims, *value_shape)
 
     return gradients

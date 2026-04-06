@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
@@ -48,6 +60,10 @@ class MeshLSQGradient(FunctionSpec):
         Inverse-distance exponent used for weighting.
     min_neighbors : int, optional
         Entities with fewer than this count get zero gradients.
+    safe_epsilon : float | None, optional
+        Positive floor applied to squared neighbor distances before
+        inverse-distance weighting. When ``None``, a dtype-derived default
+        is used by each backend.
     implementation : {"warp", "torch"} or None
         Explicit backend selection. When ``None``, dispatch selects by rank.
 
@@ -79,7 +95,9 @@ class MeshLSQGradient(FunctionSpec):
         neighbor_indices: torch.Tensor,
         weight_power: float = 2.0,
         min_neighbors: int = 0,
+        safe_epsilon: float | None = None,
     ) -> torch.Tensor:
+        """Dispatch mesh LSQ gradients to the Warp backend."""
         ### Warp backend implementation.
         return mesh_lsq_gradient_warp(
             points=points,
@@ -88,6 +106,7 @@ class MeshLSQGradient(FunctionSpec):
             neighbor_indices=neighbor_indices,
             weight_power=weight_power,
             min_neighbors=min_neighbors,
+            safe_epsilon=safe_epsilon,
         )
 
     @FunctionSpec.register(name="torch", rank=1, baseline=True)
@@ -98,7 +117,9 @@ class MeshLSQGradient(FunctionSpec):
         neighbor_indices: torch.Tensor,
         weight_power: float = 2.0,
         min_neighbors: int = 0,
+        safe_epsilon: float | None = None,
     ) -> torch.Tensor:
+        """Dispatch mesh LSQ gradients to eager PyTorch."""
         ### PyTorch backend implementation.
         return mesh_lsq_gradient_torch(
             points=points,
@@ -107,21 +128,33 @@ class MeshLSQGradient(FunctionSpec):
             neighbor_indices=neighbor_indices,
             weight_power=weight_power,
             min_neighbors=min_neighbors,
+            safe_epsilon=safe_epsilon,
         )
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        """Yield representative forward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build deterministic synthetic CSR neighborhoods and signal fields.
-        for label, n_entities, n_dims, k_neighbors, vector_values in cls._BENCHMARK_CASES:
+        for (
+            label,
+            n_entities,
+            n_dims,
+            k_neighbors,
+            vector_values,
+        ) in cls._BENCHMARK_CASES:
             generator = torch.Generator(device=device)
             generator.manual_seed(1234 + n_entities + n_dims)
 
             ### Generate point cloud and fixed-k CSR adjacency.
-            points = torch.rand((n_entities, n_dims), generator=generator, device=device)
+            points = torch.rand(
+                (n_entities, n_dims), generator=generator, device=device
+            )
             dists = torch.cdist(points, points)
-            knn = torch.topk(dists, k=k_neighbors + 1, largest=False, dim=1).indices[:, 1:]
+            knn = torch.topk(dists, k=k_neighbors + 1, largest=False, dim=1).indices[
+                :, 1:
+            ]
             offsets = torch.arange(
                 0,
                 n_entities * k_neighbors + 1,
@@ -164,6 +197,7 @@ class MeshLSQGradient(FunctionSpec):
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        """Yield representative backward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build representative scalar/vector LSQ inputs for backward parity.
@@ -178,9 +212,13 @@ class MeshLSQGradient(FunctionSpec):
             generator.manual_seed(8411 + n_entities + n_dims)
 
             ### Build deterministic KNN-CSR adjacency.
-            points = torch.rand((n_entities, n_dims), generator=generator, device=device)
+            points = torch.rand(
+                (n_entities, n_dims), generator=generator, device=device
+            )
             dists = torch.cdist(points, points)
-            knn = torch.topk(dists, k=k_neighbors + 1, largest=False, dim=1).indices[:, 1:]
+            knn = torch.topk(dists, k=k_neighbors + 1, largest=False, dim=1).indices[
+                :, 1:
+            ]
             offsets = torch.arange(
                 0,
                 n_entities * k_neighbors + 1,
@@ -225,6 +263,7 @@ class MeshLSQGradient(FunctionSpec):
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare forward outputs across implementations."""
         ### Validate forward parity across backends.
         torch.testing.assert_close(
             output,
@@ -235,6 +274,7 @@ class MeshLSQGradient(FunctionSpec):
 
     @classmethod
     def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare backward gradients across implementations."""
         ### Validate backward parity across backends.
         torch.testing.assert_close(
             output,

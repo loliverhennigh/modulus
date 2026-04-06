@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
@@ -10,6 +22,7 @@ from physicsnemo.core.function_spec import FunctionSpec
 
 from ._torch_impl import mesh_green_gauss_gradient_torch
 from ._warp_impl import mesh_green_gauss_gradient_warp
+from .utils import build_neighbors
 
 
 class MeshGreenGaussGradient(FunctionSpec):
@@ -40,6 +53,9 @@ class MeshGreenGaussGradient(FunctionSpec):
         ``{2, 3}``.
     cells : torch.Tensor
         Simplicial connectivity with shape ``(n_cells, dims+1)``.
+    neighbors : torch.Tensor
+        Precomputed cell-neighbor indices with shape ``(n_cells, n_faces)``,
+        where boundary faces are marked with ``-1``.
     values : torch.Tensor
         Cell-centered values with shape ``(n_cells,)`` or ``(n_cells, ...)``.
     implementation : {"warp", "torch"} or None
@@ -68,12 +84,15 @@ class MeshGreenGaussGradient(FunctionSpec):
     def warp_forward(
         points: torch.Tensor,
         cells: torch.Tensor,
+        neighbors: torch.Tensor,
         values: torch.Tensor,
     ) -> torch.Tensor:
+        """Dispatch Green-Gauss gradients to the Warp backend."""
         ### Warp backend implementation.
         return mesh_green_gauss_gradient_warp(
             points=points,
             cells=cells,
+            neighbors=neighbors,
             values=values,
         )
 
@@ -81,17 +100,21 @@ class MeshGreenGaussGradient(FunctionSpec):
     def torch_forward(
         points: torch.Tensor,
         cells: torch.Tensor,
+        neighbors: torch.Tensor,
         values: torch.Tensor,
     ) -> torch.Tensor:
+        """Dispatch Green-Gauss gradients to eager PyTorch."""
         ### PyTorch backend implementation.
         return mesh_green_gauss_gradient_torch(
             points=points,
             cells=cells,
+            neighbors=neighbors,
             values=values,
         )
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        """Yield representative forward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build deterministic triangulated meshes and scalar/vector cell values.
@@ -106,7 +129,10 @@ class MeshGreenGaussGradient(FunctionSpec):
             rng = torch.Generator(device=device)
             rng.manual_seed(2027 + nx + ny)
             perturb = 0.01 * (
-                torch.rand(points.shape, generator=rng, device=device, dtype=points.dtype) - 0.5
+                torch.rand(
+                    points.shape, generator=rng, device=device, dtype=points.dtype
+                )
+                - 0.5
             )
             border = (
                 (points[:, 0] <= 0.0)
@@ -127,6 +153,7 @@ class MeshGreenGaussGradient(FunctionSpec):
                     cells.append((p00, p10, p11))
                     cells.append((p00, p11, p01))
             cells = torch.tensor(cells, device=device, dtype=torch.int64).contiguous()
+            neighbors = build_neighbors(cells).to(dtype=torch.int64).contiguous()
             centroids = points[cells].mean(dim=1)
             base = (
                 torch.sin(2.0 * torch.pi * centroids[:, 0])
@@ -150,6 +177,7 @@ class MeshGreenGaussGradient(FunctionSpec):
                 (
                     points,
                     cells,
+                    neighbors,
                     values,
                 ),
                 {},
@@ -157,6 +185,7 @@ class MeshGreenGaussGradient(FunctionSpec):
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        """Yield representative backward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build differentiable cell-value inputs for backward parity checks.
@@ -176,7 +205,10 @@ class MeshGreenGaussGradient(FunctionSpec):
             rng = torch.Generator(device=device)
             rng.manual_seed(2027 + nx + ny)
             perturb = 0.01 * (
-                torch.rand(points.shape, generator=rng, device=device, dtype=points.dtype) - 0.5
+                torch.rand(
+                    points.shape, generator=rng, device=device, dtype=points.dtype
+                )
+                - 0.5
             )
             border = (
                 (points[:, 0] <= 0.0)
@@ -197,6 +229,7 @@ class MeshGreenGaussGradient(FunctionSpec):
                     cells.append((p00, p10, p11))
                     cells.append((p00, p11, p01))
             cells = torch.tensor(cells, device=device, dtype=torch.int64).contiguous()
+            neighbors = build_neighbors(cells).to(dtype=torch.int64).contiguous()
             centroids = points[cells].mean(dim=1)
             base = (
                 torch.sin(2.0 * torch.pi * centroids[:, 0])
@@ -221,6 +254,7 @@ class MeshGreenGaussGradient(FunctionSpec):
                 (
                     points,
                     cells,
+                    neighbors,
                     values,
                 ),
                 {},
@@ -228,6 +262,7 @@ class MeshGreenGaussGradient(FunctionSpec):
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare forward outputs across implementations."""
         ### Validate forward parity across backends.
         torch.testing.assert_close(
             output,
@@ -238,6 +273,7 @@ class MeshGreenGaussGradient(FunctionSpec):
 
     @classmethod
     def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare backward gradients across implementations."""
         ### Validate backward parity across backends.
         torch.testing.assert_close(
             output,
@@ -247,7 +283,9 @@ class MeshGreenGaussGradient(FunctionSpec):
         )
 
 
-mesh_green_gauss_gradient = MeshGreenGaussGradient.make_function("mesh_green_gauss_gradient")
+mesh_green_gauss_gradient = MeshGreenGaussGradient.make_function(
+    "mesh_green_gauss_gradient"
+)
 
 
 __all__ = ["MeshGreenGaussGradient", "mesh_green_gauss_gradient"]

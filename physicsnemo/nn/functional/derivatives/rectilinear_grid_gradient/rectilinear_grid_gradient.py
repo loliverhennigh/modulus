@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
@@ -77,6 +89,7 @@ class RectilinearGridGradient(FunctionSpec):
         coordinates: Sequence[torch.Tensor],
         periods: float | Sequence[float] | None = None,
     ) -> torch.Tensor:
+        """Dispatch rectilinear gradients to the Warp backend."""
         ### Warp backend implementation.
         return rectilinear_grid_gradient_warp(
             field=field,
@@ -90,6 +103,7 @@ class RectilinearGridGradient(FunctionSpec):
         coordinates: Sequence[torch.Tensor],
         periods: float | Sequence[float] | None = None,
     ) -> torch.Tensor:
+        """Dispatch rectilinear gradients to eager PyTorch."""
         ### PyTorch backend implementation.
         return rectilinear_grid_gradient_torch(
             field=field,
@@ -99,6 +113,7 @@ class RectilinearGridGradient(FunctionSpec):
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        """Yield representative forward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build periodic nonuniform rectilinear coordinates and analytic fields.
@@ -117,7 +132,9 @@ class RectilinearGridGradient(FunctionSpec):
                 x0 = s0 + 0.04 * torch.sin(2.0 * torch.pi * s0 + 0.1)
                 x1 = s1 + 0.03 * torch.sin(2.0 * torch.pi * s1 - 0.3)
                 xx, yy = torch.meshgrid(x0, x1, indexing="ij")
-                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(2.0 * torch.pi * yy)
+                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(
+                    2.0 * torch.pi * yy
+                )
                 coordinates = (x0.to(torch.float32), x1.to(torch.float32))
                 periods = (1.0, 1.0)
             else:
@@ -150,6 +167,7 @@ class RectilinearGridGradient(FunctionSpec):
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        """Yield representative backward benchmark and parity input cases."""
         device = torch.device(device)
 
         ### Build differentiable field inputs for backward parity checks.
@@ -174,7 +192,9 @@ class RectilinearGridGradient(FunctionSpec):
                 x0 = s0 + 0.04 * torch.sin(2.0 * torch.pi * s0 + 0.1)
                 x1 = s1 + 0.03 * torch.sin(2.0 * torch.pi * s1 - 0.3)
                 xx, yy = torch.meshgrid(x0, x1, indexing="ij")
-                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(2.0 * torch.pi * yy)
+                field = torch.sin(2.0 * torch.pi * xx) + 0.5 * torch.cos(
+                    2.0 * torch.pi * yy
+                )
                 coordinates = (x0.to(torch.float32), x1.to(torch.float32))
                 periods = (1.0, 1.0)
             else:
@@ -200,12 +220,16 @@ class RectilinearGridGradient(FunctionSpec):
 
             yield (
                 label,
-                (field.to(torch.float32).detach().clone().requires_grad_(True), coordinates),
+                (
+                    field.to(torch.float32).detach().clone().requires_grad_(True),
+                    coordinates,
+                ),
                 {"periods": periods},
             )
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare forward outputs across implementations."""
         ### Validate forward parity across backends.
         torch.testing.assert_close(
             output,
@@ -216,6 +240,7 @@ class RectilinearGridGradient(FunctionSpec):
 
     @classmethod
     def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare backward gradients across implementations."""
         ### Validate backward parity across backends.
         torch.testing.assert_close(
             output,
@@ -225,7 +250,9 @@ class RectilinearGridGradient(FunctionSpec):
         )
 
 
-rectilinear_grid_gradient = RectilinearGridGradient.make_function("rectilinear_grid_gradient")
+rectilinear_grid_gradient = RectilinearGridGradient.make_function(
+    "rectilinear_grid_gradient"
+)
 
 
 __all__ = ["RectilinearGridGradient", "rectilinear_grid_gradient"]

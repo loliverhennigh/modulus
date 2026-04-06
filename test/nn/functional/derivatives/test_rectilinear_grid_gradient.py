@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import pytest
 import torch
@@ -76,8 +88,10 @@ def test_rectilinear_grid_gradient_torch(device: str, dims: int):
 
 # Validate warp backend forward parity against torch across benchmark cases.
 @requires_module("warp")
-def test_rectilinear_grid_gradient_warp(device: str):
-    for _label, args, kwargs in RectilinearGridGradient.make_inputs_forward(device=device):
+def test_rectilinear_grid_gradient_backend_forward_parity(device: str):
+    for _label, args, kwargs in RectilinearGridGradient.make_inputs_forward(
+        device=device
+    ):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
 
@@ -96,8 +110,10 @@ def test_rectilinear_grid_gradient_warp(device: str):
 
 # Validate warp backend backward parity against torch.
 @requires_module("warp")
-def test_rectilinear_grid_gradient_warp_backward(device: str):
-    for _label, args, kwargs in RectilinearGridGradient.make_inputs_backward(device=device):
+def test_rectilinear_grid_gradient_backend_backward_parity(device: str):
+    for _label, args, kwargs in RectilinearGridGradient.make_inputs_backward(
+        device=device
+    ):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
 
@@ -120,6 +136,72 @@ def test_rectilinear_grid_gradient_warp_backward(device: str):
         assert grad_warp is not None
 
         RectilinearGridGradient.compare_backward(grad_warp, grad_torch)
+
+
+# Validate benchmark input generation contract for forward inputs.
+def test_rectilinear_grid_gradient_make_inputs_forward(device: str):
+    label, args, kwargs = next(
+        iter(RectilinearGridGradient.make_inputs_forward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    field, coordinates = args
+    assert field.ndim in (1, 2, 3)
+    assert len(coordinates) == field.ndim
+
+    output = RectilinearGridGradient.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    assert output.shape[0] == field.ndim
+
+
+# Validate benchmark input generation contract for backward inputs.
+def test_rectilinear_grid_gradient_make_inputs_backward(device: str):
+    label, args, kwargs = next(
+        iter(RectilinearGridGradient.make_inputs_backward(device=device))
+    )
+    assert isinstance(label, str)
+    assert isinstance(args, tuple)
+    assert isinstance(kwargs, dict)
+
+    field = args[0]
+    assert field.requires_grad
+
+    output = RectilinearGridGradient.dispatch(
+        *args,
+        implementation="torch",
+        **kwargs,
+    )
+    output.square().mean().backward()
+    assert field.grad is not None
+
+
+# Validate compare-forward hook contract.
+def test_rectilinear_grid_gradient_compare_forward_contract(device: str):
+    _label, args, kwargs = next(
+        iter(RectilinearGridGradient.make_inputs_forward(device=device))
+    )
+    output = RectilinearGridGradient.dispatch(*args, implementation="torch", **kwargs)
+    reference = output.detach().clone()
+    RectilinearGridGradient.compare_forward(output, reference)
+
+
+# Validate compare-backward hook contract.
+def test_rectilinear_grid_gradient_compare_backward_contract(device: str):
+    _label, args, kwargs = next(
+        iter(RectilinearGridGradient.make_inputs_backward(device=device))
+    )
+    field = args[0]
+
+    output = RectilinearGridGradient.dispatch(*args, implementation="torch", **kwargs)
+    output.square().mean().backward()
+
+    assert field.grad is not None
+    RectilinearGridGradient.compare_backward(field.grad, field.grad.detach().clone())
 
 
 # Validate exported API and input validation paths.

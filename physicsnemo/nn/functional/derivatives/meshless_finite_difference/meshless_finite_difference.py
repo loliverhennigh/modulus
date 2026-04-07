@@ -34,8 +34,7 @@ class MeshlessFDDerivatives(FunctionSpec):
     """Compute meshless finite-difference derivatives from local stencil values.
 
     This functional expects values already sampled on a canonical
-    Cartesian ``{-1, 0, 1}`` stencil around each query point (for example via
-    :func:`meshless_fd_stencil_points_torch` followed by model evaluation).
+    Cartesian ``{-1, 0, 1}`` stencil around each query point.
     It does not build stencil coordinates internally; it only maps stencil
     values to derivative estimates using central finite-difference formulas.
 

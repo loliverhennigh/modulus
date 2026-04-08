@@ -17,19 +17,28 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from itertools import combinations
 
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
 
+from .._request_utils import (
+    normalize_derivative_orders,
+    normalize_include_mixed,
+    validate_mixed_request,
+)
 from ._torch_impl import rectilinear_grid_gradient_torch
-from ._warp_impl import rectilinear_grid_gradient_warp
+from ._warp_impl import (
+    rectilinear_grid_gradient_warp,
+    rectilinear_grid_gradient_warp_multi,
+)
 
 
 class RectilinearGridGradient(FunctionSpec):
     r"""Compute periodic gradients on rectilinear grids with nonuniform spacing.
 
-    This functional computes first-order or pure axis-wise second-order
+    This functional computes first-order and/or second-order
     derivatives of a scalar field on a 1D/2D/3D rectilinear grid where each
     axis has independent, potentially nonuniform coordinate spacing.
 
@@ -77,19 +86,20 @@ class RectilinearGridGradient(FunctionSpec):
     periods : float | Sequence[float] | None, optional
         Period length per axis. If ``None``, each axis is inferred as
         ``coords[-1] - coords[0] + (coords[1] - coords[0])``.
-    derivative_order : int, optional
-        Derivative order to compute. ``1`` returns first derivatives and ``2``
-        returns pure second derivatives.
+    derivative_orders : int | Sequence[int], optional
+        Derivative orders to compute. Supported values are ``1``, ``2``, or
+        ``(1, 2)``.
     include_mixed : bool, optional
-        Reserved for future mixed-derivative support when
-        ``derivative_order=2``. In phase-1 this must remain ``False``.
+        Include mixed second derivatives when requesting second derivatives.
+        Mixed terms are appended in axis-pair order ``(x,y)``, ``(x,z)``,
+        ``(y,z)``.
     implementation : {"warp", "torch"} or None
         Explicit backend selection. When ``None``, dispatch selects by rank.
 
     Returns
     -------
     torch.Tensor
-        Gradient tensor of shape ``(dims, *field.shape)``.
+        Gradient tensor of shape ``(num_derivatives, *field.shape)``.
     """
 
     ### Benchmark input presets (small -> large workload).
@@ -112,16 +122,16 @@ class RectilinearGridGradient(FunctionSpec):
         field: torch.Tensor,
         coordinates: Sequence[torch.Tensor],
         periods: float | Sequence[float] | None = None,
-        derivative_order: int = 1,
+        derivative_orders: int | Sequence[int] = 1,
         include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch rectilinear gradients to the Warp backend."""
-        ### Warp backend implementation.
-        return rectilinear_grid_gradient_warp(
+        return _dispatch_rectilinear_grid_requests(
+            backend_fn=rectilinear_grid_gradient_warp,
             field=field,
             coordinates=coordinates,
             periods=periods,
-            derivative_order=derivative_order,
+            derivative_orders=derivative_orders,
             include_mixed=include_mixed,
         )
 
@@ -130,16 +140,16 @@ class RectilinearGridGradient(FunctionSpec):
         field: torch.Tensor,
         coordinates: Sequence[torch.Tensor],
         periods: float | Sequence[float] | None = None,
-        derivative_order: int = 1,
+        derivative_orders: int | Sequence[int] = 1,
         include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch rectilinear gradients to eager PyTorch."""
-        ### PyTorch backend implementation.
-        return rectilinear_grid_gradient_torch(
+        return _dispatch_rectilinear_grid_requests(
+            backend_fn=rectilinear_grid_gradient_torch,
             field=field,
             coordinates=coordinates,
             periods=periods,
-            derivative_order=derivative_order,
+            derivative_orders=derivative_orders,
             include_mixed=include_mixed,
         )
 
@@ -196,7 +206,7 @@ class RectilinearGridGradient(FunctionSpec):
                 (field.to(torch.float32), coordinates),
                 {
                     "periods": periods,
-                    "derivative_order": derivative_order,
+                    "derivative_orders": derivative_order,
                     "include_mixed": False,
                 },
             )
@@ -265,7 +275,7 @@ class RectilinearGridGradient(FunctionSpec):
                 ),
                 {
                     "periods": periods,
-                    "derivative_order": derivative_order,
+                    "derivative_orders": derivative_order,
                     "include_mixed": False,
                 },
             )
@@ -299,3 +309,86 @@ rectilinear_grid_gradient = RectilinearGridGradient.make_function(
 
 
 __all__ = ["RectilinearGridGradient", "rectilinear_grid_gradient"]
+
+
+def _dispatch_rectilinear_grid_requests(
+    *,
+    backend_fn,
+    field: torch.Tensor,
+    coordinates: Sequence[torch.Tensor],
+    periods: float | Sequence[float] | None,
+    derivative_orders: int | Sequence[int],
+    include_mixed: bool,
+) -> torch.Tensor:
+    """Resolve unified derivative requests and dispatch to backend kernels."""
+    requested_orders = normalize_derivative_orders(
+        derivative_orders=derivative_orders,
+        function_name="rectilinear_grid_gradient",
+    )
+    mixed_terms = normalize_include_mixed(
+        include_mixed=include_mixed,
+        function_name="rectilinear_grid_gradient",
+    )
+    validate_mixed_request(
+        derivative_orders=requested_orders,
+        include_mixed=mixed_terms,
+        ndim=field.ndim,
+        function_name="rectilinear_grid_gradient",
+    )
+
+    if backend_fn is rectilinear_grid_gradient_warp and (
+        len(requested_orders) > 1 or mixed_terms
+    ):
+        return rectilinear_grid_gradient_warp_multi(
+            field=field,
+            coordinates=coordinates,
+            periods=periods,
+            derivative_orders=requested_orders,
+            include_mixed=mixed_terms,
+        )
+
+    outputs: list[torch.Tensor] = []
+    first_terms: torch.Tensor | None = None
+
+    if 1 in requested_orders:
+        first_terms = backend_fn(
+            field=field,
+            coordinates=coordinates,
+            periods=periods,
+            derivative_order=1,
+            include_mixed=False,
+        )
+        outputs.extend(first_terms.unbind(0))
+
+    if 2 in requested_orders:
+        pure_second_terms = backend_fn(
+            field=field,
+            coordinates=coordinates,
+            periods=periods,
+            derivative_order=2,
+            include_mixed=False,
+        )
+        outputs.extend(pure_second_terms.unbind(0))
+
+        if mixed_terms:
+            if first_terms is None:
+                first_terms = backend_fn(
+                    field=field,
+                    coordinates=coordinates,
+                    periods=periods,
+                    derivative_order=1,
+                    include_mixed=False,
+                )
+
+            for axis_i, axis_j in combinations(range(field.ndim), 2):
+                axis_i_first = first_terms[axis_i]
+                mixed_ij = backend_fn(
+                    field=axis_i_first,
+                    coordinates=coordinates,
+                    periods=periods,
+                    derivative_order=1,
+                    include_mixed=False,
+                )[axis_j]
+                outputs.append(mixed_ij)
+
+    return torch.stack(outputs, dim=0)

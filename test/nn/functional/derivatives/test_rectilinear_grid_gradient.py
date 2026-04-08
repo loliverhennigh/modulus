@@ -101,11 +101,63 @@ def test_rectilinear_grid_gradient_torch(device: str, dims: int, derivative_orde
         field.to(torch.float32),
         coordinates,
         periods=periods,
-        derivative_order=derivative_order,
+        derivative_orders=derivative_order,
         implementation="torch",
     )
     atol, rtol = (6e-1, 1e-1) if derivative_order == 2 and dims == 1 else (3e-2, 3e-2)
     torch.testing.assert_close(output, expected, atol=atol, rtol=rtol)
+
+
+# Validate unified derivative-order requests concatenate outputs deterministically.
+@pytest.mark.parametrize("dims", [1, 2, 3])
+def test_rectilinear_grid_gradient_torch_combined_orders(device: str, dims: int):
+    field, coordinates, periods, _expected_first = _make_periodic_case(
+        device, dims, derivative_order=1
+    )
+    first_only = RectilinearGridGradient.dispatch(
+        field.to(torch.float32),
+        coordinates,
+        periods=periods,
+        derivative_orders=1,
+        include_mixed=False,
+        implementation="torch",
+    )
+    second_only = RectilinearGridGradient.dispatch(
+        field.to(torch.float32),
+        coordinates,
+        periods=periods,
+        derivative_orders=2,
+        include_mixed=False,
+        implementation="torch",
+    )
+    output = RectilinearGridGradient.dispatch(
+        field.to(torch.float32),
+        coordinates,
+        periods=periods,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="torch",
+    )
+    expected = torch.cat((first_only, second_only), dim=0)
+    torch.testing.assert_close(output, expected, atol=3e-2, rtol=3e-2)
+
+
+# Validate mixed second derivatives are available through unified API.
+@pytest.mark.parametrize("dims", [2, 3])
+def test_rectilinear_grid_gradient_torch_second_order_mixed(device: str, dims: int):
+    field, coordinates, periods, _ = _make_periodic_case(
+        device, dims, derivative_order=2
+    )
+    output = RectilinearGridGradient.dispatch(
+        field.to(torch.float32),
+        coordinates,
+        periods=periods,
+        derivative_orders=2,
+        include_mixed=True,
+        implementation="torch",
+    )
+    expected_count = dims + (dims * (dims - 1)) // 2
+    assert output.shape[0] == expected_count
 
 
 # Validate warp backend forward parity against torch across benchmark cases.
@@ -128,6 +180,34 @@ def test_rectilinear_grid_gradient_backend_forward_parity(device: str):
             **kwargs_warp,
         )
         RectilinearGridGradient.compare_forward(out_warp, out_torch)
+
+
+# Validate warp fused first+second path parity against torch.
+@requires_module("warp")
+@pytest.mark.parametrize("dims", [1, 2, 3])
+def test_rectilinear_grid_gradient_backend_forward_combined_orders(
+    device: str, dims: int
+):
+    field, coordinates, periods, _ = _make_periodic_case(
+        device, dims, derivative_order=1
+    )
+    out_torch = RectilinearGridGradient.dispatch(
+        field.to(torch.float32),
+        coordinates,
+        periods=periods,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="torch",
+    )
+    out_warp = RectilinearGridGradient.dispatch(
+        field.to(torch.float32),
+        coordinates,
+        periods=periods,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="warp",
+    )
+    RectilinearGridGradient.compare_forward(out_warp, out_torch)
 
 
 # Validate warp backend backward parity against torch.
@@ -171,6 +251,59 @@ def test_rectilinear_grid_gradient_backend_backward_parity(device: str):
         assert grad_warp is not None
 
         RectilinearGridGradient.compare_backward(grad_warp, grad_torch)
+
+
+# Validate warp backend backward parity for fused combined-order requests.
+@requires_module("warp")
+@pytest.mark.parametrize("dims", [1, 2, 3])
+def test_rectilinear_grid_gradient_backend_backward_combined_orders(
+    device: str, dims: int
+):
+    field, coordinates, periods, _ = _make_periodic_case(
+        device, dims, derivative_order=1
+    )
+
+    field_torch = field.to(torch.float32).detach().clone().requires_grad_(True)
+    field_warp = field.to(torch.float32).detach().clone().requires_grad_(True)
+
+    out_torch = RectilinearGridGradient.dispatch(
+        field_torch,
+        coordinates,
+        periods=periods,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="torch",
+    )
+    out_warp = RectilinearGridGradient.dispatch(
+        field_warp,
+        coordinates,
+        periods=periods,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="warp",
+    )
+
+    grad_seed = torch.randn_like(out_torch)
+    grad_torch = torch.autograd.grad(
+        outputs=out_torch,
+        inputs=field_torch,
+        grad_outputs=grad_seed,
+        create_graph=False,
+        retain_graph=False,
+        allow_unused=False,
+    )[0]
+    grad_warp = torch.autograd.grad(
+        outputs=out_warp,
+        inputs=field_warp,
+        grad_outputs=grad_seed,
+        create_graph=False,
+        retain_graph=False,
+        allow_unused=False,
+    )[0]
+
+    assert grad_torch is not None
+    assert grad_warp is not None
+    torch.testing.assert_close(grad_warp, grad_torch, atol=7e-2, rtol=7e-2)
 
 
 # Validate benchmark input generation contract for forward inputs.
@@ -281,12 +414,12 @@ def test_rectilinear_grid_gradient_error_handling(device: str):
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="supports derivative_order in"):
+    with pytest.raises(ValueError, match="supports derivative orders"):
         RectilinearGridGradient.dispatch(
             torch.randn(16, device=device, dtype=torch.float32),
             (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
             periods=1.0,
-            derivative_order=3,
+            derivative_orders=3,
             implementation="torch",
         )
 
@@ -295,29 +428,29 @@ def test_rectilinear_grid_gradient_error_handling(device: str):
             torch.randn(16, device=device, dtype=torch.float32),
             (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
             periods=1.0,
-            derivative_order=2,
+            derivative_orders=2,
             include_mixed=1,  # type: ignore[arg-type]
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="only valid when derivative_order=2"):
+    with pytest.raises(ValueError, match="only valid when requesting 2nd derivatives"):
         RectilinearGridGradient.dispatch(
             torch.randn(16, device=device, dtype=torch.float32),
             (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
             periods=1.0,
-            derivative_order=1,
+            derivative_orders=1,
             include_mixed=True,
             implementation="torch",
         )
 
     with pytest.raises(
-        NotImplementedError, match="include_mixed=True is not yet supported"
+        ValueError, match="mixed derivatives require at least 2D inputs"
     ):
         RectilinearGridGradient.dispatch(
             torch.randn(16, device=device, dtype=torch.float32),
             (torch.linspace(0.0, 1.0, 16, device=device, dtype=torch.float32),),
             periods=1.0,
-            derivative_order=2,
+            derivative_orders=2,
             include_mixed=True,
             implementation="torch",
         )

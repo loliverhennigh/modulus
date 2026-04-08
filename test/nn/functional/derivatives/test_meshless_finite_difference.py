@@ -227,8 +227,8 @@ def test_meshless_fd_derivatives_torch_first_order(device: str, dim: int):
     output = MeshlessFDDerivatives.dispatch(
         stencil_values,
         spacing=spacing,
-        order=1,
-        return_mixed_derivs=False,
+        derivative_orders=1,
+        include_mixed=False,
         implementation="torch",
     )
     torch.testing.assert_close(output, expected, atol=5e-3, rtol=5e-3)
@@ -246,10 +246,31 @@ def test_meshless_fd_derivatives_torch_second_order(device: str, dim: int):
     output = MeshlessFDDerivatives.dispatch(
         stencil_values,
         spacing=spacing,
-        order=2,
-        return_mixed_derivs=(dim > 1),
+        derivative_orders=2,
+        include_mixed=(dim > 1),
         implementation="torch",
     )
+    torch.testing.assert_close(output, expected, atol=7e-3, rtol=7e-3)
+
+
+# Validate unified derivative-order requests concatenate outputs deterministically.
+@pytest.mark.parametrize("dim", [1, 2, 3])
+def test_meshless_fd_derivatives_torch_combined_orders(device: str, dim: int):
+    points = torch.rand(128, dim, device=device, dtype=torch.float32)
+    spacing = _spacing_for_dim(dim)
+    stencil_points = meshless_fd_stencil_points_torch(points, spacing=spacing)
+    stencil_values = _analytic_values(stencil_points)
+    expected_first = _analytic_first_derivatives(points)
+    expected_second = _analytic_second_derivatives(points)
+
+    output = MeshlessFDDerivatives.dispatch(
+        stencil_values,
+        spacing=spacing,
+        derivative_orders=(1, 2),
+        include_mixed=(dim > 1),
+        implementation="torch",
+    )
+    expected = torch.cat((expected_first, expected_second), dim=0)
     torch.testing.assert_close(output, expected, atol=7e-3, rtol=7e-3)
 
 
@@ -290,7 +311,7 @@ def test_meshless_fd_error_handling(device: str):
     assert stencil_points.shape == (16, 9, 2)
 
     values = _analytic_values(stencil_points)
-    derivs = meshless_fd_derivatives(values, spacing=(0.01, 0.02), order=1)
+    derivs = meshless_fd_derivatives(values, spacing=(0.01, 0.02), derivative_orders=1)
     assert derivs.shape == (2, 16, 2)
 
     with pytest.raises(ValueError, match="shape"):
@@ -333,18 +354,18 @@ def test_meshless_fd_error_handling(device: str):
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="order must be 1 or 2"):
+    with pytest.raises(ValueError, match="supports derivative orders"):
         MeshlessFDDerivatives.dispatch(
             torch.rand(16, 9, device=device, dtype=torch.float32),
-            order=3,
+            derivative_orders=3,
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="requires order=2"):
+    with pytest.raises(ValueError, match="only valid when requesting 2nd derivatives"):
         MeshlessFDDerivatives.dispatch(
             torch.rand(16, 9, device=device, dtype=torch.float32),
-            order=1,
-            return_mixed_derivs=True,
+            derivative_orders=1,
+            include_mixed=True,
             implementation="torch",
         )
 
@@ -358,7 +379,7 @@ def test_meshless_fd_error_handling(device: str):
     with pytest.raises(ValueError, match="mixed derivatives require at least 2D"):
         MeshlessFDDerivatives.dispatch(
             torch.rand(16, 3, device=device, dtype=torch.float32),
-            order=2,
-            return_mixed_derivs=True,
+            derivative_orders=2,
+            include_mixed=True,
             implementation="torch",
         )

@@ -24,6 +24,11 @@ from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
 
+from .._request_utils import (
+    normalize_derivative_orders,
+    normalize_include_mixed,
+    validate_mixed_request,
+)
 from ._torch_impl import (
     meshless_fd_derivatives_torch,
     meshless_fd_stencil_points_torch,
@@ -46,10 +51,11 @@ class MeshlessFDDerivatives(FunctionSpec):
         Stencil sizes must be ``3``, ``9``, or ``27``.
     spacing : float | Sequence[float], optional
         Stencil spacing per axis.
-    order : int, optional
-        Derivative order (``1`` or ``2``).
-    return_mixed_derivs : bool, optional
-        Include mixed second derivatives when ``order=2``.
+    derivative_orders : int | Sequence[int], optional
+        Derivative orders to compute. Supported values are ``1``, ``2``, or
+        ``(1, 2)``.
+    include_mixed : bool, optional
+        Include mixed second derivatives when requesting second derivatives.
     implementation : {"torch"} or None
         Implementation to use. When ``None``, dispatch selects the available
         implementation.
@@ -62,18 +68,9 @@ class MeshlessFDDerivatives(FunctionSpec):
 
     Notes
     -----
-    Derivative stack ordering is deterministic:
-
-    - ``order=1``:
-      ``[d/dx]`` (1D), ``[d/dx, d/dy]`` (2D),
-      ``[d/dx, d/dy, d/dz]`` (3D)
-    - ``order=2``:
-      pure second derivatives first,
-      ``[d2/dx2, d2/dy2, d2/dz2]`` (truncated by dimension)
-    - ``order=2`` with ``return_mixed_derivs=True``:
-      mixed derivatives are appended in axis-combination order:
-      ``d2/dxdy`` (2D),
-      ``d2/dxdy, d2/dxdz, d2/dydz`` (3D)
+    Derivative stack ordering is deterministic: first derivatives, then pure
+    second derivatives, then mixed second derivatives in axis-combination
+    order.
 
     The stencil size infers dimensionality:
     ``3 -> 1D``, ``9 -> 2D``, ``27 -> 3D``.
@@ -90,16 +87,48 @@ class MeshlessFDDerivatives(FunctionSpec):
     def torch_forward(
         stencil_values: Float[Tensor, "num_points stencil_size channels"],
         spacing: float | Sequence[float] = 1.0,
-        order: int = 1,
-        return_mixed_derivs: bool = False,
+        derivative_orders: int | Sequence[int] = 1,
+        include_mixed: bool = False,
     ) -> Float[Tensor, "num_derivs num_points channels"]:
         """Dispatch meshless finite-difference derivatives to the torch backend."""
-        return meshless_fd_derivatives_torch(
-            stencil_values=stencil_values,
-            spacing=spacing,
-            order=order,
-            return_mixed_derivs=return_mixed_derivs,
+        requested_orders = normalize_derivative_orders(
+            derivative_orders=derivative_orders,
+            function_name="meshless_fd_derivatives",
         )
+        mixed_terms = normalize_include_mixed(
+            include_mixed=include_mixed,
+            function_name="meshless_fd_derivatives",
+        )
+
+        ndim = _infer_dim_from_stencil_size(stencil_values)
+        if ndim is not None:
+            validate_mixed_request(
+                derivative_orders=requested_orders,
+                include_mixed=mixed_terms,
+                ndim=ndim,
+                function_name="meshless_fd_derivatives",
+            )
+
+        outputs: list[torch.Tensor] = []
+        if 1 in requested_orders:
+            outputs.append(
+                meshless_fd_derivatives_torch(
+                    stencil_values=stencil_values,
+                    spacing=spacing,
+                    order=1,
+                    return_mixed_derivs=False,
+                )
+            )
+        if 2 in requested_orders:
+            outputs.append(
+                meshless_fd_derivatives_torch(
+                    stencil_values=stencil_values,
+                    spacing=spacing,
+                    order=2,
+                    return_mixed_derivs=mixed_terms,
+                )
+            )
+        return torch.cat(outputs, dim=0)
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
@@ -122,8 +151,8 @@ class MeshlessFDDerivatives(FunctionSpec):
                 (stencil_values,),
                 {
                     "spacing": spacing,
-                    "order": order,
-                    "return_mixed_derivs": return_mixed_derivs,
+                    "derivative_orders": order,
+                    "include_mixed": return_mixed_derivs,
                 },
             )
 
@@ -158,8 +187,8 @@ class MeshlessFDDerivatives(FunctionSpec):
                 (stencil_values,),
                 {
                     "spacing": spacing,
-                    "order": order,
-                    "return_mixed_derivs": return_mixed_derivs,
+                    "derivative_orders": order,
+                    "include_mixed": return_mixed_derivs,
                 },
             )
 
@@ -200,3 +229,10 @@ __all__ = [
     "MeshlessFDDerivatives",
     "meshless_fd_derivatives",
 ]
+
+
+def _infer_dim_from_stencil_size(stencil_values: torch.Tensor) -> int | None:
+    """Infer dimensionality from stencil shape when it is structurally valid."""
+    if stencil_values.ndim not in (2, 3):
+        return None
+    return {3: 1, 9: 2, 27: 3}.get(stencil_values.shape[1])

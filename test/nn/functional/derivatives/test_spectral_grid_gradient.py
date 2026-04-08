@@ -112,8 +112,8 @@ def test_spectral_grid_gradient_torch_first_order(device: str, dim: int):
     output = SpectralGridGradient.dispatch(
         field,
         lengths=lengths,
-        order=1,
-        return_mixed_derivs=False,
+        derivative_orders=1,
+        include_mixed=False,
         implementation="torch",
     )
     torch.testing.assert_close(output, first_expected, atol=1e-4, rtol=1e-4)
@@ -128,11 +128,28 @@ def test_spectral_grid_gradient_torch_second_order(device: str, dim: int):
     output = SpectralGridGradient.dispatch(
         field,
         lengths=lengths,
-        order=2,
-        return_mixed_derivs=(dim > 1),
+        derivative_orders=2,
+        include_mixed=(dim > 1),
         implementation="torch",
     )
     torch.testing.assert_close(output, second_expected, atol=1e-4, rtol=1e-4)
+
+
+# Validate unified derivative-order requests concatenate outputs deterministically.
+@pytest.mark.parametrize("dim", [1, 2, 3])
+def test_spectral_grid_gradient_torch_combined_orders(device: str, dim: int):
+    field, lengths, first_expected, second_expected = _make_periodic_test_case(
+        device=device, dim=dim
+    )
+    output = SpectralGridGradient.dispatch(
+        field,
+        lengths=lengths,
+        derivative_orders=(1, 2),
+        include_mixed=(dim > 1),
+        implementation="torch",
+    )
+    expected = torch.cat((first_expected, second_expected), dim=0)
+    torch.testing.assert_close(output, expected, atol=1e-4, rtol=1e-4)
 
 
 # Validate benchmark input generation contract for forward inputs.
@@ -147,7 +164,7 @@ def test_spectral_grid_gradient_make_inputs_forward(device: str):
     field = args[0]
     output = SpectralGridGradient.dispatch(*args, implementation="torch", **kwargs)
     expected_count = field.ndim
-    if kwargs["order"] == 2 and kwargs["return_mixed_derivs"]:
+    if kwargs["derivative_orders"] == 2 and kwargs["include_mixed"]:
         expected_count += (field.ndim * (field.ndim - 1)) // 2
     assert output.shape[0] == expected_count
 
@@ -172,7 +189,7 @@ def test_spectral_grid_gradient_make_inputs_backward(device: str):
 # Validate exported API and validation error paths.
 def test_spectral_grid_gradient_error_handling(device: str):
     field = torch.randn(64, device=device, dtype=torch.float32)
-    output = spectral_grid_gradient(field, lengths=2.0, order=1)
+    output = spectral_grid_gradient(field, lengths=2.0, derivative_orders=1)
     assert output.shape == (1, 64)
 
     with pytest.raises(ValueError, match="supports 1D-3D fields"):
@@ -187,28 +204,28 @@ def test_spectral_grid_gradient_error_handling(device: str):
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="order must be 1 or 2"):
+    with pytest.raises(ValueError, match="supports derivative orders"):
         SpectralGridGradient.dispatch(
             field,
-            order=3,
+            derivative_orders=3,
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="requires order=2"):
+    with pytest.raises(ValueError, match="only valid when requesting 2nd derivatives"):
         SpectralGridGradient.dispatch(
             field,
-            order=1,
-            return_mixed_derivs=True,
+            derivative_orders=1,
+            include_mixed=True,
             implementation="torch",
         )
 
     with pytest.raises(
-        ValueError, match="mixed derivatives require at least 2D fields"
+        ValueError, match="mixed derivatives require at least 2D inputs"
     ):
         SpectralGridGradient.dispatch(
             field,
-            order=2,
-            return_mixed_derivs=True,
+            derivative_orders=2,
+            include_mixed=True,
             implementation="torch",
         )
 

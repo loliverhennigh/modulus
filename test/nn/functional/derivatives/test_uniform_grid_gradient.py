@@ -96,10 +96,46 @@ def test_uniform_grid_gradient_torch(
         field,
         spacing=spacing,
         order=order,
-        derivative_order=derivative_order,
+        derivative_orders=derivative_order,
         implementation="torch",
     )
     torch.testing.assert_close(output, expected, atol=5e-2, rtol=5e-2)
+
+
+# Validate unified derivative-order requests concatenate outputs deterministically.
+@pytest.mark.parametrize("dims", [1, 2, 3])
+def test_uniform_grid_gradient_torch_combined_orders(device: str, dims: int):
+    field, spacing, expected_first = _make_periodic_field(
+        device, dims, derivative_order=1
+    )
+    _, _, expected_second = _make_periodic_field(device, dims, derivative_order=2)
+
+    output = UniformGridGradient.dispatch(
+        field,
+        spacing=spacing,
+        order=2,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="torch",
+    )
+    expected = torch.cat((expected_first, expected_second), dim=0)
+    torch.testing.assert_close(output, expected, atol=5e-2, rtol=5e-2)
+
+
+# Validate mixed second derivatives are available through unified API.
+@pytest.mark.parametrize("dims", [2, 3])
+def test_uniform_grid_gradient_torch_second_order_mixed(device: str, dims: int):
+    field, spacing, _expected = _make_periodic_field(device, dims, derivative_order=2)
+    output = UniformGridGradient.dispatch(
+        field,
+        spacing=spacing,
+        order=2,
+        derivative_orders=2,
+        include_mixed=True,
+        implementation="torch",
+    )
+    expected_count = dims + (dims * (dims - 1)) // 2
+    assert output.shape[0] == expected_count
 
 
 # Validate higher-order stencil improves analytic error for smooth fields.
@@ -110,14 +146,14 @@ def test_uniform_grid_gradient_torch_order4_more_accurate(device: str, dims: int
         field,
         spacing=spacing,
         order=2,
-        derivative_order=1,
+        derivative_orders=1,
         implementation="torch",
     )
     out_o4 = UniformGridGradient.dispatch(
         field,
         spacing=spacing,
         order=4,
-        derivative_order=1,
+        derivative_orders=1,
         implementation="torch",
     )
 
@@ -191,6 +227,104 @@ def test_uniform_grid_gradient_backend_backward_parity(device: str):
         assert grad_warp is not None
 
         UniformGridGradient.compare_backward(grad_warp, grad_torch)
+
+
+# Validate warp backend backward parity for fused combined-order requests.
+@requires_module("warp")
+@pytest.mark.parametrize("dims", [1, 2, 3])
+def test_uniform_grid_gradient_backend_backward_combined_orders(device: str, dims: int):
+    field, spacing, _ = _make_periodic_field(device, dims, derivative_order=1)
+
+    field_torch = field.to(torch.float32).detach().clone().requires_grad_(True)
+    field_warp = field.to(torch.float32).detach().clone().requires_grad_(True)
+
+    out_torch = UniformGridGradient.dispatch(
+        field_torch,
+        spacing=spacing,
+        order=2,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="torch",
+    )
+    out_warp = UniformGridGradient.dispatch(
+        field_warp,
+        spacing=spacing,
+        order=2,
+        derivative_orders=(1, 2),
+        include_mixed=False,
+        implementation="warp",
+    )
+
+    grad_seed = torch.randn_like(out_torch)
+    grad_torch = torch.autograd.grad(
+        outputs=out_torch,
+        inputs=field_torch,
+        grad_outputs=grad_seed,
+        create_graph=False,
+        retain_graph=False,
+        allow_unused=False,
+    )[0]
+    grad_warp = torch.autograd.grad(
+        outputs=out_warp,
+        inputs=field_warp,
+        grad_outputs=grad_seed,
+        create_graph=False,
+        retain_graph=False,
+        allow_unused=False,
+    )[0]
+
+    assert grad_torch is not None
+    assert grad_warp is not None
+    torch.testing.assert_close(grad_warp, grad_torch, atol=7e-2, rtol=7e-2)
+
+
+# Validate warp backend mixed second-derivative backward parity against torch.
+@requires_module("warp")
+@pytest.mark.parametrize("dims", [2, 3])
+def test_uniform_grid_gradient_backend_backward_mixed_orders(device: str, dims: int):
+    field, spacing, _ = _make_periodic_field(device, dims, derivative_order=1)
+
+    field_torch = field.to(torch.float32).detach().clone().requires_grad_(True)
+    field_warp = field.to(torch.float32).detach().clone().requires_grad_(True)
+
+    out_torch = UniformGridGradient.dispatch(
+        field_torch,
+        spacing=spacing,
+        order=2,
+        derivative_orders=2,
+        include_mixed=True,
+        implementation="torch",
+    )
+    out_warp = UniformGridGradient.dispatch(
+        field_warp,
+        spacing=spacing,
+        order=2,
+        derivative_orders=2,
+        include_mixed=True,
+        implementation="warp",
+    )
+
+    grad_seed = torch.randn_like(out_torch)
+    grad_torch = torch.autograd.grad(
+        outputs=out_torch,
+        inputs=field_torch,
+        grad_outputs=grad_seed,
+        create_graph=False,
+        retain_graph=False,
+        allow_unused=False,
+    )[0]
+    grad_warp = torch.autograd.grad(
+        outputs=out_warp,
+        inputs=field_warp,
+        grad_outputs=grad_seed,
+        create_graph=False,
+        retain_graph=False,
+        allow_unused=False,
+    )[0]
+
+    assert grad_torch is not None
+    assert grad_warp is not None
+    torch.testing.assert_close(grad_warp, grad_torch, atol=7e-2, rtol=7e-2)
 
 
 # Validate benchmark input generation contract for forward inputs.
@@ -267,13 +401,13 @@ def test_uniform_grid_gradient_auto_dispatch_matches_selected(device: str):
     output_auto = uniform_grid_gradient(
         field,
         spacing=(1.0, 1.0),
-        derivative_order=1,
+        derivative_orders=1,
         include_mixed=False,
     )
     output_explicit = UniformGridGradient.dispatch(
         field,
         spacing=(1.0, 1.0),
-        derivative_order=1,
+        derivative_orders=1,
         include_mixed=False,
         implementation=implementation,
     )
@@ -382,35 +516,33 @@ def test_uniform_grid_gradient_error_handling(device: str):
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="supports derivative_order in"):
+    with pytest.raises(ValueError, match="supports derivative orders"):
         UniformGridGradient.dispatch(
             torch.randn(8, 8, device=device, dtype=torch.float32),
-            derivative_order=3,
+            derivative_orders=3,
             implementation="torch",
         )
 
     with pytest.raises(TypeError, match="include_mixed must be a bool"):
         UniformGridGradient.dispatch(
             torch.randn(8, 8, device=device, dtype=torch.float32),
-            derivative_order=2,
+            derivative_orders=2,
             include_mixed=1,  # type: ignore[arg-type]
             implementation="torch",
         )
 
-    with pytest.raises(ValueError, match="only valid when derivative_order=2"):
+    with pytest.raises(ValueError, match="only valid when requesting 2nd derivatives"):
         UniformGridGradient.dispatch(
             torch.randn(8, 8, device=device, dtype=torch.float32),
-            derivative_order=1,
+            derivative_orders=1,
             include_mixed=True,
             implementation="torch",
         )
 
-    with pytest.raises(
-        NotImplementedError, match="include_mixed=True is not yet supported"
-    ):
-        UniformGridGradient.dispatch(
-            torch.randn(8, 8, device=device, dtype=torch.float32),
-            derivative_order=2,
-            include_mixed=True,
-            implementation="torch",
-        )
+    out = UniformGridGradient.dispatch(
+        torch.randn(8, 8, device=device, dtype=torch.float32),
+        derivative_orders=2,
+        include_mixed=True,
+        implementation="torch",
+    )
+    assert out.shape[0] == 3

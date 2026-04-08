@@ -24,13 +24,19 @@ from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
 
+from .._request_utils import (
+    normalize_derivative_orders,
+    normalize_include_mixed,
+    validate_mixed_request,
+)
 from ._torch_impl import spectral_grid_gradient_torch
 
 
 class SpectralGridGradient(FunctionSpec):
     r"""Compute periodic derivatives with Fourier spectral differentiation.
 
-    This functional computes first- or second-order derivatives on 1D/2D/3D
+    This functional computes first-order and/or second-order derivatives on
+    1D/2D/3D
     periodic scalar fields by transforming to Fourier space, applying exact
     derivative multipliers, and transforming back.
 
@@ -42,12 +48,11 @@ class SpectralGridGradient(FunctionSpec):
     lengths : float | Sequence[float], optional
         Physical domain lengths per axis. A scalar applies the same length to
         every axis.
-    order : int, optional
-        Derivative order, either ``1`` (first derivatives) or ``2``
-        (second derivatives).
-    return_mixed_derivs : bool, optional
-        Whether to include mixed second derivatives. This is only valid when
-        ``order=2`` and ``field.ndim >= 2``.
+    derivative_orders : int | Sequence[int], optional
+        Derivative orders to compute. Supported values are ``1``, ``2``, or
+        ``(1, 2)``.
+    include_mixed : bool, optional
+        Include mixed second derivatives when requesting second derivatives.
     implementation : {"torch"} or None
         Implementation to use. When ``None``, dispatch selects the available
         implementation.
@@ -56,10 +61,9 @@ class SpectralGridGradient(FunctionSpec):
     -------
     torch.Tensor
         Stacked derivative tensor with shape ``(num_derivatives, *field.shape)``.
-        Derivative ordering is:
-        first order: ``[d/dx, d/dy, d/dz]`` (up to dimensionality);
-        second order: pure second derivatives first, then mixed derivatives in
-        axis-pair order ``(x,y), (x,z), (y,z)``.
+        Derivative ordering is deterministic:
+        first derivatives, then pure second derivatives, then mixed second
+        derivatives in axis-pair order ``(x,y), (x,z), (y,z)``.
     """
 
     _BENCHMARK_CASES = (
@@ -73,16 +77,46 @@ class SpectralGridGradient(FunctionSpec):
     def torch_forward(
         field: Float[Tensor, "..."],
         lengths: float | Sequence[float] = 1.0,
-        order: int = 1,
-        return_mixed_derivs: bool = False,
+        derivative_orders: int | Sequence[int] = 1,
+        include_mixed: bool = False,
     ) -> Float[Tensor, "..."]:
         """Dispatch spectral derivatives to the PyTorch backend."""
-        return spectral_grid_gradient_torch(
-            field=field,
-            lengths=lengths,
-            order=order,
-            return_mixed_derivs=return_mixed_derivs,
+        requested_orders = normalize_derivative_orders(
+            derivative_orders=derivative_orders,
+            function_name="spectral_grid_gradient",
         )
+        mixed_terms = normalize_include_mixed(
+            include_mixed=include_mixed,
+            function_name="spectral_grid_gradient",
+        )
+        validate_mixed_request(
+            derivative_orders=requested_orders,
+            include_mixed=mixed_terms,
+            ndim=field.ndim,
+            function_name="spectral_grid_gradient",
+        )
+
+        outputs: list[torch.Tensor] = []
+        if 1 in requested_orders:
+            outputs.append(
+                spectral_grid_gradient_torch(
+                    field=field,
+                    lengths=lengths,
+                    order=1,
+                    return_mixed_derivs=False,
+                )
+            )
+        if 2 in requested_orders:
+            outputs.append(
+                spectral_grid_gradient_torch(
+                    field=field,
+                    lengths=lengths,
+                    order=2,
+                    return_mixed_derivs=mixed_terms,
+                )
+            )
+
+        return torch.cat(outputs, dim=0)
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
@@ -99,8 +133,8 @@ class SpectralGridGradient(FunctionSpec):
                 (field,),
                 {
                     "lengths": lengths,
-                    "order": order,
-                    "return_mixed_derivs": return_mixed_derivs,
+                    "derivative_orders": order,
+                    "include_mixed": return_mixed_derivs,
                 },
             )
 
@@ -129,8 +163,8 @@ class SpectralGridGradient(FunctionSpec):
                 (field,),
                 {
                     "lengths": lengths,
-                    "order": order,
-                    "return_mixed_derivs": return_mixed_derivs,
+                    "derivative_orders": order,
+                    "include_mixed": return_mixed_derivs,
                 },
             )
 

@@ -18,13 +18,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import lru_cache
+from itertools import combinations
 
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
 
+from .._request_utils import (
+    normalize_derivative_orders,
+    normalize_include_mixed,
+    validate_mixed_request,
+)
 from ._torch_impl import uniform_grid_gradient_torch
-from ._warp_impl import uniform_grid_gradient_warp
+from ._warp_impl import uniform_grid_gradient_warp, uniform_grid_gradient_warp_multi
 
 ### Auto-dispatch crossover thresholds for 3D CUDA fields.
 ### <= TORCH_MAX uses eager torch; <= TORCH_COMPILED_MAX uses torch-compiled.
@@ -36,7 +42,7 @@ _AUTO_3D_TORCH_COMPILED_MAX_NUMEL = 64 * 64 * 64
 class UniformGridGradient(FunctionSpec):
     r"""Compute periodic central-difference gradients on a uniform grid.
 
-    This functional computes first-order or pure axis-wise second-order
+    This functional computes first-order and/or second-order
     derivatives of a scalar field defined on a 1D/2D/3D uniform Cartesian
     grid with periodic indexing.
 
@@ -66,12 +72,13 @@ class UniformGridGradient(FunctionSpec):
         sequence matching field dimensionality.
     order : int, optional
         Central-difference accuracy order. Supported values are ``2`` and ``4``.
-    derivative_order : int, optional
-        Derivative order to compute. ``1`` returns first derivatives and ``2``
-        returns pure second derivatives.
+    derivative_orders : int | Sequence[int], optional
+        Derivative orders to compute. Supported values are ``1``, ``2``, or
+        ``(1, 2)``.
     include_mixed : bool, optional
-        Reserved for future mixed-derivative support when
-        ``derivative_order=2``. In phase-1 this must remain ``False``.
+        Include mixed second derivatives when requesting second derivatives.
+        Mixed terms are appended in axis-pair order ``(x,y)``, ``(x,z)``,
+        ``(y,z)``.
     implementation : {"warp", "torch_compiled", "torch"} or None
         Explicit backend selection. When ``None``, ``uniform_grid_gradient``
         applies a shape-aware auto-dispatch heuristic.
@@ -79,7 +86,7 @@ class UniformGridGradient(FunctionSpec):
     Returns
     -------
     torch.Tensor
-        Gradient tensor of shape ``(dims, *field.shape)``.
+        Gradient tensor of shape ``(num_derivatives, *field.shape)``.
     """
 
     ### Benchmark input presets (small -> large workload).
@@ -102,16 +109,16 @@ class UniformGridGradient(FunctionSpec):
         field: torch.Tensor,
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
-        derivative_order: int = 1,
+        derivative_orders: int | Sequence[int] = 1,
         include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to the Warp backend."""
-        ### Warp backend implementation.
-        return uniform_grid_gradient_warp(
+        return _dispatch_uniform_grid_requests(
+            backend_fn=uniform_grid_gradient_warp,
             field=field,
             spacing=spacing,
             order=order,
-            derivative_order=derivative_order,
+            derivative_orders=derivative_orders,
             include_mixed=include_mixed,
         )
 
@@ -120,24 +127,21 @@ class UniformGridGradient(FunctionSpec):
         field: torch.Tensor,
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
-        derivative_order: int = 1,
+        derivative_orders: int | Sequence[int] = 1,
         include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to torch.compile when available."""
-        ### Compiled PyTorch backend implementation with safe fallback.
-        if field.device.type != "cuda":
-            return uniform_grid_gradient_torch(
-                field=field,
-                spacing=spacing,
-                order=order,
-                derivative_order=derivative_order,
-                include_mixed=include_mixed,
-            )
-        return _compiled_uniform_grid_gradient_torch(
+        backend_fn = (
+            uniform_grid_gradient_torch
+            if field.device.type != "cuda"
+            else _compiled_uniform_grid_gradient_torch
+        )
+        return _dispatch_uniform_grid_requests(
+            backend_fn=backend_fn,
             field=field,
             spacing=spacing,
             order=order,
-            derivative_order=derivative_order,
+            derivative_orders=derivative_orders,
             include_mixed=include_mixed,
         )
 
@@ -146,16 +150,16 @@ class UniformGridGradient(FunctionSpec):
         field: torch.Tensor,
         spacing: float | Sequence[float] = 1.0,
         order: int = 2,
-        derivative_order: int = 1,
+        derivative_orders: int | Sequence[int] = 1,
         include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to eager PyTorch."""
-        ### PyTorch backend implementation.
-        return uniform_grid_gradient_torch(
+        return _dispatch_uniform_grid_requests(
+            backend_fn=uniform_grid_gradient_torch,
             field=field,
             spacing=spacing,
             order=order,
-            derivative_order=derivative_order,
+            derivative_orders=derivative_orders,
             include_mixed=include_mixed,
         )
 
@@ -194,7 +198,7 @@ class UniformGridGradient(FunctionSpec):
                 {
                     "spacing": spacing,
                     "order": order,
-                    "derivative_order": derivative_order,
+                    "derivative_orders": derivative_order,
                     "include_mixed": False,
                 },
             )
@@ -243,7 +247,7 @@ class UniformGridGradient(FunctionSpec):
                 {
                     "spacing": spacing,
                     "order": order,
-                    "derivative_order": derivative_order,
+                    "derivative_orders": derivative_order,
                     "include_mixed": False,
                 },
             )
@@ -287,8 +291,8 @@ def _compiled_uniform_grid_gradient_torch(
     field: torch.Tensor,
     spacing: float | Sequence[float],
     order: int,
-    derivative_order: int,
-    include_mixed: bool,
+    derivative_order: int = 1,
+    include_mixed: bool = False,
 ) -> torch.Tensor:
     ### Dispatch to torch.compile path while preserving torch fallback behavior.
     try:
@@ -352,11 +356,11 @@ def uniform_grid_gradient(
     field: torch.Tensor,
     spacing: float | Sequence[float] = 1.0,
     order: int = 2,
-    derivative_order: int = 1,
+    derivative_orders: int | Sequence[int] = 1,
     include_mixed: bool = False,
     implementation: str | None = None,
 ) -> torch.Tensor:
-    """Compute periodic first or pure second derivatives on a uniform grid.
+    """Compute periodic first and/or second derivatives on a uniform grid.
 
     When ``implementation`` is ``None``, a shape-aware backend heuristic is
     used: on CUDA, 1D/2D fields prefer ``torch``; 3D fields use a two-threshold
@@ -370,10 +374,93 @@ def uniform_grid_gradient(
         field,
         spacing=spacing,
         order=order,
-        derivative_order=derivative_order,
+        derivative_orders=derivative_orders,
         include_mixed=include_mixed,
         implementation=implementation,
     )
 
 
 __all__ = ["UniformGridGradient", "uniform_grid_gradient"]
+
+
+def _dispatch_uniform_grid_requests(
+    *,
+    backend_fn,
+    field: torch.Tensor,
+    spacing: float | Sequence[float],
+    order: int,
+    derivative_orders: int | Sequence[int],
+    include_mixed: bool,
+) -> torch.Tensor:
+    """Resolve unified derivative requests and dispatch to backend kernels."""
+    requested_orders = normalize_derivative_orders(
+        derivative_orders=derivative_orders,
+        function_name="uniform_grid_gradient",
+    )
+    mixed_terms = normalize_include_mixed(
+        include_mixed=include_mixed,
+        function_name="uniform_grid_gradient",
+    )
+    validate_mixed_request(
+        derivative_orders=requested_orders,
+        include_mixed=mixed_terms,
+        ndim=field.ndim,
+        function_name="uniform_grid_gradient",
+    )
+
+    if backend_fn is uniform_grid_gradient_warp and (
+        len(requested_orders) > 1 or mixed_terms
+    ):
+        return uniform_grid_gradient_warp_multi(
+            field=field,
+            spacing=spacing,
+            order=order,
+            derivative_orders=requested_orders,
+            include_mixed=mixed_terms,
+        )
+
+    outputs: list[torch.Tensor] = []
+    first_terms: torch.Tensor | None = None
+
+    if 1 in requested_orders:
+        first_terms = backend_fn(
+            field=field,
+            spacing=spacing,
+            order=order,
+            derivative_order=1,
+            include_mixed=False,
+        )
+        outputs.extend(first_terms.unbind(0))
+
+    if 2 in requested_orders:
+        pure_second_terms = backend_fn(
+            field=field,
+            spacing=spacing,
+            order=order,
+            derivative_order=2,
+            include_mixed=False,
+        )
+        outputs.extend(pure_second_terms.unbind(0))
+
+        if mixed_terms:
+            if first_terms is None:
+                first_terms = backend_fn(
+                    field=field,
+                    spacing=spacing,
+                    order=order,
+                    derivative_order=1,
+                    include_mixed=False,
+                )
+
+            for axis_i, axis_j in combinations(range(field.ndim), 2):
+                axis_i_first = first_terms[axis_i]
+                mixed_ij = backend_fn(
+                    field=axis_i_first,
+                    spacing=spacing,
+                    order=order,
+                    derivative_order=1,
+                    include_mixed=False,
+                )[axis_j]
+                outputs.append(mixed_ij)
+
+    return torch.stack(outputs, dim=0)

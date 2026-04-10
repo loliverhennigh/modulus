@@ -116,7 +116,7 @@ def test_mesh_lsq_gradient_backend_backward_parity(device: str):
 
 # Validate warp backend on 1D input parity against torch.
 @requires_module("warp")
-def test_mesh_lsq_gradient_warp_1d(device: str):
+def test_mesh_lsq_gradient_warp(device: str):
     points, offsets, indices = _make_case(
         device, n_entities=512, n_dims=1, k_neighbors=16
     )
@@ -304,7 +304,7 @@ def test_mesh_lsq_gradient_error_handling(device: str):
 
 # Validate warp backend input validation paths mirror torch behavior.
 @requires_module("warp")
-def test_mesh_lsq_gradient_warp_error_handling(device: str):
+def test_mesh_lsq_gradient_error_handling_warp(device: str):
     points, offsets, indices = _make_case(
         device, n_entities=128, n_dims=3, k_neighbors=8
     )

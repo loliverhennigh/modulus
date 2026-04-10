@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from functools import lru_cache
 from itertools import combinations
 
 import torch
@@ -32,11 +31,9 @@ from .._request_utils import (
 from ._torch_impl import uniform_grid_gradient_torch
 from ._warp_impl import uniform_grid_gradient_warp, uniform_grid_gradient_warp_multi
 
-### Auto-dispatch crossover thresholds for 3D CUDA fields.
-### <= TORCH_MAX uses eager torch; <= TORCH_COMPILED_MAX uses torch-compiled.
-### Larger fields use warp.
+### Auto-dispatch crossover threshold for 3D CUDA fields.
+### <= TORCH_MAX uses eager torch, larger fields use warp.
 _AUTO_3D_TORCH_MAX_NUMEL = 48 * 48 * 48
-_AUTO_3D_TORCH_COMPILED_MAX_NUMEL = 64 * 64 * 64
 
 
 class UniformGridGradient(FunctionSpec):
@@ -79,7 +76,7 @@ class UniformGridGradient(FunctionSpec):
         Include mixed second derivatives when requesting second derivatives.
         Mixed terms are appended in axis-pair order ``(x,y)``, ``(x,z)``,
         ``(y,z)``.
-    implementation : {"warp", "torch_compiled", "torch"} or None
+    implementation : {"warp", "torch"} or None
         Explicit backend selection. When ``None``, ``uniform_grid_gradient``
         applies a shape-aware auto-dispatch heuristic.
 
@@ -115,29 +112,6 @@ class UniformGridGradient(FunctionSpec):
         """Dispatch uniform-grid gradients to the Warp backend."""
         return _dispatch_uniform_grid_requests(
             backend_fn=uniform_grid_gradient_warp,
-            field=field,
-            spacing=spacing,
-            order=order,
-            derivative_orders=derivative_orders,
-            include_mixed=include_mixed,
-        )
-
-    @FunctionSpec.register(name="torch_compiled", rank=1)
-    def torch_compiled_forward(
-        field: torch.Tensor,
-        spacing: float | Sequence[float] = 1.0,
-        order: int = 2,
-        derivative_orders: int | Sequence[int] = 1,
-        include_mixed: bool = False,
-    ) -> torch.Tensor:
-        """Dispatch uniform-grid gradients to torch.compile when available."""
-        backend_fn = (
-            uniform_grid_gradient_torch
-            if field.device.type != "cuda"
-            else _compiled_uniform_grid_gradient_torch
-        )
-        return _dispatch_uniform_grid_requests(
-            backend_fn=backend_fn,
             field=field,
             spacing=spacing,
             order=order,
@@ -275,51 +249,10 @@ class UniformGridGradient(FunctionSpec):
         )
 
 
-@lru_cache(maxsize=1)
-def _get_compiled_uniform_grid_gradient_torch():
-    ### Lazily construct and cache the torch-compiled implementation.
-    try:
-        return torch.compile(
-            uniform_grid_gradient_torch,
-            mode="max-autotune-no-cudagraphs",
-        )
-    except Exception:
-        return torch.compile(uniform_grid_gradient_torch, mode="default")
-
-
-def _compiled_uniform_grid_gradient_torch(
-    field: torch.Tensor,
-    spacing: float | Sequence[float],
-    order: int,
-    derivative_order: int = 1,
-    include_mixed: bool = False,
-) -> torch.Tensor:
-    ### Dispatch to torch.compile path while preserving torch fallback behavior.
-    try:
-        compiled = _get_compiled_uniform_grid_gradient_torch()
-    except Exception:
-        return uniform_grid_gradient_torch(
-            field=field,
-            spacing=spacing,
-            order=order,
-            derivative_order=derivative_order,
-            include_mixed=include_mixed,
-        )
-    return compiled(
-        field=field,
-        spacing=spacing,
-        order=order,
-        derivative_order=derivative_order,
-        include_mixed=include_mixed,
-    )
-
-
 def _auto_select_implementation(field: torch.Tensor) -> str:
     ### Select backend by dimensionality/size on CUDA and by capability on CPU.
     available = set(UniformGridGradient.available_implementations())
     if "warp" not in available:
-        if "torch_compiled" in available:
-            return "torch_compiled"
         return "torch"
 
     if field.device.type != "cuda":
@@ -329,21 +262,16 @@ def _auto_select_implementation(field: torch.Tensor) -> str:
     if field.requires_grad:
         return "warp"
 
-    if "torch_compiled" not in available:
-        return "warp"
-
     ### 1D/2D generally favor eager torch in current measurements.
     if field.ndim in (1, 2):
         if "torch" in available:
             return "torch"
-        return "torch_compiled"
+        return "warp"
 
-    ### 3D uses a two-threshold crossover: torch -> torch_compiled -> warp.
+    ### 3D uses a single-threshold crossover: torch -> warp.
     numel = field.numel()
     if numel <= _AUTO_3D_TORCH_MAX_NUMEL and "torch" in available:
         return "torch"
-    if numel <= _AUTO_3D_TORCH_COMPILED_MAX_NUMEL and "torch_compiled" in available:
-        return "torch_compiled"
     return "warp"
 
 
@@ -363,8 +291,8 @@ def uniform_grid_gradient(
     """Compute periodic first and/or second derivatives on a uniform grid.
 
     When ``implementation`` is ``None``, a shape-aware backend heuristic is
-    used: on CUDA, 1D/2D fields prefer ``torch``; 3D fields use a two-threshold
-    crossover (``torch`` -> ``torch_compiled`` -> ``warp``) as problem size
+    used: on CUDA, 1D/2D fields prefer ``torch``; 3D fields use a single-threshold
+    crossover (``torch`` -> ``warp``) as problem size
     grows. Inputs requiring gradients prefer ``warp`` to use the explicit
     custom backward kernels.
     """

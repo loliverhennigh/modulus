@@ -20,7 +20,6 @@ import torch
 from physicsnemo.nn.functional import uniform_grid_gradient
 from physicsnemo.nn.functional.derivatives import UniformGridGradient
 from physicsnemo.nn.functional.derivatives.uniform_grid_gradient.uniform_grid_gradient import (
-    _AUTO_3D_TORCH_COMPILED_MAX_NUMEL,
     _AUTO_3D_TORCH_MAX_NUMEL,
     _auto_select_implementation,
 )
@@ -182,23 +181,20 @@ def test_uniform_grid_gradient_backend_forward_parity(device: str):
         UniformGridGradient.compare_forward(out_warp, out_torch)
 
 
-# Validate torch-compiled backend parity against torch backend.
-def test_uniform_grid_gradient_torch_compiled(device: str):
-    for _label, args, kwargs in UniformGridGradient.make_inputs_forward(device=device):
-        args_torch, kwargs_torch = clone_case(args, kwargs)
-        args_comp, kwargs_comp = clone_case(args, kwargs)
-
-        out_torch = UniformGridGradient.dispatch(
-            *args_torch,
-            implementation="torch",
-            **kwargs_torch,
-        )
-        out_compiled = UniformGridGradient.dispatch(
-            *args_comp,
-            implementation="torch_compiled",
-            **kwargs_comp,
-        )
-        UniformGridGradient.compare_forward(out_compiled, out_torch)
+# Validate warp backend against analytic periodic derivatives.
+@requires_module("warp")
+@pytest.mark.parametrize("dims", [1, 2, 3])
+@pytest.mark.parametrize("derivative_order", [1, 2])
+def test_uniform_grid_gradient_warp(device: str, dims: int, derivative_order: int):
+    field, spacing, expected = _make_periodic_field(device, dims, derivative_order)
+    output = UniformGridGradient.dispatch(
+        field,
+        spacing=spacing,
+        order=2,
+        derivative_orders=derivative_order,
+        implementation="warp",
+    )
+    torch.testing.assert_close(output, expected, atol=7e-2, rtol=7e-2)
 
 
 # Validate warp backend backward parity against torch for representative workloads.
@@ -394,7 +390,7 @@ def test_uniform_grid_gradient_compare_backward_contract(device: str):
 
 
 # Validate auto-dispatch default path matches explicit selected implementation.
-def test_uniform_grid_gradient_auto_dispatch_matches_selected(device: str):
+def test_uniform_grid_gradient_dispatch_auto_matches_selected(device: str):
     field = torch.randn(64, 64, device=device, dtype=torch.float32)
     implementation = _auto_select_implementation(field)
 
@@ -416,7 +412,7 @@ def test_uniform_grid_gradient_auto_dispatch_matches_selected(device: str):
 
 # Validate CUDA auto-dispatch heuristic structure across dimensions/sizes.
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-def test_uniform_grid_gradient_auto_dispatch_heuristic_cuda():
+def test_uniform_grid_gradient_dispatch_auto_heuristic_cuda():
     field_1d = torch.randn(4096, device="cuda", dtype=torch.float32)
     assert _auto_select_implementation(field_1d) == "torch"
 
@@ -434,19 +430,7 @@ def test_uniform_grid_gradient_auto_dispatch_heuristic_cuda():
     assert field_3d_torch.numel() <= _AUTO_3D_TORCH_MAX_NUMEL
     assert _auto_select_implementation(field_3d_torch) == "torch"
 
-    small_n = int(round(_AUTO_3D_TORCH_COMPILED_MAX_NUMEL ** (1.0 / 3.0)))
-    field_3d_small = torch.randn(
-        small_n,
-        small_n,
-        small_n,
-        device="cuda",
-        dtype=torch.float32,
-    )
-    assert field_3d_small.numel() > _AUTO_3D_TORCH_MAX_NUMEL
-    assert field_3d_small.numel() <= _AUTO_3D_TORCH_COMPILED_MAX_NUMEL
-    assert _auto_select_implementation(field_3d_small) == "torch_compiled"
-
-    large_n = small_n + 1
+    large_n = torch_n + 1
     field_3d_large = torch.randn(
         large_n,
         large_n,
@@ -454,7 +438,7 @@ def test_uniform_grid_gradient_auto_dispatch_heuristic_cuda():
         device="cuda",
         dtype=torch.float32,
     )
-    assert field_3d_large.numel() > _AUTO_3D_TORCH_COMPILED_MAX_NUMEL
+    assert field_3d_large.numel() > _AUTO_3D_TORCH_MAX_NUMEL
     assert _auto_select_implementation(field_3d_large) == "warp"
 
     field_grad = torch.randn(

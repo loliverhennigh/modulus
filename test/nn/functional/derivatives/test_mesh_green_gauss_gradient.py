@@ -67,6 +67,27 @@ def test_mesh_green_gauss_gradient_torch(device: str):
     torch.testing.assert_close(output[interior], expected, atol=5e-2, rtol=5e-2)
 
 
+# Validate warp Green-Gauss reconstruction on a linear field.
+@requires_module("warp")
+def test_mesh_green_gauss_gradient_warp(device: str):
+    points, cells = _build_case(device=device, nx=40, ny=34)
+    neighbors = build_neighbors(cells)
+    centroids = points[cells].mean(dim=1)
+    coeff = torch.tensor([2.0, -3.0], device=points.device, dtype=torch.float32)
+    values = (centroids * coeff).sum(dim=-1)
+
+    output = MeshGreenGaussGradient.dispatch(
+        points,
+        cells,
+        neighbors,
+        values,
+        implementation="warp",
+    )
+    interior = (neighbors >= 0).all(dim=1)
+    expected = coeff.view(1, -1).expand(interior.sum(), -1)
+    torch.testing.assert_close(output[interior], expected, atol=5e-2, rtol=5e-2)
+
+
 # Validate warp backend forward parity against torch across benchmark cases.
 @requires_module("warp")
 def test_mesh_green_gauss_gradient_backend_forward_parity(device: str):

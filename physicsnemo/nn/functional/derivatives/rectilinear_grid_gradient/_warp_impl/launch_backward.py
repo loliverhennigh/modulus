@@ -31,6 +31,41 @@ from ._kernels import (
     _rectilinear_second_derivative_3d_backward_kernel,
 )
 
+_BACKWARD_KERNELS = {
+    (1, 1): _rectilinear_gradient_1d_backward_kernel,
+    (1, 2): _rectilinear_second_derivative_1d_backward_kernel,
+    (2, 1): _rectilinear_gradient_2d_backward_kernel,
+    (2, 2): _rectilinear_second_derivative_2d_backward_kernel,
+    (3, 1): _rectilinear_gradient_3d_backward_kernel,
+    (3, 2): _rectilinear_second_derivative_3d_backward_kernel,
+}
+
+_FUSED_BACKWARD_NO_MIXED_KERNELS = {
+    1: _rectilinear_derivatives_1d_fused_no_mixed_backward_kernel,
+    2: _rectilinear_derivatives_2d_fused_no_mixed_backward_kernel,
+    3: _rectilinear_derivatives_3d_fused_no_mixed_backward_kernel,
+}
+
+
+def _launch_dim(shape: torch.Size) -> int | tuple[int, ...]:
+    """Return Warp launch dimensions for 1D vs ND kernels."""
+    return shape[0] if len(shape) == 1 else tuple(shape)
+
+
+def _to_wp_components(components: list[torch.Tensor], count: int) -> list[wp.array]:
+    """Convert the leading tensor components to Warp arrays."""
+    return [wp.from_torch(components[i], dtype=wp.float32) for i in range(count)]
+
+
+def _to_wp_coords(coords_tuple: tuple[torch.Tensor, ...], ndim: int) -> list[wp.array]:
+    """Convert coordinate axes to Warp arrays."""
+    return [wp.from_torch(coords_tuple[i], dtype=wp.float32) for i in range(ndim)]
+
+
+def _period_values(period_tuple: tuple[float, ...], ndim: int) -> list[float]:
+    """Convert axis periods to float values."""
+    return [float(period_tuple[i]) for i in range(ndim)]
+
 
 def _launch_backward(
     *,
@@ -43,67 +78,20 @@ def _launch_backward(
     wp_stream,
 ) -> None:
     ### Launch dimensionality-specific backward kernels.
+    ndim = grad_field.ndim
+    kernel = _BACKWARD_KERNELS[(ndim, derivative_order)]
+    inputs = [
+        *_to_wp_components(grad_output_fp32, ndim),
+        *_to_wp_coords(coords_tuple, ndim),
+        *_period_values(period_tuple, ndim),
+        wp.from_torch(grad_field, dtype=wp.float32),
+    ]
+
     with wp.ScopedStream(wp_stream):
-        if grad_output_fp32.ndim == 2:
-            wp.launch(
-                kernel=(
-                    _rectilinear_gradient_1d_backward_kernel
-                    if derivative_order == 1
-                    else _rectilinear_second_derivative_1d_backward_kernel
-                ),
-                dim=grad_field.shape[0],
-                inputs=[
-                    wp.from_torch(grad_output_fp32[0], dtype=wp.float32),
-                    wp.from_torch(coords_tuple[0], dtype=wp.float32),
-                    float(period_tuple[0]),
-                    wp.from_torch(grad_field, dtype=wp.float32),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
-
-        if grad_output_fp32.ndim == 3:
-            wp.launch(
-                kernel=(
-                    _rectilinear_gradient_2d_backward_kernel
-                    if derivative_order == 1
-                    else _rectilinear_second_derivative_2d_backward_kernel
-                ),
-                dim=grad_field.shape,
-                inputs=[
-                    wp.from_torch(grad_output_fp32[0], dtype=wp.float32),
-                    wp.from_torch(grad_output_fp32[1], dtype=wp.float32),
-                    wp.from_torch(coords_tuple[0], dtype=wp.float32),
-                    wp.from_torch(coords_tuple[1], dtype=wp.float32),
-                    float(period_tuple[0]),
-                    float(period_tuple[1]),
-                    wp.from_torch(grad_field, dtype=wp.float32),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
-
         wp.launch(
-            kernel=(
-                _rectilinear_gradient_3d_backward_kernel
-                if derivative_order == 1
-                else _rectilinear_second_derivative_3d_backward_kernel
-            ),
-            dim=grad_field.shape,
-            inputs=[
-                wp.from_torch(grad_output_fp32[0], dtype=wp.float32),
-                wp.from_torch(grad_output_fp32[1], dtype=wp.float32),
-                wp.from_torch(grad_output_fp32[2], dtype=wp.float32),
-                wp.from_torch(coords_tuple[0], dtype=wp.float32),
-                wp.from_torch(coords_tuple[1], dtype=wp.float32),
-                wp.from_torch(coords_tuple[2], dtype=wp.float32),
-                float(period_tuple[0]),
-                float(period_tuple[1]),
-                float(period_tuple[2]),
-                wp.from_torch(grad_field, dtype=wp.float32),
-            ],
+            kernel=kernel,
+            dim=_launch_dim(grad_field.shape),
+            inputs=inputs,
             device=wp_device,
             stream=wp_stream,
         )
@@ -120,61 +108,21 @@ def _launch_backward_fused_no_mixed(
     wp_stream,
 ) -> None:
     """Launch dimensionality-specific fused first+second backward kernels."""
+    ndim = grad_field.ndim
+    kernel = _FUSED_BACKWARD_NO_MIXED_KERNELS[ndim]
+    inputs = [
+        *_to_wp_components(grad_first_components, ndim),
+        *_to_wp_components(grad_second_components, ndim),
+        *_to_wp_coords(coords_tuple, ndim),
+        *_period_values(period_tuple, ndim),
+        wp.from_torch(grad_field, dtype=wp.float32),
+    ]
+
     with wp.ScopedStream(wp_stream):
-        if grad_field.ndim == 1:
-            wp.launch(
-                kernel=_rectilinear_derivatives_1d_fused_no_mixed_backward_kernel,
-                dim=grad_field.shape[0],
-                inputs=[
-                    wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                    wp.from_torch(coords_tuple[0], dtype=wp.float32),
-                    float(period_tuple[0]),
-                    wp.from_torch(grad_field, dtype=wp.float32),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
-
-        if grad_field.ndim == 2:
-            wp.launch(
-                kernel=_rectilinear_derivatives_2d_fused_no_mixed_backward_kernel,
-                dim=grad_field.shape,
-                inputs=[
-                    wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_first_components[1], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[1], dtype=wp.float32),
-                    wp.from_torch(coords_tuple[0], dtype=wp.float32),
-                    wp.from_torch(coords_tuple[1], dtype=wp.float32),
-                    float(period_tuple[0]),
-                    float(period_tuple[1]),
-                    wp.from_torch(grad_field, dtype=wp.float32),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
-
         wp.launch(
-            kernel=_rectilinear_derivatives_3d_fused_no_mixed_backward_kernel,
-            dim=grad_field.shape,
-            inputs=[
-                wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                wp.from_torch(grad_first_components[1], dtype=wp.float32),
-                wp.from_torch(grad_first_components[2], dtype=wp.float32),
-                wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                wp.from_torch(grad_second_components[1], dtype=wp.float32),
-                wp.from_torch(grad_second_components[2], dtype=wp.float32),
-                wp.from_torch(coords_tuple[0], dtype=wp.float32),
-                wp.from_torch(coords_tuple[1], dtype=wp.float32),
-                wp.from_torch(coords_tuple[2], dtype=wp.float32),
-                float(period_tuple[0]),
-                float(period_tuple[1]),
-                float(period_tuple[2]),
-                wp.from_torch(grad_field, dtype=wp.float32),
-            ],
+            kernel=kernel,
+            dim=_launch_dim(grad_field.shape),
+            inputs=inputs,
             device=wp_device,
             stream=wp_stream,
         )

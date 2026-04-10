@@ -160,6 +160,25 @@ def test_rectilinear_grid_gradient_torch_second_order_mixed(device: str, dims: i
     assert output.shape[0] == expected_count
 
 
+# Validate warp backend against analytic periodic derivatives.
+@requires_module("warp")
+@pytest.mark.parametrize("dims", [1, 2, 3])
+@pytest.mark.parametrize("derivative_order", [1, 2])
+def test_rectilinear_grid_gradient_warp(device: str, dims: int, derivative_order: int):
+    field, coordinates, periods, expected = _make_periodic_case(
+        device, dims, derivative_order
+    )
+    output = RectilinearGridGradient.dispatch(
+        field.to(torch.float32),
+        coordinates,
+        periods=periods,
+        derivative_orders=derivative_order,
+        implementation="warp",
+    )
+    atol, rtol = (6e-1, 1e-1) if derivative_order == 2 and dims == 1 else (4e-2, 4e-2)
+    torch.testing.assert_close(output, expected, atol=atol, rtol=rtol)
+
+
 # Validate warp backend forward parity against torch across benchmark cases.
 @requires_module("warp")
 def test_rectilinear_grid_gradient_backend_forward_parity(device: str):

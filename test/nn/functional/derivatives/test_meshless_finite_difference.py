@@ -200,7 +200,7 @@ def _analytic_second_derivatives(points: torch.Tensor) -> torch.Tensor:
 
 # Validate stencil-point generation for representative dimensions.
 @pytest.mark.parametrize("dim", [1, 2, 3])
-def test_meshless_fd_stencil_points_torch(device: str, dim: int):
+def test_meshless_fd_derivatives_stencil_points_torch(device: str, dim: int):
     points = torch.rand(32, dim, device=device, dtype=torch.float32)
     spacing = _spacing_for_dim(dim)
 
@@ -305,7 +305,7 @@ def test_meshless_fd_derivatives_make_inputs_backward(device: str):
 
 
 # Validate exported API and error handling branches for meshless FD functionals.
-def test_meshless_fd_error_handling(device: str):
+def test_meshless_fd_derivatives_error_handling(device: str):
     points = torch.rand(16, 2, device=device, dtype=torch.float32)
     stencil_points = meshless_fd_stencil_points_torch(points, spacing=(0.01, 0.02))
     assert stencil_points.shape == (16, 9, 2)

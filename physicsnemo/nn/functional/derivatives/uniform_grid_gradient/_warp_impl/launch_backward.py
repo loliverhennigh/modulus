@@ -40,6 +40,56 @@ from ._kernels import (
 )
 from .utils import _wp_launch
 
+_BACKWARD_KERNELS = {
+    (1, 1, 2): _uniform_grid_gradient_1d_backward_kernel,
+    (1, 1, 4): _uniform_grid_gradient_1d_order4_backward_kernel,
+    (1, 2, 2): _uniform_grid_second_derivative_1d_backward_kernel,
+    (1, 2, 4): _uniform_grid_second_derivative_1d_order4_backward_kernel,
+    (2, 1, 2): _uniform_grid_gradient_2d_backward_kernel,
+    (2, 1, 4): _uniform_grid_gradient_2d_order4_backward_kernel,
+    (2, 2, 2): _uniform_grid_second_derivative_2d_backward_kernel,
+    (2, 2, 4): _uniform_grid_second_derivative_2d_order4_backward_kernel,
+    (3, 1, 2): _uniform_grid_gradient_3d_backward_kernel,
+    (3, 1, 4): _uniform_grid_gradient_3d_order4_backward_kernel,
+    (3, 2, 2): _uniform_grid_second_derivative_3d_backward_kernel,
+    (3, 2, 4): _uniform_grid_second_derivative_3d_order4_backward_kernel,
+}
+
+_FUSED_BACKWARD_KERNELS = {
+    (1, False): _uniform_grid_derivatives_1d_order2_fused_backward_kernel,
+    (1, True): _uniform_grid_derivatives_1d_order2_fused_backward_kernel,
+    (2, False): _uniform_grid_derivatives_2d_order2_fused_no_mixed_backward_kernel,
+    (2, True): _uniform_grid_derivatives_2d_order2_fused_backward_kernel,
+    (3, False): _uniform_grid_derivatives_3d_order2_fused_no_mixed_backward_kernel,
+    (3, True): _uniform_grid_derivatives_3d_order2_fused_backward_kernel,
+}
+
+
+def _launch_dim(shape: torch.Size) -> int | tuple[int, ...]:
+    """Return Warp launch dimensions for 1D vs ND kernels."""
+    return shape[0] if len(shape) == 1 else tuple(shape)
+
+
+def _inverse_spacings(spacing_tuple: tuple[float, ...], power: int) -> list[float]:
+    """Compute inverse spacing terms with optional square for second derivatives."""
+    if power == 1:
+        return [1.0 / float(dx) for dx in spacing_tuple]
+    return [1.0 / float(dx * dx) for dx in spacing_tuple]
+
+
+def _mixed_inverse_spacings(spacing_tuple: tuple[float, ...]) -> list[float]:
+    """Compute inverse mixed spacing terms in axis-pair order."""
+    return [
+        1.0 / float(spacing_tuple[i] * spacing_tuple[j])
+        for i in range(len(spacing_tuple))
+        for j in range(i + 1, len(spacing_tuple))
+    ]
+
+
+def _to_wp_components(components: list[torch.Tensor], count: int) -> list[wp.array]:
+    """Convert the leading tensor components to Warp arrays."""
+    return [wp.from_torch(components[i], dtype=wp.float32) for i in range(count)]
+
 
 def _launch_backward(
     *,
@@ -52,105 +102,25 @@ def _launch_backward(
     wp_stream,
 ) -> None:
     ### Launch dimensionality/order-specific backward kernels.
-    with wp.ScopedStream(wp_stream):
-        if grad_output_fp32.ndim == 2:
-            wp_grad0 = wp.from_torch(grad_output_fp32[0], dtype=wp.float32)
-            wp_grad_field = wp.from_torch(grad_field, dtype=wp.float32)
-            if derivative_order == 1:
-                inv_dx0 = 1.0 / float(spacing_tuple[0])
-                kernel = (
-                    _uniform_grid_gradient_1d_backward_kernel
-                    if order == 2
-                    else _uniform_grid_gradient_1d_order4_backward_kernel
-                )
-            else:
-                inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
-                kernel = (
-                    _uniform_grid_second_derivative_1d_backward_kernel
-                    if order == 2
-                    else _uniform_grid_second_derivative_1d_order4_backward_kernel
-                )
-            _wp_launch(
-                kernel=kernel,
-                dim=grad_field.shape[0],
-                inputs=[wp_grad0, inv_dx0, wp_grad_field],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
+    ndim = grad_field.ndim
+    kernel = _BACKWARD_KERNELS[(ndim, derivative_order, order)]
+    local_spacing = spacing_tuple[:ndim]
+    inv_terms = _inverse_spacings(
+        local_spacing,
+        power=1 if derivative_order == 1 else 2,
+    )
 
-        if grad_output_fp32.ndim == 3:
-            wp_grad0 = wp.from_torch(grad_output_fp32[0], dtype=wp.float32)
-            wp_grad1 = wp.from_torch(grad_output_fp32[1], dtype=wp.float32)
-            wp_grad_field = wp.from_torch(grad_field, dtype=wp.float32)
-            if derivative_order == 1:
-                inv_dx0 = 1.0 / float(spacing_tuple[0])
-                inv_dx1 = 1.0 / float(spacing_tuple[1])
-                kernel = (
-                    _uniform_grid_gradient_2d_backward_kernel
-                    if order == 2
-                    else _uniform_grid_gradient_2d_order4_backward_kernel
-                )
-            else:
-                inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
-                inv_dx1 = 1.0 / float(spacing_tuple[1] * spacing_tuple[1])
-                kernel = (
-                    _uniform_grid_second_derivative_2d_backward_kernel
-                    if order == 2
-                    else _uniform_grid_second_derivative_2d_order4_backward_kernel
-                )
-            _wp_launch(
-                kernel=kernel,
-                dim=grad_field.shape,
-                inputs=[
-                    wp_grad0,
-                    wp_grad1,
-                    inv_dx0,
-                    inv_dx1,
-                    wp_grad_field,
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
-
-        wp_grad0 = wp.from_torch(grad_output_fp32[0], dtype=wp.float32)
-        wp_grad1 = wp.from_torch(grad_output_fp32[1], dtype=wp.float32)
-        wp_grad2 = wp.from_torch(grad_output_fp32[2], dtype=wp.float32)
-        wp_grad_field = wp.from_torch(grad_field, dtype=wp.float32)
-        if derivative_order == 1:
-            inv_dx0 = 1.0 / float(spacing_tuple[0])
-            inv_dx1 = 1.0 / float(spacing_tuple[1])
-            inv_dx2 = 1.0 / float(spacing_tuple[2])
-            kernel = (
-                _uniform_grid_gradient_3d_backward_kernel
-                if order == 2
-                else _uniform_grid_gradient_3d_order4_backward_kernel
-            )
-        else:
-            inv_dx0 = 1.0 / float(spacing_tuple[0] * spacing_tuple[0])
-            inv_dx1 = 1.0 / float(spacing_tuple[1] * spacing_tuple[1])
-            inv_dx2 = 1.0 / float(spacing_tuple[2] * spacing_tuple[2])
-            kernel = (
-                _uniform_grid_second_derivative_3d_backward_kernel
-                if order == 2
-                else _uniform_grid_second_derivative_3d_order4_backward_kernel
-            )
-        _wp_launch(
-            kernel=kernel,
-            dim=grad_field.shape,
-            inputs=[
-                wp_grad0,
-                wp_grad1,
-                wp_grad2,
-                inv_dx0,
-                inv_dx1,
-                inv_dx2,
-                wp_grad_field,
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    _wp_launch(
+        kernel=kernel,
+        dim=_launch_dim(grad_field.shape),
+        inputs=[
+            *_to_wp_components(grad_output_fp32, ndim),
+            *inv_terms,
+            wp.from_torch(grad_field, dtype=wp.float32),
+        ],
+        device=wp_device,
+        stream=wp_stream,
+    )
 
 
 def _launch_backward_fused_order2_no_mixed(
@@ -165,113 +135,33 @@ def _launch_backward_fused_order2_no_mixed(
     wp_stream,
 ) -> None:
     """Launch fused order-2 backward kernels for first/second/(optional mixed)."""
-    with wp.ScopedStream(wp_stream):
-        if grad_field.ndim == 1:
-            _wp_launch(
-                kernel=_uniform_grid_derivatives_1d_order2_fused_backward_kernel,
-                dim=grad_field.shape[0],
-                inputs=[
-                    wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                    1.0 / float(spacing_tuple[0]),
-                    1.0 / float(spacing_tuple[0] * spacing_tuple[0]),
-                    wp.from_torch(grad_field, dtype=wp.float32),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
+    ndim = grad_field.ndim
+    kernel = _FUSED_BACKWARD_KERNELS[(ndim, include_mixed)]
+    local_spacing = spacing_tuple[:ndim]
+    inv_first = _inverse_spacings(local_spacing, power=1)
+    inv_second = _inverse_spacings(local_spacing, power=2)
 
-        if grad_field.ndim == 2:
-            if include_mixed:
-                _wp_launch(
-                    kernel=_uniform_grid_derivatives_2d_order2_fused_backward_kernel,
-                    dim=grad_field.shape,
-                    inputs=[
-                        wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                        wp.from_torch(grad_first_components[1], dtype=wp.float32),
-                        wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                        wp.from_torch(grad_second_components[1], dtype=wp.float32),
-                        wp.from_torch(grad_mixed_components[0], dtype=wp.float32),
-                        1.0 / float(spacing_tuple[0]),
-                        1.0 / float(spacing_tuple[1]),
-                        1.0 / float(spacing_tuple[0] * spacing_tuple[0]),
-                        1.0 / float(spacing_tuple[1] * spacing_tuple[1]),
-                        1.0 / float(spacing_tuple[0] * spacing_tuple[1]),
-                        wp.from_torch(grad_field, dtype=wp.float32),
-                    ],
-                    device=wp_device,
-                    stream=wp_stream,
-                )
-                return
+    inputs: list = [
+        *_to_wp_components(grad_first_components, ndim),
+        *_to_wp_components(grad_second_components, ndim),
+    ]
 
-            _wp_launch(
-                kernel=_uniform_grid_derivatives_2d_order2_fused_no_mixed_backward_kernel,
-                dim=grad_field.shape,
-                inputs=[
-                    wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_first_components[1], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[1], dtype=wp.float32),
-                    1.0 / float(spacing_tuple[0]),
-                    1.0 / float(spacing_tuple[1]),
-                    1.0 / float(spacing_tuple[0] * spacing_tuple[0]),
-                    1.0 / float(spacing_tuple[1] * spacing_tuple[1]),
-                    wp.from_torch(grad_field, dtype=wp.float32),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
+    if include_mixed and ndim > 1:
+        mixed_count = ndim * (ndim - 1) // 2
+        inputs.extend(_to_wp_components(grad_mixed_components, mixed_count))
 
-        if include_mixed:
-            _wp_launch(
-                kernel=_uniform_grid_derivatives_3d_order2_fused_backward_kernel,
-                dim=grad_field.shape,
-                inputs=[
-                    wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_first_components[1], dtype=wp.float32),
-                    wp.from_torch(grad_first_components[2], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[1], dtype=wp.float32),
-                    wp.from_torch(grad_second_components[2], dtype=wp.float32),
-                    wp.from_torch(grad_mixed_components[0], dtype=wp.float32),
-                    wp.from_torch(grad_mixed_components[1], dtype=wp.float32),
-                    wp.from_torch(grad_mixed_components[2], dtype=wp.float32),
-                    1.0 / float(spacing_tuple[0]),
-                    1.0 / float(spacing_tuple[1]),
-                    1.0 / float(spacing_tuple[2]),
-                    1.0 / float(spacing_tuple[0] * spacing_tuple[0]),
-                    1.0 / float(spacing_tuple[1] * spacing_tuple[1]),
-                    1.0 / float(spacing_tuple[2] * spacing_tuple[2]),
-                    1.0 / float(spacing_tuple[0] * spacing_tuple[1]),
-                    1.0 / float(spacing_tuple[0] * spacing_tuple[2]),
-                    1.0 / float(spacing_tuple[1] * spacing_tuple[2]),
-                    wp.from_torch(grad_field, dtype=wp.float32),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-            return
+    inputs.extend(inv_first)
+    inputs.extend(inv_second)
 
-        _wp_launch(
-            kernel=_uniform_grid_derivatives_3d_order2_fused_no_mixed_backward_kernel,
-            dim=grad_field.shape,
-            inputs=[
-                wp.from_torch(grad_first_components[0], dtype=wp.float32),
-                wp.from_torch(grad_first_components[1], dtype=wp.float32),
-                wp.from_torch(grad_first_components[2], dtype=wp.float32),
-                wp.from_torch(grad_second_components[0], dtype=wp.float32),
-                wp.from_torch(grad_second_components[1], dtype=wp.float32),
-                wp.from_torch(grad_second_components[2], dtype=wp.float32),
-                1.0 / float(spacing_tuple[0]),
-                1.0 / float(spacing_tuple[1]),
-                1.0 / float(spacing_tuple[2]),
-                1.0 / float(spacing_tuple[0] * spacing_tuple[0]),
-                1.0 / float(spacing_tuple[1] * spacing_tuple[1]),
-                1.0 / float(spacing_tuple[2] * spacing_tuple[2]),
-                wp.from_torch(grad_field, dtype=wp.float32),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    if include_mixed and ndim > 1:
+        inputs.extend(_mixed_inverse_spacings(local_spacing))
+
+    inputs.append(wp.from_torch(grad_field, dtype=wp.float32))
+
+    _wp_launch(
+        kernel=kernel,
+        dim=_launch_dim(grad_field.shape),
+        inputs=inputs,
+        device=wp_device,
+        stream=wp_stream,
+    )

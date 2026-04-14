@@ -19,8 +19,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import torch
-from jaxtyping import Float
-from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
 
@@ -75,11 +73,11 @@ class SpectralGridGradient(FunctionSpec):
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
-        field: Float[Tensor, "..."],
+        field: torch.Tensor,
         lengths: float | Sequence[float] = 1.0,
         derivative_orders: int | Sequence[int] = 1,
         include_mixed: bool = False,
-    ) -> Float[Tensor, "..."]:
+    ) -> torch.Tensor:
         """Dispatch spectral derivatives to the PyTorch backend."""
         requested_orders = normalize_derivative_orders(
             derivative_orders=derivative_orders,

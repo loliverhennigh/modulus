@@ -114,6 +114,35 @@ def test_mesh_lsq_gradient_backend_backward_parity(device: str):
         MeshLSQGradient.compare_backward(grad_warp, grad_torch)
 
 
+@requires_module("warp")
+def test_mesh_lsq_gradient_warp_supports_point_gradients(device: str):
+    points, offsets, indices = _make_case(
+        device, n_entities=768, n_dims=3, k_neighbors=12
+    )
+    base_values = (
+        torch.sin(2.0 * torch.pi * points[:, 0])
+        + 0.4 * torch.cos(2.0 * torch.pi * points[:, 1])
+        + 0.2 * points[:, 2].square()
+    ).to(torch.float32)
+
+    points_warp = points.detach().clone().to(torch.float32).requires_grad_(True)
+    values_warp = base_values.detach().clone().requires_grad_(True)
+    out_warp = MeshLSQGradient.dispatch(
+        points_warp,
+        values_warp,
+        offsets,
+        indices,
+        implementation="warp",
+    )
+    out_warp.square().mean().backward()
+    grad_points_warp = points_warp.grad
+    grad_values_warp = values_warp.grad
+    assert grad_points_warp is not None
+    assert grad_values_warp is not None
+    assert torch.isfinite(grad_points_warp).all()
+    assert torch.isfinite(grad_values_warp).all()
+
+
 # Validate warp backend on 1D input parity against torch.
 @requires_module("warp")
 def test_mesh_lsq_gradient_warp(device: str):

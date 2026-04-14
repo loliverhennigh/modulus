@@ -47,6 +47,41 @@ def _build_case(device: str, nx: int = 36, ny: int = 32):
     return points.contiguous(), cells.contiguous()
 
 
+def _build_case_3d(device: str, nx: int = 12, ny: int = 10, nz: int = 8):
+    torch_device = torch.device(device)
+    x = torch.linspace(0.0, 1.0, nx, device=torch_device, dtype=torch.float32)
+    y = torch.linspace(0.0, 1.0, ny, device=torch_device, dtype=torch.float32)
+    z = torch.linspace(0.0, 1.0, nz, device=torch_device, dtype=torch.float32)
+    xx, yy, zz = torch.meshgrid(x, y, z, indexing="ij")
+    points = torch.stack((xx.reshape(-1), yy.reshape(-1), zz.reshape(-1)), dim=-1)
+
+    def _idx(i: int, j: int, k: int) -> int:
+        return (i * ny + j) * nz + k
+
+    cells = []
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            for k in range(nz - 1):
+                p000 = _idx(i, j, k)
+                p100 = _idx(i + 1, j, k)
+                p010 = _idx(i, j + 1, k)
+                p110 = _idx(i + 1, j + 1, k)
+                p001 = _idx(i, j, k + 1)
+                p101 = _idx(i + 1, j, k + 1)
+                p011 = _idx(i, j + 1, k + 1)
+                p111 = _idx(i + 1, j + 1, k + 1)
+
+                cells.append((p000, p100, p110, p111))
+                cells.append((p000, p110, p010, p111))
+                cells.append((p000, p010, p011, p111))
+                cells.append((p000, p011, p001, p111))
+                cells.append((p000, p001, p101, p111))
+                cells.append((p000, p101, p100, p111))
+
+    cells = torch.tensor(cells, device=torch_device, dtype=torch.int64)
+    return points.contiguous(), cells.contiguous()
+
+
 # Validate torch Green-Gauss reconstruction on a linear field.
 def test_mesh_green_gauss_gradient_torch(device: str):
     points, cells = _build_case(device=device, nx=40, ny=34)
@@ -65,6 +100,22 @@ def test_mesh_green_gauss_gradient_torch(device: str):
     interior = (neighbors >= 0).all(dim=1)
     expected = coeff.view(1, -1).expand(interior.sum(), -1)
     torch.testing.assert_close(output[interior], expected, atol=5e-2, rtol=5e-2)
+
+
+def test_mesh_green_gauss_gradient_torch_3d(device: str):
+    points, cells = _build_case_3d(device=device, nx=11, ny=9, nz=7)
+    neighbors = build_neighbors(cells)
+    values = torch.sin(points[cells].mean(dim=1).sum(dim=-1))
+
+    output = MeshGreenGaussGradient.dispatch(
+        points,
+        cells,
+        neighbors,
+        values,
+        implementation="torch",
+    )
+    assert output.shape == (cells.shape[0], points.shape[1])
+    assert torch.isfinite(output).all()
 
 
 # Validate warp Green-Gauss reconstruction on a linear field.
@@ -86,6 +137,30 @@ def test_mesh_green_gauss_gradient_warp(device: str):
     interior = (neighbors >= 0).all(dim=1)
     expected = coeff.view(1, -1).expand(interior.sum(), -1)
     torch.testing.assert_close(output[interior], expected, atol=5e-2, rtol=5e-2)
+
+
+@requires_module("warp")
+def test_mesh_green_gauss_gradient_warp_3d(device: str):
+    points, cells = _build_case_3d(device=device, nx=11, ny=9, nz=7)
+    neighbors = build_neighbors(cells)
+    values = torch.sin(points[cells].mean(dim=1).sum(dim=-1))
+
+    output_torch = MeshGreenGaussGradient.dispatch(
+        points,
+        cells,
+        neighbors,
+        values,
+        implementation="torch",
+    )
+
+    output_warp = MeshGreenGaussGradient.dispatch(
+        points,
+        cells,
+        neighbors,
+        values,
+        implementation="warp",
+    )
+    MeshGreenGaussGradient.compare_forward(output_warp, output_torch)
 
 
 # Validate warp backend forward parity against torch across benchmark cases.
@@ -138,6 +213,35 @@ def test_mesh_green_gauss_gradient_backend_backward_parity(device: str):
         assert grad_warp is not None
 
         MeshGreenGaussGradient.compare_backward(grad_warp, grad_torch)
+
+
+@requires_module("warp")
+def test_mesh_green_gauss_gradient_warp_supports_point_gradients(device: str):
+    points, cells = _build_case(device=device, nx=26, ny=22)
+    neighbors = build_neighbors(cells)
+    centroids = points[cells].mean(dim=1)
+    base_values = (
+        torch.sin(2.0 * torch.pi * centroids[:, 0])
+        + 0.25 * torch.cos(2.0 * torch.pi * centroids[:, 1])
+    ).to(torch.float32)
+
+    points_warp = points.detach().clone().requires_grad_(True)
+    values_warp = base_values.detach().clone().requires_grad_(True)
+    out_warp = MeshGreenGaussGradient.dispatch(
+        points_warp,
+        cells,
+        neighbors,
+        values_warp,
+        implementation="warp",
+    )
+    out_warp.square().mean().backward()
+    grad_points_warp = points_warp.grad
+    grad_values_warp = values_warp.grad
+    assert grad_points_warp is not None
+    assert grad_values_warp is not None
+    assert torch.isfinite(grad_points_warp).all()
+    assert torch.isfinite(grad_values_warp).all()
+    assert torch.any(grad_points_warp != 0.0)
 
 
 # Validate benchmark input generation contract for forward inputs.

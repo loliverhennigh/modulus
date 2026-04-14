@@ -19,8 +19,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import torch
-from jaxtyping import Float
-from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
 
@@ -85,11 +83,11 @@ class MeshlessFDDerivatives(FunctionSpec):
 
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
-        stencil_values: Float[Tensor, "num_points stencil_size channels"],
+        stencil_values: torch.Tensor,
         spacing: float | Sequence[float] = 1.0,
         derivative_orders: int | Sequence[int] = 1,
         include_mixed: bool = False,
-    ) -> Float[Tensor, "num_derivs num_points channels"]:
+    ) -> torch.Tensor:
         """Dispatch meshless finite-difference derivatives to the torch backend."""
         requested_orders = normalize_derivative_orders(
             derivative_orders=derivative_orders,

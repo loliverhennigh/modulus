@@ -545,6 +545,101 @@ def _launch_backward(
             grad_values_flat[:, comp] = comp_grad_values
 
 
+def _launch_backward_with_tape(
+    *,
+    points_fp32: torch.Tensor,
+    values_flat_fp32: torch.Tensor,
+    offsets_i32: torch.Tensor,
+    indices_i32: torch.Tensor,
+    grad_output_components_fp32: torch.Tensor,
+    weight_power: float,
+    min_neighbors: int,
+    reg_eps: float,
+    dist_eps: float,
+    needs_points: bool,
+    needs_values: bool,
+    wp_device,
+    wp_stream,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """Run Warp Tape autodiff for gradients w.r.t. points and/or values."""
+    n_dims = points_fp32.shape[1]
+    n_entities = points_fp32.shape[0]
+    n_components = values_flat_fp32.shape[1]
+    kernel = (
+        _mesh_lsq_gradient_1d_kernel
+        if n_dims == 1
+        else _mesh_lsq_gradient_2d_kernel
+        if n_dims == 2
+        else _mesh_lsq_gradient_3d_kernel
+    )
+
+    values_components = values_flat_fp32.transpose(0, 1).contiguous()
+    grads_components = torch.empty(
+        (n_components, n_entities, n_dims),
+        dtype=torch.float32,
+        device=points_fp32.device,
+    )
+
+    with wp.ScopedStream(wp_stream):
+        with wp.Tape() as tape:
+            wp_points = wp.from_torch(
+                points_fp32, dtype=wp.float32, requires_grad=needs_points
+            )
+            wp_offsets = wp.from_torch(offsets_i32, dtype=wp.int32)
+            wp_indices = wp.from_torch(indices_i32, dtype=wp.int32)
+            wp_values_components: list[wp.array] = []
+            wp_grads_components: list[wp.array] = []
+            for comp in range(n_components):
+                wp_values = wp.from_torch(
+                    values_components[comp],
+                    dtype=wp.float32,
+                    requires_grad=needs_values,
+                )
+                wp_grads = wp.from_torch(
+                    grads_components[comp], dtype=wp.float32, requires_grad=True
+                )
+                wp.launch(
+                    kernel=kernel,
+                    dim=n_entities,
+                    inputs=[
+                        wp_points,
+                        wp_values,
+                        wp_offsets,
+                        wp_indices,
+                        float(weight_power),
+                        int(min_neighbors),
+                        float(reg_eps),
+                        float(dist_eps),
+                        wp_grads,
+                    ],
+                    device=wp_device,
+                    stream=wp_stream,
+                )
+                wp_values_components.append(wp_values)
+                wp_grads_components.append(wp_grads)
+
+        grad_map = {
+            wp_grads_components[comp]: wp.from_torch(
+                grad_output_components_fp32[comp].contiguous(), dtype=wp.float32
+            )
+            for comp in range(n_components)
+        }
+        tape.backward(grads=grad_map)
+
+        grad_points = None
+        grad_values = None
+        if needs_points:
+            grad_points = wp.to_torch(tape.gradients[wp_points])
+        if needs_values:
+            grad_values_components = torch.empty_like(values_components)
+            for comp in range(n_components):
+                grad_values_components[comp] = wp.to_torch(
+                    tape.gradients[wp_values_components[comp]]
+                )
+            grad_values = grad_values_components.transpose(0, 1).contiguous()
+    return grad_points, grad_values
+
+
 @torch.library.custom_op("physicsnemo::mesh_lsq_gradient_warp_impl", mutates_args=())
 def mesh_lsq_gradient_impl(
     points: torch.Tensor,
@@ -564,11 +659,6 @@ def mesh_lsq_gradient_impl(
         neighbor_indices=neighbor_indices,
         min_neighbors=int(min_neighbors),
     )
-    if points.requires_grad:
-        raise ValueError(
-            "warp mesh_lsq_gradient currently supports gradients w.r.t values only"
-        )
-
     points_fp32 = points.to(dtype=torch.float32).contiguous()
     values_fp32 = values.to(dtype=torch.float32).contiguous()
     offsets_i32 = neighbor_offsets.to(
@@ -654,11 +744,15 @@ def setup_mesh_lsq_gradient_context(
         dist_eps,
     ) = inputs
     _ = output
+    values_fp32 = values.to(dtype=torch.float32).contiguous()
+    n_entities = values_fp32.shape[0]
     ctx.save_for_backward(
         points.to(dtype=torch.float32).contiguous(),
+        values_fp32.reshape(n_entities, -1).contiguous(),
         neighbor_offsets.to(dtype=torch.int32, device=points.device).contiguous(),
         neighbor_indices.to(dtype=torch.int32, device=points.device).contiguous(),
     )
+    ctx.points_dtype = points.dtype
     ctx.value_shape = values.shape
     ctx.values_dtype = values.dtype
     ctx.weight_power = float(weight_power)
@@ -670,12 +764,16 @@ def setup_mesh_lsq_gradient_context(
 def backward_mesh_lsq_gradient(
     ctx: torch.autograd.function.FunctionCtx,
     grad_output: torch.Tensor,
-) -> tuple[None, torch.Tensor | None, None, None, None, None, None, None]:
-    """Backward pass for LSQ custom op (gradients wrt values only)."""
-    if grad_output is None or not ctx.needs_input_grad[1]:
+) -> tuple[
+    torch.Tensor | None, torch.Tensor | None, None, None, None, None, None, None
+]:
+    """Backward pass for LSQ custom op."""
+    needs_points = ctx.needs_input_grad[0]
+    needs_values = ctx.needs_input_grad[1]
+    if grad_output is None or (not needs_points and not needs_values):
         return None, None, None, None, None, None, None, None
 
-    points_fp32, offsets_i32, indices_i32 = ctx.saved_tensors
+    points_fp32, values_flat_fp32, offsets_i32, indices_i32 = ctx.saved_tensors
     grad_output_fp32 = grad_output.to(dtype=torch.float32).contiguous()
     values_shape = ctx.value_shape
     n_entities = values_shape[0]
@@ -686,31 +784,56 @@ def backward_mesh_lsq_gradient(
         n_entities, grad_output_fp32.shape[1], n_components
     )
     grad_output_components = grad_output_components.permute(2, 0, 1).contiguous()
+    grad_points = None
     grad_values_flat = torch.empty(
         (n_entities, n_components),
         device=grad_output.device,
         dtype=torch.float32,
     )
-
     wp_device, wp_stream = FunctionSpec.warp_launch_context(grad_output_fp32)
-    _launch_backward(
-        points_fp32=points_fp32,
-        offsets_i32=offsets_i32,
-        indices_i32=indices_i32,
-        grad_output_components_fp32=grad_output_components,
-        weight_power=ctx.weight_power,
-        min_neighbors=ctx.min_neighbors,
-        reg_eps=ctx.reg_eps,
-        dist_eps=ctx.dist_eps,
-        grad_values_flat=grad_values_flat,
-        wp_device=wp_device,
-        wp_stream=wp_stream,
-    )
+    if needs_points:
+        grad_points_fp32, grad_values_fp32 = _launch_backward_with_tape(
+            points_fp32=points_fp32,
+            values_flat_fp32=values_flat_fp32,
+            offsets_i32=offsets_i32,
+            indices_i32=indices_i32,
+            grad_output_components_fp32=grad_output_components,
+            weight_power=ctx.weight_power,
+            min_neighbors=ctx.min_neighbors,
+            reg_eps=ctx.reg_eps,
+            dist_eps=ctx.dist_eps,
+            needs_points=needs_points,
+            needs_values=needs_values,
+            wp_device=wp_device,
+            wp_stream=wp_stream,
+        )
+        if grad_points_fp32 is not None:
+            grad_points = grad_points_fp32
+            if grad_points.dtype != ctx.points_dtype:
+                grad_points = grad_points.to(dtype=ctx.points_dtype)
+        if needs_values and grad_values_fp32 is not None:
+            grad_values_flat = grad_values_fp32
+    elif needs_values:
+        _launch_backward(
+            points_fp32=points_fp32,
+            offsets_i32=offsets_i32,
+            indices_i32=indices_i32,
+            grad_output_components_fp32=grad_output_components,
+            weight_power=ctx.weight_power,
+            min_neighbors=ctx.min_neighbors,
+            reg_eps=ctx.reg_eps,
+            dist_eps=ctx.dist_eps,
+            grad_values_flat=grad_values_flat,
+            wp_device=wp_device,
+            wp_stream=wp_stream,
+        )
 
-    grad_values = grad_values_flat.reshape(values_shape)
-    if grad_values.dtype != ctx.values_dtype:
-        grad_values = grad_values.to(dtype=ctx.values_dtype)
-    return None, grad_values, None, None, None, None, None, None
+    grad_values = None
+    if needs_values:
+        grad_values = grad_values_flat.reshape(values_shape)
+        if grad_values.dtype != ctx.values_dtype:
+            grad_values = grad_values.to(dtype=ctx.values_dtype)
+    return grad_points, grad_values, None, None, None, None, None, None
 
 
 mesh_lsq_gradient_impl.register_autograd(
@@ -729,7 +852,13 @@ def mesh_lsq_gradient_warp(
     reg_eps: float = 1.0e-6,
     safe_epsilon: float | None = None,
 ) -> torch.Tensor:
-    """Compute weighted LSQ mesh gradients with Warp kernels."""
+    """Compute weighted LSQ mesh gradients with Warp kernels.
+
+    Notes
+    -----
+    Warp kernels compute in ``float32`` internally. Inputs in wider floating
+    dtypes are accepted and cast to ``float32`` for compute.
+    """
     dist_eps = resolve_safe_epsilon(safe_epsilon=safe_epsilon, dtype=torch.float32)
     return mesh_lsq_gradient_impl(
         points,

@@ -308,6 +308,74 @@ def _launch_backward(
         )
 
 
+def _launch_backward_with_tape(
+    *,
+    points_fp32: torch.Tensor,
+    cells_i32: torch.Tensor,
+    neighbors_i32: torch.Tensor,
+    values_flat_fp32: torch.Tensor,
+    grad_output_components_fp32: torch.Tensor,
+    dims: int,
+    needs_points: bool,
+    needs_values: bool,
+    wp_device,
+    wp_stream,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """Run Warp Tape autodiff for gradients w.r.t. points and/or values."""
+    kernel = (
+        _mesh_green_gauss_2d_forward_kernel
+        if dims == 2
+        else _mesh_green_gauss_3d_forward_kernel
+    )
+
+    n_cells = values_flat_fp32.shape[0]
+    n_components = values_flat_fp32.shape[1]
+    grads_flat = torch.empty(
+        (n_cells, dims, n_components),
+        device=values_flat_fp32.device,
+        dtype=torch.float32,
+    )
+
+    with wp.ScopedStream(wp_stream):
+        with wp.Tape() as tape:
+            wp_points = wp.from_torch(
+                points_fp32, dtype=wp.float32, requires_grad=needs_points
+            )
+            wp_cells = wp.from_torch(cells_i32, dtype=wp.int32)
+            wp_neighbors = wp.from_torch(neighbors_i32, dtype=wp.int32)
+            wp_values = wp.from_torch(
+                values_flat_fp32, dtype=wp.float32, requires_grad=needs_values
+            )
+            wp_grads = wp.from_torch(grads_flat, dtype=wp.float32, requires_grad=True)
+
+            wp.launch(
+                kernel=kernel,
+                dim=(n_cells, n_components),
+                inputs=[
+                    wp_points,
+                    wp_cells,
+                    wp_neighbors,
+                    wp_values,
+                    wp_grads,
+                ],
+                device=wp_device,
+                stream=wp_stream,
+            )
+
+        grad_map = {
+            wp_grads: wp.from_torch(grad_output_components_fp32, dtype=wp.float32)
+        }
+        tape.backward(grads=grad_map)
+
+        grad_points = None
+        grad_values = None
+        if needs_points:
+            grad_points = wp.to_torch(tape.gradients[wp_points])
+        if needs_values:
+            grad_values = wp.to_torch(tape.gradients[wp_values])
+    return grad_points, grad_values
+
+
 @torch.library.custom_op(
     "physicsnemo::mesh_green_gauss_gradient_warp_impl", mutates_args=()
 )
@@ -319,10 +387,6 @@ def mesh_green_gauss_gradient_impl(
 ) -> torch.Tensor:
     """Compute Green-Gauss cell-centered gradients with Warp kernels."""
     validate_inputs(points=points, cells=cells, neighbors=neighbors, values=values)
-    if points.requires_grad:
-        raise ValueError(
-            "warp mesh_green_gauss_gradient does not support gradients w.r.t. points"
-        )
 
     points_fp32 = points.to(dtype=torch.float32).contiguous()
     cells_i32 = cells.to(dtype=torch.int32).contiguous()
@@ -381,11 +445,15 @@ def setup_mesh_green_gauss_gradient_context(
     """Store backward context for Green-Gauss custom-op autograd."""
     points, cells, neighbors, values = inputs
     _ = output
+    values_fp32 = values.to(dtype=torch.float32).contiguous()
+    n_cells = values_fp32.shape[0]
     ctx.save_for_backward(
         points.to(dtype=torch.float32).contiguous(),
         cells.to(dtype=torch.int32).contiguous(),
         neighbors.to(dtype=torch.int32).contiguous(),
+        values_fp32.reshape(n_cells, -1).contiguous(),
     )
+    ctx.points_dtype = points.dtype
     ctx.value_shape = values.shape
     ctx.values_dtype = values.dtype
     ctx.dims = points.shape[1]
@@ -394,12 +462,14 @@ def setup_mesh_green_gauss_gradient_context(
 def backward_mesh_green_gauss_gradient(
     ctx: torch.autograd.function.FunctionCtx,
     grad_output: torch.Tensor,
-) -> tuple[None, None, None, torch.Tensor | None]:
-    """Backward pass for Green-Gauss custom op (gradients wrt values only)."""
-    if grad_output is None or not ctx.needs_input_grad[3]:
+) -> tuple[torch.Tensor | None, None, None, torch.Tensor | None]:
+    """Backward pass for Green-Gauss custom op."""
+    needs_points = ctx.needs_input_grad[0]
+    needs_values = ctx.needs_input_grad[3]
+    if grad_output is None or (not needs_points and not needs_values):
         return None, None, None, None
 
-    points_fp32, cells_i32, neighbors_i32 = ctx.saved_tensors
+    points_fp32, cells_i32, neighbors_i32, values_flat_fp32 = ctx.saved_tensors
     grad_output_fp32 = grad_output.to(dtype=torch.float32).contiguous()
 
     values_shape = ctx.value_shape
@@ -410,28 +480,50 @@ def backward_mesh_green_gauss_gradient(
     grad_output_components = grad_output_fp32.reshape(n_cells, ctx.dims, n_components)
     grad_output_components = grad_output_components.contiguous()
 
+    grad_points = None
     grad_values_flat = torch.zeros(
         (n_cells, n_components),
         device=grad_output.device,
         dtype=torch.float32,
     )
-
     wp_device, wp_stream = FunctionSpec.warp_launch_context(grad_output_fp32)
-    _launch_backward(
-        points_fp32=points_fp32,
-        cells_i32=cells_i32,
-        neighbors_i32=neighbors_i32,
-        grad_output_components_fp32=grad_output_components,
-        grad_values_flat=grad_values_flat,
-        dims=ctx.dims,
-        wp_device=wp_device,
-        wp_stream=wp_stream,
-    )
+    if needs_points:
+        grad_points_fp32, grad_values_fp32 = _launch_backward_with_tape(
+            points_fp32=points_fp32,
+            cells_i32=cells_i32,
+            neighbors_i32=neighbors_i32,
+            values_flat_fp32=values_flat_fp32,
+            grad_output_components_fp32=grad_output_components,
+            dims=ctx.dims,
+            needs_points=needs_points,
+            needs_values=needs_values,
+            wp_device=wp_device,
+            wp_stream=wp_stream,
+        )
+        if grad_points_fp32 is not None:
+            grad_points = grad_points_fp32
+            if grad_points.dtype != ctx.points_dtype:
+                grad_points = grad_points.to(dtype=ctx.points_dtype)
+        if needs_values and grad_values_fp32 is not None:
+            grad_values_flat = grad_values_fp32
+    elif needs_values:
+        _launch_backward(
+            points_fp32=points_fp32,
+            cells_i32=cells_i32,
+            neighbors_i32=neighbors_i32,
+            grad_output_components_fp32=grad_output_components,
+            grad_values_flat=grad_values_flat,
+            dims=ctx.dims,
+            wp_device=wp_device,
+            wp_stream=wp_stream,
+        )
 
-    grad_values = grad_values_flat.reshape(values_shape)
-    if grad_values.dtype != ctx.values_dtype:
-        grad_values = grad_values.to(dtype=ctx.values_dtype)
-    return None, None, None, grad_values
+    grad_values = None
+    if needs_values:
+        grad_values = grad_values_flat.reshape(values_shape)
+        if grad_values.dtype != ctx.values_dtype:
+            grad_values = grad_values.to(dtype=ctx.values_dtype)
+    return grad_points, None, None, grad_values
 
 
 mesh_green_gauss_gradient_impl.register_autograd(
@@ -446,5 +538,11 @@ def mesh_green_gauss_gradient_warp(
     neighbors: torch.Tensor,
     values: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute Green-Gauss cell gradients with Warp kernels."""
+    """Compute Green-Gauss cell gradients with Warp kernels.
+
+    Notes
+    -----
+    Warp kernels compute in ``float32`` internally. Inputs in wider floating
+    dtypes are accepted and cast to ``float32`` for compute.
+    """
     return mesh_green_gauss_gradient_impl(points, cells, neighbors, values)

@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   creating Voronoi regions around seed points. BVH-accelerated.
 - Added support for 1D, 2D, and 3D neighborhood attention (natten) via
   `physicsnemo.nn.functional` interface, with full `ShardTensor` support.
+- Added derivative functionals in `physicsnemo.nn.functional` for
+  `uniform_grid_gradient`, `rectilinear_grid_gradient`,
+  `spectral_grid_gradient`, `meshless_fd_derivatives`, `mesh_lsq_gradient`,
+  and `mesh_green_gauss_gradient`.
+- Added Warp custom-op backward support for `mesh_lsq_gradient` and
+  `mesh_green_gauss_gradient` gradients with respect to both geometry points
+  and field values.
 
 ### Changed
 

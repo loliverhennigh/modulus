@@ -17,6 +17,7 @@
 """Consolidated Warp kernels for grid-to-point interpolation."""
 
 import warp as wp
+
 from physicsnemo.nn.functional.interpolation._warp_common import (
     basis_derivative,
     basis_value,

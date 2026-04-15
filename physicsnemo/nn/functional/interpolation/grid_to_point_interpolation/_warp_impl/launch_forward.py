@@ -17,7 +17,6 @@
 """Dimension-specific Warp launch helpers for interpolation forward passes."""
 
 import torch
-
 import warp as wp
 
 from .kernels import FORWARD_KERNELS

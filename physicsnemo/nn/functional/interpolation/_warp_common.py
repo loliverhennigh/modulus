@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
-
 import warp as wp
 
 _INTERP_NEAREST = 0

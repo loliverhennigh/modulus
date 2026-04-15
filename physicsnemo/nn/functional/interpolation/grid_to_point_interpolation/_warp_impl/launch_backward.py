@@ -24,8 +24,8 @@ functional. It contains:
 """
 
 import torch
-
 import warp as wp
+
 from physicsnemo.core.function_spec import FunctionSpec
 from physicsnemo.nn.functional.interpolation._warp_common import (
     _INTERP_ID_TO_STRIDE,

@@ -699,7 +699,13 @@ def rectilinear_grid_gradient_warp(
     derivative_order: int = 1,
     include_mixed: bool = False,
 ) -> torch.Tensor:
-    """Compute periodic first or pure second derivatives on rectilinear grids."""
+    """Compute periodic first or pure second derivatives on rectilinear grids.
+
+    Notes
+    -----
+    Warp backends internally compute in ``float32``. Float64 inputs are
+    accepted, but derivative accuracy is limited to ``float32`` precision.
+    """
     ### Validate field shape/dtype and normalize coordinates.
     validate_field(field)
     derivative_order = validate_derivative_request(

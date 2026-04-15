@@ -1062,7 +1062,8 @@ def mesh_lsq_gradient_warp(
     Notes
     -----
     Warp kernels compute in ``float32`` internally. Inputs in wider floating
-    dtypes are accepted and cast to ``float32`` for compute.
+    dtypes are accepted and cast to ``float32`` for compute. Float64 inputs are
+    accepted, but derivative accuracy is limited to ``float32`` precision.
     """
     dist_eps = resolve_safe_epsilon(safe_epsilon=safe_epsilon, dtype=torch.float32)
     return mesh_lsq_gradient_impl(

@@ -769,6 +769,7 @@ def mesh_green_gauss_gradient_warp(
     Notes
     -----
     Warp kernels compute in ``float32`` internally. Inputs in wider floating
-    dtypes are accepted and cast to ``float32`` for compute.
+    dtypes are accepted and cast to ``float32`` for compute. Float64 inputs are
+    accepted, but derivative accuracy is limited to ``float32`` precision.
     """
     return mesh_green_gauss_gradient_impl(points, cells, neighbors, values)

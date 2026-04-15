@@ -24,44 +24,18 @@ functional. It contains:
 """
 
 import torch
-import torch.nn.functional as F
 import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
+from physicsnemo.nn.functional.interpolation._warp_common import (
+    _INTERP_ID_TO_STRIDE,
+    _INTERP_NEAREST,
+    crop_padded_grid_gradient,
+    interpolation_geometry,
+    pad_grid_for_stride,
+)
 
-from ._kernels.backward_1d_stride1 import backward_1d_stride1
-from ._kernels.backward_1d_stride2 import backward_1d_stride2
-from ._kernels.backward_1d_stride5 import backward_1d_stride5
-from ._kernels.backward_2d_stride1 import backward_2d_stride1
-from ._kernels.backward_2d_stride2 import backward_2d_stride2
-from ._kernels.backward_2d_stride5 import backward_2d_stride5
-from ._kernels.backward_3d_stride1 import backward_3d_stride1
-from ._kernels.backward_3d_stride2 import backward_3d_stride2
-from ._kernels.backward_3d_stride5 import backward_3d_stride5
-from .utils import _INTERP_ID_TO_STRIDE, _INTERP_NEAREST
-
-
-# Crop padded grid gradients back to original grid shape.
-def crop_grad_grid(
-    grad_padded: torch.Tensor | None,
-    k: int,
-    grid: list[tuple[float, float, int]],
-    dims: int,
-) -> torch.Tensor | None:
-    if grad_padded is None:
-        return None
-    if k == 0:
-        return grad_padded
-    if dims == 1:
-        return grad_padded[:, k : k + grid[0][2]]
-    if dims == 2:
-        return grad_padded[:, k : k + grid[0][2], k : k + grid[1][2]]
-    return grad_padded[
-        :,
-        k : k + grid[0][2],
-        k : k + grid[1][2],
-        k : k + grid[2][2],
-    ]
+from .kernels import BACKWARD_KERNELS
 
 
 # Restore gradients to the input contract (dtype and shape).
@@ -107,67 +81,39 @@ def _launch_backward_1d(
     wp_grad_query = wp.from_torch(grad_query.contiguous(), return_ctype=True)
     wp_grad_grid = wp.from_torch(grad_grid.contiguous(), return_ctype=True)
 
-    # Dispatch to the backward kernel matching the forward stencil width.
-    if stride == 1:
-        wp.launch(
-            backward_1d_stride1,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grad_out,
-                wp_grad_grid,
-                float(start_vals[0]),
-                float(dx_vals[0]),
-                int(padded_sizes[0]),
-                float(center_offset),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-        return
+    inputs = [
+        wp_points,
+        wp_grad_out,
+        wp_grad_grid,
+        float(start_vals[0]),
+        float(dx_vals[0]),
+        int(padded_sizes[0]),
+        float(center_offset),
+        int(compute_grid_grad),
+    ]
+    if stride != 1:
+        wp_grid = wp.from_torch(padded_grid.contiguous())
+        inputs = [
+            wp_points,
+            wp_grid,
+            wp_grad_out,
+            wp_grad_query,
+            wp_grad_grid,
+            float(start_vals[0]),
+            float(dx_vals[0]),
+            int(padded_sizes[0]),
+            int(interp_id) if stride == 2 else float(center_offset),
+            int(compute_query_grad),
+            int(compute_grid_grad),
+        ]
 
-    wp_grid = wp.from_torch(padded_grid.contiguous())
-    if stride == 2:
-        wp.launch(
-            backward_1d_stride2,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grid,
-                wp_grad_out,
-                wp_grad_query,
-                wp_grad_grid,
-                float(start_vals[0]),
-                float(dx_vals[0]),
-                int(padded_sizes[0]),
-                int(interp_id),
-                int(compute_query_grad),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    else:
-        wp.launch(
-            backward_1d_stride5,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grid,
-                wp_grad_out,
-                wp_grad_query,
-                wp_grad_grid,
-                float(start_vals[0]),
-                float(dx_vals[0]),
-                int(padded_sizes[0]),
-                float(center_offset),
-                int(compute_query_grad),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    wp.launch(
+        BACKWARD_KERNELS[1][stride],
+        dim=num_points,
+        inputs=inputs,
+        device=wp_device,
+        stream=wp_stream,
+    )
 
 
 # Launch the 2D backward kernel corresponding to the selected forward stride.
@@ -198,67 +144,39 @@ def _launch_backward_2d(
     spacing = wp.vec2f(float(dx_vals[0]), float(dx_vals[1]))
     size = wp.vec2i(int(padded_sizes[0]), int(padded_sizes[1]))
 
-    # Dispatch to the backward kernel matching the forward stencil width.
-    if stride == 1:
-        wp.launch(
-            backward_2d_stride1,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grad_out,
-                wp_grad_grid,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-        return
+    inputs = [
+        wp_points,
+        wp_grad_out,
+        wp_grad_grid,
+        origin,
+        spacing,
+        size,
+        float(center_offset),
+        int(compute_grid_grad),
+    ]
+    if stride != 1:
+        wp_grid = wp.from_torch(padded_grid.contiguous())
+        inputs = [
+            wp_points,
+            wp_grid,
+            wp_grad_out,
+            wp_grad_query,
+            wp_grad_grid,
+            origin,
+            spacing,
+            size,
+            int(interp_id) if stride == 2 else float(center_offset),
+            int(compute_query_grad),
+            int(compute_grid_grad),
+        ]
 
-    wp_grid = wp.from_torch(padded_grid.contiguous())
-    if stride == 2:
-        wp.launch(
-            backward_2d_stride2,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grid,
-                wp_grad_out,
-                wp_grad_query,
-                wp_grad_grid,
-                origin,
-                spacing,
-                size,
-                int(interp_id),
-                int(compute_query_grad),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    else:
-        wp.launch(
-            backward_2d_stride5,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grid,
-                wp_grad_out,
-                wp_grad_query,
-                wp_grad_grid,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-                int(compute_query_grad),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    wp.launch(
+        BACKWARD_KERNELS[2][stride],
+        dim=num_points,
+        inputs=inputs,
+        device=wp_device,
+        stream=wp_stream,
+    )
 
 
 # Launch the 3D backward kernel corresponding to the selected forward stride.
@@ -301,67 +219,39 @@ def _launch_backward_3d(
         int(padded_sizes[2]),
     )
 
-    # Dispatch to the backward kernel matching the forward stencil width.
-    if stride == 1:
-        wp.launch(
-            backward_3d_stride1,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grad_out,
-                wp_grad_grid,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-        return
+    inputs = [
+        wp_points,
+        wp_grad_out,
+        wp_grad_grid,
+        origin,
+        spacing,
+        size,
+        float(center_offset),
+        int(compute_grid_grad),
+    ]
+    if stride != 1:
+        wp_grid = wp.from_torch(padded_grid.contiguous())
+        inputs = [
+            wp_points,
+            wp_grid,
+            wp_grad_out,
+            wp_grad_query,
+            wp_grad_grid,
+            origin,
+            spacing,
+            size,
+            int(interp_id) if stride == 2 else float(center_offset),
+            int(compute_query_grad),
+            int(compute_grid_grad),
+        ]
 
-    wp_grid = wp.from_torch(padded_grid.contiguous())
-    if stride == 2:
-        wp.launch(
-            backward_3d_stride2,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grid,
-                wp_grad_out,
-                wp_grad_query,
-                wp_grad_grid,
-                origin,
-                spacing,
-                size,
-                int(interp_id),
-                int(compute_query_grad),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    else:
-        wp.launch(
-            backward_3d_stride5,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_grid,
-                wp_grad_out,
-                wp_grad_query,
-                wp_grad_grid,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-                int(compute_query_grad),
-                int(compute_grid_grad),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    wp.launch(
+        BACKWARD_KERNELS[3][stride],
+        dim=num_points,
+        inputs=inputs,
+        device=wp_device,
+        stream=wp_stream,
+    )
 
 
 # Compute backward using specialized Warp kernels for each interpolation family.
@@ -389,14 +279,11 @@ def launch_backward(
     context_fp32 = context_grid.to(torch.float32)
     grad_output_fp32 = grad_output.to(torch.float32)
 
-    # Rebuild padded grid and launch geometry exactly like forward.
     stride = _INTERP_ID_TO_STRIDE[interp_id]
-    k = stride // 2
-    padded_grid = F.pad(context_fp32, dims * (k, k)) if k > 0 else context_fp32
-    dx_vals = [(g[1] - g[0]) / (g[2] - 1) for g in grid]
-    start_vals = [g[0] - k * dx for g, dx in zip(grid, dx_vals)]
-    padded_sizes = [g[2] + 2 * k for g in grid]
-    center_offset = 0.5 if stride % 2 == 1 else 0.0
+    padded_grid, k = pad_grid_for_stride(context_fp32, dims, stride)
+    start_vals, dx_vals, padded_sizes, center_offset = interpolation_geometry(
+        grid, stride, pad_grid=True
+    )
 
     # Allocate gradient outputs and lightweight dummies for disabled branches.
     compute_query_grad = int(bool(needs_input_grad[0]) and interp_id != _INTERP_NEAREST)
@@ -484,7 +371,7 @@ def launch_backward(
 
     # Recover gradients that were requested by autograd.
     grad_query = grad_query_work if compute_query_grad else None
-    grad_grid = crop_grad_grid(
+    grad_grid = crop_padded_grid_gradient(
         grad_padded=grad_padded if compute_grid_grad else None,
         k=k,
         grid=grid,

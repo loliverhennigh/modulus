@@ -19,15 +19,11 @@
 import torch
 import warp as wp
 
-from ._kernels.forward_1d_stride1 import point_to_grid_forward_1d_stride1
-from ._kernels.forward_1d_stride2 import point_to_grid_forward_1d_stride2
-from ._kernels.forward_1d_stride5 import point_to_grid_forward_1d_stride5
-from ._kernels.forward_2d_stride1 import point_to_grid_forward_2d_stride1
-from ._kernels.forward_2d_stride2 import point_to_grid_forward_2d_stride2
-from ._kernels.forward_2d_stride5 import point_to_grid_forward_2d_stride5
-from ._kernels.forward_3d_stride1 import point_to_grid_forward_3d_stride1
-from ._kernels.forward_3d_stride2 import point_to_grid_forward_3d_stride2
-from ._kernels.forward_3d_stride5 import point_to_grid_forward_3d_stride5
+from .kernels import FORWARD_KERNELS
+
+
+def _kernel_param(center_offset: float, interp_id: int, stride: int) -> float | int:
+    return int(interp_id) if stride == 2 else float(center_offset)
 
 
 # Launch 1D point-to-grid forward kernel for the selected stride.
@@ -50,54 +46,21 @@ def _launch_forward_1d(
     wp_values = wp.from_torch(point_values.contiguous())
     wp_out = wp.from_torch(out_grid.contiguous(), return_ctype=True)
 
-    if stride == 1:
-        wp.launch(
-            point_to_grid_forward_1d_stride1,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                float(start_vals[0]),
-                float(dx_vals[0]),
-                int(sizes[0]),
-                float(center_offset),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    elif stride == 2:
-        wp.launch(
-            point_to_grid_forward_1d_stride2,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                float(start_vals[0]),
-                float(dx_vals[0]),
-                int(sizes[0]),
-                int(interp_id),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    else:
-        wp.launch(
-            point_to_grid_forward_1d_stride5,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                float(start_vals[0]),
-                float(dx_vals[0]),
-                int(sizes[0]),
-                float(center_offset),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    wp.launch(
+        FORWARD_KERNELS[1][stride],
+        dim=num_points,
+        inputs=[
+            wp_points,
+            wp_values,
+            wp_out,
+            float(start_vals[0]),
+            float(dx_vals[0]),
+            int(sizes[0]),
+            _kernel_param(center_offset, interp_id, stride),
+        ],
+        device=wp_device,
+        stream=wp_stream,
+    )
 
 
 # Launch 2D point-to-grid forward kernel for the selected stride.
@@ -122,54 +85,21 @@ def _launch_forward_2d(
     spacing = wp.vec2f(float(dx_vals[0]), float(dx_vals[1]))
     size = wp.vec2i(int(sizes[0]), int(sizes[1]))
 
-    if stride == 1:
-        wp.launch(
-            point_to_grid_forward_2d_stride1,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    elif stride == 2:
-        wp.launch(
-            point_to_grid_forward_2d_stride2,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                origin,
-                spacing,
-                size,
-                int(interp_id),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    else:
-        wp.launch(
-            point_to_grid_forward_2d_stride5,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    wp.launch(
+        FORWARD_KERNELS[2][stride],
+        dim=num_points,
+        inputs=[
+            wp_points,
+            wp_values,
+            wp_out,
+            origin,
+            spacing,
+            size,
+            _kernel_param(center_offset, interp_id, stride),
+        ],
+        device=wp_device,
+        stream=wp_stream,
+    )
 
 
 # Launch 3D point-to-grid forward kernel for the selected stride.
@@ -194,54 +124,21 @@ def _launch_forward_3d(
     spacing = wp.vec3f(float(dx_vals[0]), float(dx_vals[1]), float(dx_vals[2]))
     size = wp.vec3i(int(sizes[0]), int(sizes[1]), int(sizes[2]))
 
-    if stride == 1:
-        wp.launch(
-            point_to_grid_forward_3d_stride1,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    elif stride == 2:
-        wp.launch(
-            point_to_grid_forward_3d_stride2,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                origin,
-                spacing,
-                size,
-                int(interp_id),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
-    else:
-        wp.launch(
-            point_to_grid_forward_3d_stride5,
-            dim=num_points,
-            inputs=[
-                wp_points,
-                wp_values,
-                wp_out,
-                origin,
-                spacing,
-                size,
-                float(center_offset),
-            ],
-            device=wp_device,
-            stream=wp_stream,
-        )
+    wp.launch(
+        FORWARD_KERNELS[3][stride],
+        dim=num_points,
+        inputs=[
+            wp_points,
+            wp_values,
+            wp_out,
+            origin,
+            spacing,
+            size,
+            _kernel_param(center_offset, interp_id, stride),
+        ],
+        device=wp_device,
+        stream=wp_stream,
+    )
 
 
 # Dispatch to dimension-specific point-to-grid forward launchers.

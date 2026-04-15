@@ -21,8 +21,7 @@ Kernel Summary
 
 | Kernel Group | Purpose |
 |---|---|
-| ``_kernels/forward_*`` | Scatter point values into grid cells for nearest, linear/smooth, and gaussian modes. |
-| ``_kernels/backward_*`` | Compute gradients for query points and point values for each interpolation family. |
+| ``kernels.py`` | Consolidated forward/backward kernels grouped by dimensionality and stencil width. |
 | ``launch_forward`` | Forward launch helpers that choose stride-specific kernels by dimensionality. |
 | ``launch_backward`` | Backward dispatcher that routes to manual per-dimension launch helpers. |
 """
@@ -34,23 +33,15 @@ import torch
 import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
+from physicsnemo.nn.functional.interpolation._warp_common import (
+    _INTERP_ID_TO_STRIDE,
+    _INTERP_NAME_TO_ID,
+    interpolation_geometry,
+    parse_grid_metadata,
+)
 
 from .launch_backward import launch_backward
 from .launch_forward import launch_forward
-from .utils import _INTERP_ID_TO_STRIDE, _INTERP_NAME_TO_ID
-
-
-# Parse serialized grid metadata into python tuples and validate dimensionality.
-def _parse_grid_metadata(grid_meta: torch.Tensor) -> list[tuple[float, float, int]]:
-    if grid_meta.ndim != 2 or grid_meta.shape[1] != 3:
-        raise ValueError(
-            "grid metadata must have shape (dims, 3) with (min, max, size)"
-        )
-    grid = [(float(g[0]), float(g[1]), int(g[2])) for g in grid_meta.to("cpu").tolist()]
-    dims = len(grid)
-    if dims < 1 or dims > 3:
-        raise ValueError("warp point-to-grid interpolation supports 1-3D grids")
-    return grid
 
 
 # Register the warp-backed point-to-grid op with torch custom ops.
@@ -72,7 +63,7 @@ def point_to_grid_interpolation_impl(
         raise ValueError("query_points and point_values must be on the same device")
 
     # Parse grid metadata and normalize query-point/value shapes.
-    grid = _parse_grid_metadata(grid_meta)
+    grid = parse_grid_metadata(grid_meta, op_name="warp point-to-grid interpolation")
     dims = len(grid)
     if query_points.ndim == 1 and dims == 1:
         query_points = query_points.unsqueeze(-1)
@@ -95,10 +86,9 @@ def point_to_grid_interpolation_impl(
     stride = _INTERP_ID_TO_STRIDE.get(interp_id)
     if stride is None:
         raise ValueError(f"Unsupported interpolation id {interp_id}")
-    dx_vals = [(g[1] - g[0]) / (g[2] - 1) for g in grid]
-    start_vals = [g[0] for g in grid]
-    sizes = [g[2] for g in grid]
-    center_offset = 0.5 if stride % 2 == 1 else 0.0
+    start_vals, dx_vals, sizes, center_offset = interpolation_geometry(
+        grid, stride, pad_grid=False
+    )
 
     # Normalize to float32 for warp kernels and keep original dtype for output cast.
     input_dtype = point_values.dtype

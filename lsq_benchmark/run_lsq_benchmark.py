@@ -488,6 +488,12 @@ def _print_table(rows: list[dict[str, float]]) -> None:
 
 
 def main() -> None:
+    """Run the standalone LSQ benchmark and write CSV/PNG outputs.
+
+    The benchmark sweeps user-provided point counts, times Warp, eager torch,
+    and compiled torch backends, then persists raw timing data and a summary
+    line plot.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--num-points",

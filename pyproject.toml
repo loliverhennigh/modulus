@@ -302,11 +302,6 @@ lint.ignore = ["E501", "S311", "F722"]
 # Exclude the docs and experimental folders (this applies to both lint and format)
 exclude = ["docs", "physicsnemo/experimental"]
 
-[tool.ruff.lint.isort]
-# Keep import grouping stable across environments where a local `warp/` directory
-# may exist (for example, vendored sources used during development).
-known-third-party = ["warp"]
-
 [tool.ruff.lint.per-file-ignores]
 # Ignore `F401` (import violations) in all `__init__.py` files, and in `docs/*.py`.
 "__init__.py" = ["F401"]

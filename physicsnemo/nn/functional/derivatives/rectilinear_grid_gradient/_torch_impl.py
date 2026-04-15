@@ -20,6 +20,12 @@ from collections.abc import Sequence
 
 import torch
 
+from .._request_utils import (
+    compose_derivative_outputs,
+    normalize_derivative_orders,
+    normalize_include_mixed,
+    validate_mixed_request,
+)
 from .utils import (
     axis_central_weights,
     axis_second_derivative_weights,
@@ -81,3 +87,42 @@ def rectilinear_grid_gradient_torch(
 
     ### Stack per-axis derivative terms into (dims, *field.shape).
     return torch.stack(gradients, dim=0)
+
+
+def rectilinear_grid_gradient_torch_multi(
+    field: torch.Tensor,
+    coordinates: Sequence[torch.Tensor],
+    periods: float | Sequence[float] | None = None,
+    derivative_orders: int | Sequence[int] = 1,
+    include_mixed: bool = False,
+) -> torch.Tensor:
+    """Compute first/second/mixed derivatives from a unified request."""
+    requested_orders = normalize_derivative_orders(
+        derivative_orders=derivative_orders,
+        function_name="rectilinear_grid_gradient",
+    )
+    mixed_terms = normalize_include_mixed(
+        include_mixed=include_mixed,
+        function_name="rectilinear_grid_gradient",
+    )
+    validate_mixed_request(
+        derivative_orders=requested_orders,
+        include_mixed=mixed_terms,
+        ndim=field.ndim,
+        function_name="rectilinear_grid_gradient",
+    )
+
+    return compose_derivative_outputs(
+        field=field,
+        requested_orders=requested_orders,
+        include_mixed=mixed_terms,
+        single_order_fn=lambda input_field, derivative_order: (
+            rectilinear_grid_gradient_torch(
+                field=input_field,
+                coordinates=coordinates,
+                periods=periods,
+                derivative_order=derivative_order,
+                include_mixed=False,
+            )
+        ),
+    )

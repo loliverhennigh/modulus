@@ -16,7 +16,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from itertools import combinations
+
+import torch
 
 _SUPPORTED_DERIVATIVE_ORDERS = (1, 2)
 
@@ -97,3 +100,33 @@ def validate_mixed_request(
         raise ValueError(
             f"{function_name} mixed derivatives require at least 2D inputs"
         )
+
+
+def compose_derivative_outputs(
+    *,
+    field: torch.Tensor,
+    requested_orders: tuple[int, ...],
+    include_mixed: bool,
+    single_order_fn: Callable[[torch.Tensor, int], torch.Tensor],
+) -> torch.Tensor:
+    """Compose first/second/mixed derivative outputs from single-order calls."""
+    outputs: list[torch.Tensor] = []
+    first_terms: torch.Tensor | None = None
+
+    if 1 in requested_orders:
+        first_terms = single_order_fn(field, 1)
+        outputs.extend(first_terms.unbind(0))
+
+    if 2 in requested_orders:
+        pure_second_terms = single_order_fn(field, 2)
+        outputs.extend(pure_second_terms.unbind(0))
+
+        if include_mixed:
+            if first_terms is None:
+                first_terms = single_order_fn(field, 1)
+
+            for axis_i, axis_j in combinations(range(field.ndim), 2):
+                mixed_ij = single_order_fn(first_terms[axis_i], 1)[axis_j]
+                outputs.append(mixed_ij)
+
+    return torch.stack(outputs, dim=0)

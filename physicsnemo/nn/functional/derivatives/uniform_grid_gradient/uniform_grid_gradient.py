@@ -17,19 +17,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from itertools import combinations
 
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
 
-from .._request_utils import (
-    normalize_derivative_orders,
-    normalize_include_mixed,
-    validate_mixed_request,
-)
-from ._torch_impl import uniform_grid_gradient_torch
-from ._warp_impl import uniform_grid_gradient_warp, uniform_grid_gradient_warp_multi
+from ._torch_impl import uniform_grid_gradient_torch_multi
+from ._warp_impl import uniform_grid_gradient_warp_multi
 
 
 class UniformGridGradient(FunctionSpec):
@@ -106,8 +100,7 @@ class UniformGridGradient(FunctionSpec):
         include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to the Warp backend."""
-        return _dispatch_uniform_grid_requests(
-            backend_fn=uniform_grid_gradient_warp,
+        return uniform_grid_gradient_warp_multi(
             field=field,
             spacing=spacing,
             order=order,
@@ -124,8 +117,7 @@ class UniformGridGradient(FunctionSpec):
         include_mixed: bool = False,
     ) -> torch.Tensor:
         """Dispatch uniform-grid gradients to eager PyTorch."""
-        return _dispatch_uniform_grid_requests(
-            backend_fn=uniform_grid_gradient_torch,
+        return uniform_grid_gradient_torch_multi(
             field=field,
             spacing=spacing,
             order=order,
@@ -249,86 +241,3 @@ uniform_grid_gradient = UniformGridGradient.make_function("uniform_grid_gradient
 
 
 __all__ = ["UniformGridGradient", "uniform_grid_gradient"]
-
-
-def _dispatch_uniform_grid_requests(
-    *,
-    backend_fn,
-    field: torch.Tensor,
-    spacing: float | Sequence[float],
-    order: int,
-    derivative_orders: int | Sequence[int],
-    include_mixed: bool,
-) -> torch.Tensor:
-    """Resolve unified derivative requests and dispatch to backend kernels."""
-    requested_orders = normalize_derivative_orders(
-        derivative_orders=derivative_orders,
-        function_name="uniform_grid_gradient",
-    )
-    mixed_terms = normalize_include_mixed(
-        include_mixed=include_mixed,
-        function_name="uniform_grid_gradient",
-    )
-    validate_mixed_request(
-        derivative_orders=requested_orders,
-        include_mixed=mixed_terms,
-        ndim=field.ndim,
-        function_name="uniform_grid_gradient",
-    )
-
-    if backend_fn is uniform_grid_gradient_warp and (
-        len(requested_orders) > 1 or mixed_terms
-    ):
-        return uniform_grid_gradient_warp_multi(
-            field=field,
-            spacing=spacing,
-            order=order,
-            derivative_orders=requested_orders,
-            include_mixed=mixed_terms,
-        )
-
-    outputs: list[torch.Tensor] = []
-    first_terms: torch.Tensor | None = None
-
-    if 1 in requested_orders:
-        first_terms = backend_fn(
-            field=field,
-            spacing=spacing,
-            order=order,
-            derivative_order=1,
-            include_mixed=False,
-        )
-        outputs.extend(first_terms.unbind(0))
-
-    if 2 in requested_orders:
-        pure_second_terms = backend_fn(
-            field=field,
-            spacing=spacing,
-            order=order,
-            derivative_order=2,
-            include_mixed=False,
-        )
-        outputs.extend(pure_second_terms.unbind(0))
-
-        if mixed_terms:
-            if first_terms is None:
-                first_terms = backend_fn(
-                    field=field,
-                    spacing=spacing,
-                    order=order,
-                    derivative_order=1,
-                    include_mixed=False,
-                )
-
-            for axis_i, axis_j in combinations(range(field.ndim), 2):
-                axis_i_first = first_terms[axis_i]
-                mixed_ij = backend_fn(
-                    field=axis_i_first,
-                    spacing=spacing,
-                    order=order,
-                    derivative_order=1,
-                    include_mixed=False,
-                )[axis_j]
-                outputs.append(mixed_ij)
-
-    return torch.stack(outputs, dim=0)

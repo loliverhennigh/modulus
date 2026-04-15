@@ -23,6 +23,12 @@ import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
 
+from ..._request_utils import (
+    compose_derivative_outputs,
+    normalize_derivative_orders,
+    normalize_include_mixed,
+    validate_mixed_request,
+)
 from .._torch_impl import rectilinear_grid_gradient_torch
 from ..utils import (
     validate_and_normalize_coordinates,
@@ -755,9 +761,9 @@ def rectilinear_grid_gradient_warp(
 def rectilinear_grid_gradient_warp_multi(
     field: torch.Tensor,
     coordinates: Sequence[torch.Tensor],
-    periods: float | Sequence[float] | None,
-    derivative_orders: tuple[int, ...],
-    include_mixed: bool,
+    periods: float | Sequence[float] | None = None,
+    derivative_orders: int | Sequence[int] = 1,
+    include_mixed: bool = False,
 ) -> torch.Tensor:
     """Compute multiple derivative families, fusing first+second when possible.
 
@@ -774,60 +780,23 @@ def rectilinear_grid_gradient_warp_multi(
         coordinates_dtype=torch.float32,
         requires_grad_error="coordinate gradients are not supported in warp backend",
     )
-
-    if include_mixed and 2 not in derivative_orders:
-        raise ValueError("include_mixed requires requesting 2nd derivatives")
-    if include_mixed and field.ndim < 2:
-        raise ValueError("mixed derivatives require at least 2D inputs")
-
-    ### Mixed requests are composed from single-order custom ops.
-    if include_mixed:
-        outputs: list[torch.Tensor] = []
-        first_terms = rectilinear_grid_gradient_warp(
-            field=field,
-            coordinates=coords_tuple,
-            periods=period_tuple,
-            derivative_order=1,
-            include_mixed=False,
-        )
-
-        if 1 in derivative_orders:
-            outputs.extend(first_terms.unbind(0))
-
-        if 2 in derivative_orders:
-            pure_second_terms = rectilinear_grid_gradient_warp(
-                field=field,
-                coordinates=coords_tuple,
-                periods=period_tuple,
-                derivative_order=2,
-                include_mixed=False,
-            )
-            outputs.extend(pure_second_terms.unbind(0))
-
-            for axis_i in range(field.ndim):
-                for axis_j in range(axis_i + 1, field.ndim):
-                    mixed_ij = rectilinear_grid_gradient_warp(
-                        field=first_terms[axis_i],
-                        coordinates=coords_tuple,
-                        periods=period_tuple,
-                        derivative_order=1,
-                        include_mixed=False,
-                    )[axis_j]
-                    outputs.append(mixed_ij)
-        return torch.stack(outputs, dim=0)
-
-    ### Single-order requests should use the direct single-order custom ops.
-    if len(derivative_orders) == 1:
-        return rectilinear_grid_gradient_warp(
-            field=field,
-            coordinates=coords_tuple,
-            periods=period_tuple,
-            derivative_order=int(derivative_orders[0]),
-            include_mixed=False,
-        )
+    requested_orders = normalize_derivative_orders(
+        derivative_orders=derivative_orders,
+        function_name="rectilinear_grid_gradient",
+    )
+    mixed_terms = normalize_include_mixed(
+        include_mixed=include_mixed,
+        function_name="rectilinear_grid_gradient",
+    )
+    validate_mixed_request(
+        derivative_orders=requested_orders,
+        include_mixed=mixed_terms,
+        ndim=field.ndim,
+        function_name="rectilinear_grid_gradient",
+    )
 
     ### Fused no-mixed path with custom-op backward for combined first+second.
-    if 1 in derivative_orders and 2 in derivative_orders:
+    if not mixed_terms and requested_orders == (1, 2):
         if field.ndim == 1:
             fused = rectilinear_derivatives_1d_fused_no_mixed_impl(
                 field,
@@ -855,12 +824,24 @@ def rectilinear_grid_gradient_warp_multi(
 
         outputs: list[torch.Tensor] = []
         n_dims = field.ndim
-        if 1 in derivative_orders:
+        if 1 in requested_orders:
             outputs.extend(fused[:n_dims].unbind(0))
-        if 2 in derivative_orders:
+        if 2 in requested_orders:
             outputs.extend(fused[n_dims:].unbind(0))
         return torch.stack(outputs, dim=0)
 
-    raise RuntimeError(
-        "Unhandled derivative request in rectilinear_grid_gradient_warp_multi"
+    ### Compose through the single-order custom op path for remaining requests.
+    return compose_derivative_outputs(
+        field=field,
+        requested_orders=requested_orders,
+        include_mixed=mixed_terms,
+        single_order_fn=lambda input_field, derivative_order: (
+            rectilinear_grid_gradient_warp(
+                field=input_field,
+                coordinates=coords_tuple,
+                periods=period_tuple,
+                derivative_order=derivative_order,
+                include_mixed=False,
+            )
+        ),
     )

@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import torch
-import warp as wp
 
 from ._kernels import (
     _uniform_grid_derivatives_1d_order2_fused_backward_kernel,
@@ -38,7 +37,14 @@ from ._kernels import (
     _uniform_grid_second_derivative_3d_backward_kernel,
     _uniform_grid_second_derivative_3d_order4_backward_kernel,
 )
-from .utils import _wp_launch
+from .utils import (
+    _inverse_spacings,
+    _launch_dim,
+    _mixed_inverse_spacings,
+    _to_wp_components,
+    _to_wp_tensor,
+    _wp_launch,
+)
 
 _BACKWARD_KERNELS = {
     (1, 1, 2): _uniform_grid_gradient_1d_backward_kernel,
@@ -63,32 +69,6 @@ _FUSED_BACKWARD_KERNELS = {
     (3, False): _uniform_grid_derivatives_3d_order2_fused_no_mixed_backward_kernel,
     (3, True): _uniform_grid_derivatives_3d_order2_fused_backward_kernel,
 }
-
-
-def _launch_dim(shape: torch.Size) -> int | tuple[int, ...]:
-    """Return Warp launch dimensions for 1D vs ND kernels."""
-    return shape[0] if len(shape) == 1 else tuple(shape)
-
-
-def _inverse_spacings(spacing_tuple: tuple[float, ...], power: int) -> list[float]:
-    """Compute inverse spacing terms with optional square for second derivatives."""
-    if power == 1:
-        return [1.0 / float(dx) for dx in spacing_tuple]
-    return [1.0 / float(dx * dx) for dx in spacing_tuple]
-
-
-def _mixed_inverse_spacings(spacing_tuple: tuple[float, ...]) -> list[float]:
-    """Compute inverse mixed spacing terms in axis-pair order."""
-    return [
-        1.0 / float(spacing_tuple[i] * spacing_tuple[j])
-        for i in range(len(spacing_tuple))
-        for j in range(i + 1, len(spacing_tuple))
-    ]
-
-
-def _to_wp_components(components: list[torch.Tensor], count: int) -> list[wp.array]:
-    """Convert the leading tensor components to Warp arrays."""
-    return [wp.from_torch(components[i], dtype=wp.float32) for i in range(count)]
 
 
 def _launch_backward(
@@ -116,7 +96,7 @@ def _launch_backward(
         inputs=[
             *_to_wp_components(grad_output_fp32, ndim),
             *inv_terms,
-            wp.from_torch(grad_field, dtype=wp.float32),
+            _to_wp_tensor(grad_field),
         ],
         device=wp_device,
         stream=wp_stream,
@@ -156,7 +136,7 @@ def _launch_backward_fused_order2_no_mixed(
     if include_mixed and ndim > 1:
         inputs.extend(_mixed_inverse_spacings(local_spacing))
 
-    inputs.append(wp.from_torch(grad_field, dtype=wp.float32))
+    inputs.append(_to_wp_tensor(grad_field))
 
     _wp_launch(
         kernel=kernel,

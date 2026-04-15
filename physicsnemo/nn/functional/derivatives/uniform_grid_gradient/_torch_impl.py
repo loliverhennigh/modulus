@@ -20,6 +20,13 @@ from collections.abc import Sequence
 
 import torch
 
+from .._request_utils import (
+    compose_derivative_outputs,
+    normalize_derivative_orders,
+    normalize_include_mixed,
+    validate_mixed_request,
+)
+
 _SUPPORTED_ORDERS = (2, 4)
 _SUPPORTED_DERIVATIVE_ORDERS = (1, 2)
 
@@ -127,6 +134,14 @@ def _second_derivative_order4(
     ) / (12.0 * dx * dx)
 
 
+_DERIVATIVE_DISPATCH = {
+    (1, 2): _central_derivative_order2,
+    (1, 4): _central_derivative_order4,
+    (2, 2): _second_derivative_order2,
+    (2, 4): _second_derivative_order4,
+}
+
+
 def uniform_grid_gradient_torch(
     field: torch.Tensor,
     spacing: float | Sequence[float] = 1.0,
@@ -154,19 +169,52 @@ def uniform_grid_gradient_torch(
 
     ### Compute periodic central differences independently per axis.
     gradients: list[torch.Tensor] = []
+    derivative_fn = _DERIVATIVE_DISPATCH[(derivative_order, order)]
     for axis, dx in enumerate(spacing_tuple):
         if dx <= 0.0:
             raise ValueError("all spacing entries must be strictly positive")
         ### Periodic axis-wise derivative with configurable derivative/stencil order.
-        if derivative_order == 1 and order == 2:
-            grad_axis = _central_derivative_order2(field, axis=axis, dx=dx)
-        elif derivative_order == 1 and order == 4:
-            grad_axis = _central_derivative_order4(field, axis=axis, dx=dx)
-        elif derivative_order == 2 and order == 2:
-            grad_axis = _second_derivative_order2(field, axis=axis, dx=dx)
-        else:
-            grad_axis = _second_derivative_order4(field, axis=axis, dx=dx)
+        grad_axis = derivative_fn(field, axis=axis, dx=dx)
         gradients.append(grad_axis)
 
     ### Stack per-axis derivative terms into (dims, *field.shape).
     return torch.stack(gradients, dim=0)
+
+
+def uniform_grid_gradient_torch_multi(
+    field: torch.Tensor,
+    spacing: float | Sequence[float] = 1.0,
+    order: int = 2,
+    derivative_orders: int | Sequence[int] = 1,
+    include_mixed: bool = False,
+) -> torch.Tensor:
+    """Compute first/second/mixed derivatives from a unified request."""
+    requested_orders = normalize_derivative_orders(
+        derivative_orders=derivative_orders,
+        function_name="uniform_grid_gradient",
+    )
+    mixed_terms = normalize_include_mixed(
+        include_mixed=include_mixed,
+        function_name="uniform_grid_gradient",
+    )
+    validate_mixed_request(
+        derivative_orders=requested_orders,
+        include_mixed=mixed_terms,
+        ndim=field.ndim,
+        function_name="uniform_grid_gradient",
+    )
+
+    return compose_derivative_outputs(
+        field=field,
+        requested_orders=requested_orders,
+        include_mixed=mixed_terms,
+        single_order_fn=lambda input_field, derivative_order: (
+            uniform_grid_gradient_torch(
+                field=input_field,
+                spacing=spacing,
+                order=order,
+                derivative_order=derivative_order,
+                include_mixed=False,
+            )
+        ),
+    )

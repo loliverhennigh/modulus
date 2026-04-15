@@ -131,3 +131,41 @@ def _warp_launch_context(field: torch.Tensor):
     if field.device.type == "cuda":
         return None, wp.stream_from_torch(torch.cuda.current_stream(field.device))
     return "cpu", None
+
+
+def _launch_dim(shape: torch.Size) -> int | tuple[int, ...]:
+    """Return Warp launch dimensions for 1D vs ND kernels."""
+    return shape[0] if len(shape) == 1 else tuple(shape)
+
+
+def _inverse_spacings(
+    spacing_tuple: tuple[float, ...],
+    *,
+    power: int,
+) -> list[float]:
+    """Compute inverse spacing terms with optional square for second derivatives."""
+    if power == 1:
+        return [1.0 / float(dx) for dx in spacing_tuple]
+    return [1.0 / float(dx * dx) for dx in spacing_tuple]
+
+
+def _mixed_inverse_spacings(spacing_tuple: tuple[float, ...]) -> list[float]:
+    """Compute inverse mixed spacing terms in axis-pair order."""
+    return [
+        1.0 / float(spacing_tuple[i] * spacing_tuple[j])
+        for i in range(len(spacing_tuple))
+        for j in range(i + 1, len(spacing_tuple))
+    ]
+
+
+def _to_wp_components(
+    components: Sequence[torch.Tensor],
+    count: int,
+) -> list[wp.array]:
+    """Convert leading tensor components to Warp arrays."""
+    return [wp.from_torch(components[i], dtype=wp.float32) for i in range(count)]
+
+
+def _to_wp_tensor(component: torch.Tensor) -> wp.array:
+    """Convert a single tensor component to a Warp array."""
+    return wp.from_torch(component, dtype=wp.float32)

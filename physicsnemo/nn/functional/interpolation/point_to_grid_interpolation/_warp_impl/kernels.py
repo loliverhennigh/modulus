@@ -17,13 +17,13 @@
 """Consolidated Warp kernels for point-to-grid interpolation."""
 
 import warp as wp
-
 from physicsnemo.nn.functional.interpolation._warp_common import (
     basis_derivative,
     basis_value,
     clamp_index,
     clamp_stencil_pair,
 )
+
 
 @wp.kernel
 def point_to_grid_backward_1d_stride1(
@@ -39,6 +39,7 @@ def point_to_grid_backward_1d_stride1(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 1D nearest point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -60,6 +61,7 @@ def point_to_grid_backward_1d_stride1(
     if compute_query_grad != 0:
         grad_query[tid, 0] = 0.0
 
+
 @wp.kernel
 def point_to_grid_backward_1d_stride2(
     points: wp.array(dtype=wp.float32),
@@ -74,6 +76,7 @@ def point_to_grid_backward_1d_stride2(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 1D linear/smooth point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -111,6 +114,7 @@ def point_to_grid_backward_1d_stride2(
     if compute_query_grad != 0:
         grad_query[tid, 0] = grad_x
 
+
 @wp.kernel
 def point_to_grid_backward_1d_stride5(
     points: wp.array(dtype=wp.float32),
@@ -125,6 +129,7 @@ def point_to_grid_backward_1d_stride5(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 1D Gaussian point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -182,6 +187,7 @@ def point_to_grid_backward_1d_stride5(
     if compute_query_grad != 0:
         grad_query[tid, 0] = grad_x
 
+
 @wp.kernel
 def point_to_grid_backward_2d_stride1(
     points: wp.array(dtype=wp.vec2f),
@@ -196,6 +202,7 @@ def point_to_grid_backward_2d_stride1(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 2D nearest point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -216,6 +223,7 @@ def point_to_grid_backward_2d_stride1(
         grad_query[tid, 0] = 0.0
         grad_query[tid, 1] = 0.0
 
+
 @wp.kernel
 def point_to_grid_backward_2d_stride2(
     points: wp.array(dtype=wp.vec2f),
@@ -230,6 +238,7 @@ def point_to_grid_backward_2d_stride2(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 2D bilinear/smooth point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -301,6 +310,7 @@ def point_to_grid_backward_2d_stride2(
         grad_query[tid, 0] = grad_x
         grad_query[tid, 1] = grad_y
 
+
 @wp.kernel
 def point_to_grid_backward_2d_stride5(
     points: wp.array(dtype=wp.vec2f),
@@ -315,6 +325,7 @@ def point_to_grid_backward_2d_stride5(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 2D Gaussian point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -397,6 +408,7 @@ def point_to_grid_backward_2d_stride5(
         grad_query[tid, 0] = grad_x
         grad_query[tid, 1] = grad_y
 
+
 @wp.kernel
 def point_to_grid_backward_3d_stride1(
     points: wp.array(dtype=wp.vec3f),
@@ -411,6 +423,7 @@ def point_to_grid_backward_3d_stride1(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 3D nearest point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -436,6 +449,7 @@ def point_to_grid_backward_3d_stride1(
         grad_query[tid, 1] = 0.0
         grad_query[tid, 2] = 0.0
 
+
 @wp.kernel
 def point_to_grid_backward_3d_stride2(
     points: wp.array(dtype=wp.vec3f),
@@ -450,6 +464,7 @@ def point_to_grid_backward_3d_stride2(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 3D trilinear/smooth point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -590,6 +605,7 @@ def point_to_grid_backward_3d_stride2(
         grad_query[tid, 1] = grad_y
         grad_query[tid, 2] = grad_z
 
+
 @wp.kernel
 def point_to_grid_backward_3d_stride5(
     points: wp.array(dtype=wp.vec3f),
@@ -604,6 +620,7 @@ def point_to_grid_backward_3d_stride5(
     compute_query_grad: int,
     compute_values_grad: int,
 ):
+    """Backpropagate 3D Gaussian point-to-grid interpolation."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -709,6 +726,7 @@ def point_to_grid_backward_3d_stride5(
         grad_query[tid, 1] = grad_y
         grad_query[tid, 2] = grad_z
 
+
 @wp.kernel
 def point_to_grid_forward_1d_stride1(
     points: wp.array(dtype=wp.float32),
@@ -719,6 +737,7 @@ def point_to_grid_forward_1d_stride1(
     size_x: int,
     center_offset: wp.float32,
 ):
+    """Scatter points to a 1D grid with nearest-neighbor weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -734,6 +753,7 @@ def point_to_grid_forward_1d_stride1(
     for c in range(point_values.shape[1]):
         wp.atomic_add(out_grid, c, center, point_values[tid, c])
 
+
 @wp.kernel
 def point_to_grid_forward_1d_stride2(
     points: wp.array(dtype=wp.float32),
@@ -744,6 +764,7 @@ def point_to_grid_forward_1d_stride2(
     size_x: int,
     interp_id: int,
 ):
+    """Scatter points to a 1D grid with linear/smooth weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -767,6 +788,7 @@ def point_to_grid_forward_1d_stride2(
         wp.atomic_add(out_grid, c, idx0, upper * value)
         wp.atomic_add(out_grid, c, idx1, lower * value)
 
+
 @wp.kernel
 def point_to_grid_forward_1d_stride5(
     points: wp.array(dtype=wp.float32),
@@ -777,6 +799,7 @@ def point_to_grid_forward_1d_stride5(
     size_x: int,
     center_offset: wp.float32,
 ):
+    """Scatter points to a 1D grid with Gaussian stencil weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -808,6 +831,7 @@ def point_to_grid_forward_1d_stride5(
         for c in range(point_values.shape[1]):
             wp.atomic_add(out_grid, c, idx, weight * point_values[tid, c])
 
+
 @wp.kernel
 def point_to_grid_forward_2d_stride1(
     points: wp.array(dtype=wp.vec2f),
@@ -818,6 +842,7 @@ def point_to_grid_forward_2d_stride1(
     size: wp.vec2i,
     center_offset: wp.float32,
 ):
+    """Scatter points to a 2D grid with nearest-neighbor weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -831,6 +856,7 @@ def point_to_grid_forward_2d_stride1(
     for c in range(point_values.shape[1]):
         wp.atomic_add(out_grid, c, center_x, center_y, point_values[tid, c])
 
+
 @wp.kernel
 def point_to_grid_forward_2d_stride2(
     points: wp.array(dtype=wp.vec2f),
@@ -841,6 +867,7 @@ def point_to_grid_forward_2d_stride2(
     size: wp.vec2i,
     interp_id: int,
 ):
+    """Scatter points to a 2D grid with bilinear/smooth weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -880,6 +907,7 @@ def point_to_grid_forward_2d_stride2(
         wp.atomic_add(out_grid, c, idx_x1, idx_y0, w10 * value)
         wp.atomic_add(out_grid, c, idx_x1, idx_y1, w11 * value)
 
+
 @wp.kernel
 def point_to_grid_forward_2d_stride5(
     points: wp.array(dtype=wp.vec2f),
@@ -890,6 +918,7 @@ def point_to_grid_forward_2d_stride5(
     size: wp.vec2i,
     center_offset: wp.float32,
 ):
+    """Scatter points to a 2D grid with Gaussian stencil weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -934,6 +963,7 @@ def point_to_grid_forward_2d_stride5(
             for c in range(point_values.shape[1]):
                 wp.atomic_add(out_grid, c, idx_x, idx_y, weight * point_values[tid, c])
 
+
 @wp.kernel
 def point_to_grid_forward_3d_stride1(
     points: wp.array(dtype=wp.vec3f),
@@ -944,6 +974,7 @@ def point_to_grid_forward_3d_stride1(
     size: wp.vec3i,
     center_offset: wp.float32,
 ):
+    """Scatter points to a 3D grid with nearest-neighbor weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -959,6 +990,7 @@ def point_to_grid_forward_3d_stride1(
     for c in range(point_values.shape[1]):
         wp.atomic_add(out_grid, c, center_x, center_y, center_z, point_values[tid, c])
 
+
 @wp.kernel
 def point_to_grid_forward_3d_stride2(
     points: wp.array(dtype=wp.vec3f),
@@ -969,6 +1001,7 @@ def point_to_grid_forward_3d_stride2(
     size: wp.vec3i,
     interp_id: int,
 ):
+    """Scatter points to a 3D grid with trilinear/smooth weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -1024,6 +1057,7 @@ def point_to_grid_forward_3d_stride2(
         wp.atomic_add(out_grid, c, idx_x1, idx_y1, idx_z0, w110 * value)
         wp.atomic_add(out_grid, c, idx_x1, idx_y1, idx_z1, w111 * value)
 
+
 @wp.kernel
 def point_to_grid_forward_3d_stride5(
     points: wp.array(dtype=wp.vec3f),
@@ -1034,6 +1068,7 @@ def point_to_grid_forward_3d_stride5(
     size: wp.vec3i,
     center_offset: wp.float32,
 ):
+    """Scatter points to a 3D grid with Gaussian stencil weights."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -1098,16 +1133,41 @@ def point_to_grid_forward_3d_stride5(
                         weight * point_values[tid, c],
                     )
 
+
 FORWARD_KERNELS = {
-    1: {1: point_to_grid_forward_1d_stride1, 2: point_to_grid_forward_1d_stride2, 5: point_to_grid_forward_1d_stride5},
-    2: {1: point_to_grid_forward_2d_stride1, 2: point_to_grid_forward_2d_stride2, 5: point_to_grid_forward_2d_stride5},
-    3: {1: point_to_grid_forward_3d_stride1, 2: point_to_grid_forward_3d_stride2, 5: point_to_grid_forward_3d_stride5},
+    1: {
+        1: point_to_grid_forward_1d_stride1,
+        2: point_to_grid_forward_1d_stride2,
+        5: point_to_grid_forward_1d_stride5,
+    },
+    2: {
+        1: point_to_grid_forward_2d_stride1,
+        2: point_to_grid_forward_2d_stride2,
+        5: point_to_grid_forward_2d_stride5,
+    },
+    3: {
+        1: point_to_grid_forward_3d_stride1,
+        2: point_to_grid_forward_3d_stride2,
+        5: point_to_grid_forward_3d_stride5,
+    },
 }
 
 BACKWARD_KERNELS = {
-    1: {1: point_to_grid_backward_1d_stride1, 2: point_to_grid_backward_1d_stride2, 5: point_to_grid_backward_1d_stride5},
-    2: {1: point_to_grid_backward_2d_stride1, 2: point_to_grid_backward_2d_stride2, 5: point_to_grid_backward_2d_stride5},
-    3: {1: point_to_grid_backward_3d_stride1, 2: point_to_grid_backward_3d_stride2, 5: point_to_grid_backward_3d_stride5},
+    1: {
+        1: point_to_grid_backward_1d_stride1,
+        2: point_to_grid_backward_1d_stride2,
+        5: point_to_grid_backward_1d_stride5,
+    },
+    2: {
+        1: point_to_grid_backward_2d_stride1,
+        2: point_to_grid_backward_2d_stride2,
+        5: point_to_grid_backward_2d_stride5,
+    },
+    3: {
+        1: point_to_grid_backward_3d_stride1,
+        2: point_to_grid_backward_3d_stride2,
+        5: point_to_grid_backward_3d_stride5,
+    },
 }
 
 __all__ = [

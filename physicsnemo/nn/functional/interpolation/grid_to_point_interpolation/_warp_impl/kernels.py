@@ -17,13 +17,13 @@
 """Consolidated Warp kernels for grid-to-point interpolation."""
 
 import warp as wp
-
 from physicsnemo.nn.functional.interpolation._warp_common import (
     basis_derivative,
     basis_value,
     clamp_index,
     clamp_stencil_pair,
 )
+
 
 @wp.kernel
 def backward_1d_stride1(
@@ -51,6 +51,7 @@ def backward_1d_stride1(
     # Accumulate channel contributions for this sample.
     for c in range(grad_output.shape[1]):
         wp.atomic_add(grad_grid, c, center, grad_output[tid, c])
+
 
 @wp.kernel
 def backward_1d_stride2(
@@ -103,6 +104,7 @@ def backward_1d_stride2(
 
     if compute_query_grad != 0:
         grad_query[tid, 0] = grad_x
+
 
 @wp.kernel
 def backward_1d_stride5(
@@ -172,6 +174,7 @@ def backward_1d_stride5(
     if compute_query_grad != 0:
         grad_query[tid, 0] = grad_x
 
+
 @wp.kernel
 def backward_2d_stride1(
     points: wp.array(dtype=wp.vec2f),
@@ -197,6 +200,7 @@ def backward_2d_stride1(
     # Accumulate channel contributions for this sample.
     for c in range(grad_output.shape[1]):
         wp.atomic_add(grad_grid, c, center_x, center_y, grad_output[tid, c])
+
 
 @wp.kernel
 def backward_2d_stride2(
@@ -285,6 +289,7 @@ def backward_2d_stride2(
     if compute_query_grad != 0:
         grad_query[tid, 0] = grad_x
         grad_query[tid, 1] = grad_y
+
 
 @wp.kernel
 def backward_2d_stride5(
@@ -379,6 +384,7 @@ def backward_2d_stride5(
         grad_query[tid, 0] = grad_x
         grad_query[tid, 1] = grad_y
 
+
 @wp.kernel
 def backward_3d_stride1(
     points: wp.array(dtype=wp.vec3f),
@@ -406,6 +412,7 @@ def backward_3d_stride1(
     # Accumulate channel contributions for this sample.
     for c in range(grad_output.shape[1]):
         wp.atomic_add(grad_grid, c, center_x, center_y, center_z, grad_output[tid, c])
+
 
 @wp.kernel
 def backward_3d_stride2(
@@ -559,6 +566,7 @@ def backward_3d_stride2(
         grad_query[tid, 1] = grad_y
         grad_query[tid, 2] = grad_z
 
+
 @wp.kernel
 def backward_3d_stride5(
     points: wp.array(dtype=wp.vec3f),
@@ -682,6 +690,7 @@ def backward_3d_stride5(
         grad_query[tid, 1] = grad_y
         grad_query[tid, 2] = grad_z
 
+
 @wp.kernel
 def interp_1d_stride1(
     points: wp.array(dtype=wp.float32),
@@ -692,6 +701,7 @@ def interp_1d_stride1(
     size_x: int,
     center_offset: wp.float32,
 ):
+    """Gather 1D nearest-neighbor values from grid to query points."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -707,6 +717,7 @@ def interp_1d_stride1(
     for c in range(grid.shape[0]):
         out[tid, c] = grid[c, center]
 
+
 @wp.kernel
 def interp_1d_stride2(
     points: wp.array(dtype=wp.float32),
@@ -717,6 +728,7 @@ def interp_1d_stride2(
     size_x: int,
     interp_id: int,
 ):
+    """Gather 1D linear/smooth interpolation values from grid to points."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -738,6 +750,7 @@ def interp_1d_stride2(
     for c in range(grid.shape[0]):
         out[tid, c] = upper * grid[c, idx0] + lower * grid[c, idx1]
 
+
 @wp.kernel
 def interp_1d_stride5(
     points: wp.array(dtype=wp.float32),
@@ -748,6 +761,7 @@ def interp_1d_stride5(
     size_x: int,
     center_offset: wp.float32,
 ):
+    """Gather 1D Gaussian-weighted interpolation values from grid."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -775,6 +789,7 @@ def interp_1d_stride5(
         for c in range(grid.shape[0]):
             out[tid, c] = out[tid, c] * inv
 
+
 @wp.kernel
 def interp_2d_stride1(
     points: wp.array(dtype=wp.vec2f),
@@ -785,6 +800,7 @@ def interp_2d_stride1(
     size: wp.vec2i,
     center_offset: wp.float32,
 ):
+    """Gather 2D nearest-neighbor values from grid to query points."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -801,6 +817,7 @@ def interp_2d_stride1(
     for c in range(grid.shape[0]):
         out[tid, c] = grid[c, center_x, center_y]
 
+
 @wp.kernel
 def interp_2d_stride2(
     points: wp.array(dtype=wp.vec2f),
@@ -811,6 +828,7 @@ def interp_2d_stride2(
     size: wp.vec2i,
     interp_id: int,
 ):
+    """Gather 2D bilinear/smooth interpolation values from grid."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -844,6 +862,7 @@ def interp_2d_stride2(
             + lower_x * lower_y * grid[c, idx_x1, idx_y1]
         )
 
+
 @wp.kernel
 def interp_2d_stride5(
     points: wp.array(dtype=wp.vec2f),
@@ -854,6 +873,7 @@ def interp_2d_stride5(
     size: wp.vec2i,
     center_offset: wp.float32,
 ):
+    """Gather 2D Gaussian-weighted interpolation values from grid."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -888,6 +908,7 @@ def interp_2d_stride5(
         for c in range(grid.shape[0]):
             out[tid, c] = out[tid, c] * inv
 
+
 @wp.kernel
 def interp_3d_stride1(
     points: wp.array(dtype=wp.vec3f),
@@ -898,6 +919,7 @@ def interp_3d_stride1(
     size: wp.vec3i,
     center_offset: wp.float32,
 ):
+    """Gather 3D nearest-neighbor values from grid to query points."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -920,6 +942,7 @@ def interp_3d_stride1(
     for c in range(grid.shape[0]):
         out[tid, c] = grid[c, center_x, center_y, center_z]
 
+
 @wp.kernel
 def interp_3d_stride2(
     points: wp.array(dtype=wp.vec3f),
@@ -930,6 +953,7 @@ def interp_3d_stride2(
     size: wp.vec3i,
     interp_id: int,
 ):
+    """Gather 3D trilinear/smooth interpolation values from grid."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -978,6 +1002,7 @@ def interp_3d_stride2(
             + lower_x * lower_y * lower_z * grid[c, idx_x1, idx_y1, idx_z1]
         )
 
+
 @wp.kernel
 def interp_3d_stride5(
     points: wp.array(dtype=wp.vec3f),
@@ -988,6 +1013,7 @@ def interp_3d_stride5(
     size: wp.vec3i,
     center_offset: wp.float32,
 ):
+    """Gather 3D Gaussian-weighted interpolation values from grid."""
     tid = wp.tid()
 
     # Map one Warp thread to one query/scatter sample.
@@ -1032,6 +1058,7 @@ def interp_3d_stride5(
         inv = 1.0 / sum_w
         for c in range(grid.shape[0]):
             out[tid, c] = out[tid, c] * inv
+
 
 FORWARD_KERNELS = {
     1: {1: interp_1d_stride1, 2: interp_1d_stride2, 5: interp_1d_stride5},

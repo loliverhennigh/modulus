@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+
 import warp as wp
 
 _INTERP_NEAREST = 0
@@ -50,16 +51,19 @@ wp.init()
 
 @wp.func
 def smooth_step_1(x: wp.float32) -> wp.float32:
+    """Return cubic smooth-step basis value."""
     return wp.clamp(3.0 * x * x - 2.0 * x * x * x, 0.0, 1.0)
 
 
 @wp.func
 def smooth_step_2(x: wp.float32) -> wp.float32:
+    """Return quintic smooth-step basis value."""
     return wp.clamp(x * x * x * (6.0 * x * x - 15.0 * x + 10.0), 0.0, 1.0)
 
 
 @wp.func
 def basis_value(interp_id: int, x: wp.float32) -> wp.float32:
+    """Evaluate basis function value for supported interpolation modes."""
     if interp_id == _INTERP_SMOOTH_1:
         return smooth_step_1(x)
     if interp_id == _INTERP_SMOOTH_2:
@@ -69,6 +73,7 @@ def basis_value(interp_id: int, x: wp.float32) -> wp.float32:
 
 @wp.func
 def basis_derivative(interp_id: int, x: wp.float32) -> wp.float32:
+    """Evaluate basis derivative for supported interpolation modes."""
     if x < 0.0 or x > 1.0:
         return 0.0
     if interp_id == _INTERP_LINEAR:
@@ -82,6 +87,7 @@ def basis_derivative(interp_id: int, x: wp.float32) -> wp.float32:
 
 @wp.func
 def clamp_index(idx: int, size: int) -> int:
+    """Clamp an index into ``[0, size - 1]``."""
     if idx < 0:
         return 0
     if idx >= size:
@@ -91,6 +97,7 @@ def clamp_index(idx: int, size: int) -> int:
 
 @wp.func
 def clamp_stencil_pair(center: int, size: int) -> wp.vec2i:
+    """Return clamped two-point stencil indices ``(center, center + 1)``."""
     return wp.vec2i(clamp_index(center, size), clamp_index(center + 1, size))
 
 

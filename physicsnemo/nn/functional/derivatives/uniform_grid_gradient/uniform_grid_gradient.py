@@ -295,6 +295,41 @@ def uniform_grid_gradient(
     crossover (``torch`` -> ``warp``) as problem size
     grows. Inputs requiring gradients prefer ``warp`` to use the explicit
     custom backward kernels.
+
+    Parameters
+    ----------
+    field : torch.Tensor
+        Periodic scalar field with shape ``(n0, ...)`` and dimensionality 1D-3D.
+    spacing : float | Sequence[float], optional
+        Uniform grid spacing. Provide one scalar for isotropic spacing, or one
+        value per spatial axis.
+    order : int, optional
+        Finite-difference stencil accuracy order for uniform-grid backends.
+        Supported values are ``2`` and ``4``.
+    derivative_orders : int | Sequence[int], optional
+        Derivative order request. ``1`` returns first derivatives, ``2`` returns
+        pure second derivatives, and ``(1, 2)`` returns both in one call.
+    include_mixed : bool, optional
+        Whether to include mixed second derivatives (for example ``dxy``). Valid
+        only when second derivatives are requested on 2D/3D inputs.
+    implementation : str | None, optional
+        Backend override. Use ``\"torch\"`` or ``\"warp\"`` to force a backend.
+        ``None`` uses automatic selection.
+
+    Returns
+    -------
+    torch.Tensor
+        Stacked derivative tensor with shape ``(n_terms, *field.shape)``.
+
+    Examples
+    --------
+    >>> x = torch.linspace(0.0, 1.0, 64, device="cpu")
+    >>> field = torch.sin(2.0 * torch.pi * x)
+    >>> d1 = uniform_grid_gradient(field, spacing=1.0 / 63.0, derivative_orders=1)
+    >>> d2 = uniform_grid_gradient(field, spacing=1.0 / 63.0, derivative_orders=2)
+    >>> both = uniform_grid_gradient(
+    ...     field, spacing=1.0 / 63.0, derivative_orders=(1, 2), include_mixed=False
+    ... )
     """
     if implementation is None:
         implementation = _auto_select_implementation(field)

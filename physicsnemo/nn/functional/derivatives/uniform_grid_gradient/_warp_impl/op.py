@@ -42,7 +42,14 @@ def uniform_grid_gradient_impl(
     derivative_order: int,
     include_mixed: bool,
 ) -> torch.Tensor:
-    """Compute periodic first or pure second derivatives on a uniform grid."""
+    """Compute periodic first or pure second derivatives on a uniform grid.
+
+    Notes
+    -----
+    Warp kernels compute in ``float32`` internally. Non-``float32`` inputs are
+    cast to ``float32`` for kernel execution and cast back to the original dtype
+    on return.
+    """
     _validate_field(field)
     spacing_tuple = tuple(float(v) for v in spacing_meta.tolist())
     for dx in spacing_tuple:
@@ -162,7 +169,14 @@ def uniform_grid_derivatives_order2_fused_impl(
     spacing_meta: torch.Tensor,
     include_mixed: bool,
 ) -> torch.Tensor:
-    """Compute fused order-2 derivatives (first + second + optional mixed)."""
+    """Compute fused order-2 derivatives (first + second + optional mixed).
+
+    Notes
+    -----
+    Warp kernels compute in ``float32`` internally. Non-``float32`` inputs are
+    cast to ``float32`` for kernel execution and cast back to the original dtype
+    on return.
+    """
     _validate_field(field)
     spacing_tuple = tuple(float(v) for v in spacing_meta.tolist())
     for dx in spacing_tuple:

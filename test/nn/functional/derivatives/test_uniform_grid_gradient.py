@@ -19,10 +19,6 @@ import torch
 
 from physicsnemo.nn.functional import uniform_grid_gradient
 from physicsnemo.nn.functional.derivatives import UniformGridGradient
-from physicsnemo.nn.functional.derivatives.uniform_grid_gradient.uniform_grid_gradient import (
-    _AUTO_3D_TORCH_MAX_NUMEL,
-    _auto_select_implementation,
-)
 from test.conftest import requires_module
 from test.nn.functional._parity_utils import clone_case
 
@@ -387,69 +383,6 @@ def test_uniform_grid_gradient_compare_backward_contract(device: str):
 
     assert field.grad is not None
     UniformGridGradient.compare_backward(field.grad, field.grad.detach().clone())
-
-
-# Validate auto-dispatch default path matches explicit selected implementation.
-def test_uniform_grid_gradient_dispatch_auto_matches_selected(device: str):
-    field = torch.randn(64, 64, device=device, dtype=torch.float32)
-    implementation = _auto_select_implementation(field)
-
-    output_auto = uniform_grid_gradient(
-        field,
-        spacing=(1.0, 1.0),
-        derivative_orders=1,
-        include_mixed=False,
-    )
-    output_explicit = UniformGridGradient.dispatch(
-        field,
-        spacing=(1.0, 1.0),
-        derivative_orders=1,
-        include_mixed=False,
-        implementation=implementation,
-    )
-    torch.testing.assert_close(output_auto, output_explicit)
-
-
-# Validate CUDA auto-dispatch heuristic structure across dimensions/sizes.
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-def test_uniform_grid_gradient_dispatch_auto_heuristic_cuda():
-    field_1d = torch.randn(4096, device="cuda", dtype=torch.float32)
-    assert _auto_select_implementation(field_1d) == "torch"
-
-    field_2d = torch.randn(512, 512, device="cuda", dtype=torch.float32)
-    assert _auto_select_implementation(field_2d) == "torch"
-
-    torch_n = int(round(_AUTO_3D_TORCH_MAX_NUMEL ** (1.0 / 3.0)))
-    field_3d_torch = torch.randn(
-        torch_n,
-        torch_n,
-        torch_n,
-        device="cuda",
-        dtype=torch.float32,
-    )
-    assert field_3d_torch.numel() <= _AUTO_3D_TORCH_MAX_NUMEL
-    assert _auto_select_implementation(field_3d_torch) == "torch"
-
-    large_n = torch_n + 1
-    field_3d_large = torch.randn(
-        large_n,
-        large_n,
-        large_n,
-        device="cuda",
-        dtype=torch.float32,
-    )
-    assert field_3d_large.numel() > _AUTO_3D_TORCH_MAX_NUMEL
-    assert _auto_select_implementation(field_3d_large) == "warp"
-
-    field_grad = torch.randn(
-        64,
-        64,
-        64,
-        device="cuda",
-        dtype=torch.float32,
-        requires_grad=True,
-    )
-    assert _auto_select_implementation(field_grad) == "warp"
 
 
 # Validate exported functional API and error handling paths.

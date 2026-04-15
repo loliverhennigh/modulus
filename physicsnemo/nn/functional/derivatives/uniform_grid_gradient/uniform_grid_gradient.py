@@ -31,10 +31,6 @@ from .._request_utils import (
 from ._torch_impl import uniform_grid_gradient_torch
 from ._warp_impl import uniform_grid_gradient_warp, uniform_grid_gradient_warp_multi
 
-### Auto-dispatch crossover threshold for 3D CUDA fields.
-### <= TORCH_MAX uses eager torch, larger fields use warp.
-_AUTO_3D_TORCH_MAX_NUMEL = 48 * 48 * 48
-
 
 class UniformGridGradient(FunctionSpec):
     r"""Compute periodic central-difference gradients on a uniform grid.
@@ -77,8 +73,8 @@ class UniformGridGradient(FunctionSpec):
         Mixed terms are appended in axis-pair order ``(x,y)``, ``(x,z)``,
         ``(y,z)``.
     implementation : {"warp", "torch"} or None
-        Explicit backend selection. When ``None``, ``uniform_grid_gradient``
-        applies a shape-aware auto-dispatch heuristic.
+        Explicit backend selection. When ``None``, rank-based backend dispatch
+        is used.
 
     Returns
     -------
@@ -249,98 +245,7 @@ class UniformGridGradient(FunctionSpec):
         )
 
 
-def _auto_select_implementation(field: torch.Tensor) -> str:
-    ### Select backend by dimensionality/size on CUDA and by capability on CPU.
-    available = set(UniformGridGradient.available_implementations())
-    if "warp" not in available:
-        return "torch"
-
-    if field.device.type != "cuda":
-        return "torch"
-
-    ### Autograd paths should prefer the explicit Warp autograd kernels.
-    if field.requires_grad:
-        return "warp"
-
-    ### 1D/2D generally favor eager torch in current measurements.
-    if field.ndim in (1, 2):
-        if "torch" in available:
-            return "torch"
-        return "warp"
-
-    ### 3D uses a single-threshold crossover: torch -> warp.
-    numel = field.numel()
-    if numel <= _AUTO_3D_TORCH_MAX_NUMEL and "torch" in available:
-        return "torch"
-    return "warp"
-
-
-_uniform_grid_gradient_dispatch = UniformGridGradient.make_function(
-    "_uniform_grid_gradient_dispatch"
-)
-
-
-def uniform_grid_gradient(
-    field: torch.Tensor,
-    spacing: float | Sequence[float] = 1.0,
-    order: int = 2,
-    derivative_orders: int | Sequence[int] = 1,
-    include_mixed: bool = False,
-    implementation: str | None = None,
-) -> torch.Tensor:
-    """Compute periodic first and/or second derivatives on a uniform grid.
-
-    When ``implementation`` is ``None``, a shape-aware backend heuristic is
-    used: on CUDA, 1D/2D fields prefer ``torch``; 3D fields use a single-threshold
-    crossover (``torch`` -> ``warp``) as problem size
-    grows. Inputs requiring gradients prefer ``warp`` to use the explicit
-    custom backward kernels.
-
-    Parameters
-    ----------
-    field : torch.Tensor
-        Periodic scalar field with shape ``(n0, ...)`` and dimensionality 1D-3D.
-    spacing : float | Sequence[float], optional
-        Uniform grid spacing. Provide one scalar for isotropic spacing, or one
-        value per spatial axis.
-    order : int, optional
-        Finite-difference stencil accuracy order for uniform-grid backends.
-        Supported values are ``2`` and ``4``.
-    derivative_orders : int | Sequence[int], optional
-        Derivative order request. ``1`` returns first derivatives, ``2`` returns
-        pure second derivatives, and ``(1, 2)`` returns both in one call.
-    include_mixed : bool, optional
-        Whether to include mixed second derivatives (for example ``dxy``). Valid
-        only when second derivatives are requested on 2D/3D inputs.
-    implementation : str | None, optional
-        Backend override. Use ``\"torch\"`` or ``\"warp\"`` to force a backend.
-        ``None`` uses automatic selection.
-
-    Returns
-    -------
-    torch.Tensor
-        Stacked derivative tensor with shape ``(n_terms, *field.shape)``.
-
-    Examples
-    --------
-    >>> x = torch.linspace(0.0, 1.0, 64, device="cpu")
-    >>> field = torch.sin(2.0 * torch.pi * x)
-    >>> d1 = uniform_grid_gradient(field, spacing=1.0 / 63.0, derivative_orders=1)
-    >>> d2 = uniform_grid_gradient(field, spacing=1.0 / 63.0, derivative_orders=2)
-    >>> both = uniform_grid_gradient(
-    ...     field, spacing=1.0 / 63.0, derivative_orders=(1, 2), include_mixed=False
-    ... )
-    """
-    if implementation is None:
-        implementation = _auto_select_implementation(field)
-    return _uniform_grid_gradient_dispatch(
-        field,
-        spacing=spacing,
-        order=order,
-        derivative_orders=derivative_orders,
-        include_mixed=include_mixed,
-        implementation=implementation,
-    )
+uniform_grid_gradient = UniformGridGradient.make_function("uniform_grid_gradient")
 
 
 __all__ = ["UniformGridGradient", "uniform_grid_gradient"]

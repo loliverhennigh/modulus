@@ -126,6 +126,75 @@ def _tetra_face_coeff(
     return normal * inv_volume
 
 
+@wp.func
+def _triangle_face_coeff_local(
+    p0: wp.vec2f,
+    p1: wp.vec2f,
+    p2: wp.vec2f,
+    face_idx: int,
+) -> wp.vec2f:
+    centroid = (p0 + p1 + p2) / 3.0
+    area = 0.5 * wp.abs(
+        (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p1[1] - p0[1]) * (p2[0] - p0[0])
+    )
+    inv_area = 1.0 / wp.max(area, 1.0e-12)
+
+    va = p1
+    vb = p2
+    if face_idx == 1:
+        va = p0
+        vb = p2
+    elif face_idx == 2:
+        va = p0
+        vb = p1
+
+    edge = vb - va
+    normal = wp.vec2f(edge[1], -edge[0])
+    face_center = 0.5 * (va + vb)
+    to_face = face_center - centroid
+    if wp.dot(normal, to_face) < 0.0:
+        normal = -normal
+
+    return normal * inv_area
+
+
+@wp.func
+def _tetra_face_coeff_local(
+    p0: wp.vec3f,
+    p1: wp.vec3f,
+    p2: wp.vec3f,
+    p3: wp.vec3f,
+    face_idx: int,
+) -> wp.vec3f:
+    centroid = 0.25 * (p0 + p1 + p2 + p3)
+    volume = wp.abs(wp.dot(p1 - p0, wp.cross(p2 - p0, p3 - p0))) / 6.0
+    inv_volume = 1.0 / wp.max(volume, 1.0e-12)
+
+    va = p1
+    vb = p2
+    vc = p3
+    if face_idx == 1:
+        va = p0
+        vb = p2
+        vc = p3
+    elif face_idx == 2:
+        va = p0
+        vb = p1
+        vc = p3
+    elif face_idx == 3:
+        va = p0
+        vb = p1
+        vc = p2
+
+    normal = 0.5 * wp.cross(vb - va, vc - va)
+    face_center = (va + vb + vc) / 3.0
+    to_face = face_center - centroid
+    if wp.dot(normal, to_face) < 0.0:
+        normal = -normal
+
+    return normal * inv_volume
+
+
 @wp.kernel
 def _mesh_green_gauss_2d_forward_kernel(
     points: wp.array2d(dtype=wp.float32),
@@ -233,6 +302,191 @@ def _mesh_green_gauss_3d_backward_kernel(
         wp.atomic_add(grad_values, j, comp, 0.5 * dot_go)
 
 
+@wp.kernel
+def _mesh_green_gauss_2d_backward_points_kernel(
+    points: wp.array2d(dtype=wp.float32),
+    cells: wp.array2d(dtype=wp.int32),
+    neighbors: wp.array2d(dtype=wp.int32),
+    values: wp.array2d(dtype=wp.float32),
+    grad_output: wp.array3d(dtype=wp.float32),
+    fd_eps: float,
+    grad_points: wp.array2d(dtype=wp.float32),
+):
+    i, f, comp = wp.tid()
+    j = neighbors[i, f]
+
+    vi = values[i, comp]
+    phi_f = vi
+    if j >= 0:
+        phi_f = 0.5 * (vi + values[j, comp])
+
+    go0 = grad_output[i, 0, comp]
+    go1 = grad_output[i, 1, comp]
+    inv_2h = 0.5 / fd_eps
+
+    i0 = cells[i, 0]
+    i1 = cells[i, 1]
+    i2 = cells[i, 2]
+    p0 = _point2(points, i0)
+    p1 = _point2(points, i1)
+    p2 = _point2(points, i2)
+
+    # Vertex 0 x/y derivatives.
+    c0p = _triangle_face_coeff_local(wp.vec2f(p0[0] + fd_eps, p0[1]), p1, p2, f)
+    c0m = _triangle_face_coeff_local(wp.vec2f(p0[0] - fd_eps, p0[1]), p1, p2, f)
+    d0x = ((go0 * c0p[0] + go1 * c0p[1]) - (go0 * c0m[0] + go1 * c0m[1])) * inv_2h
+    c0p = _triangle_face_coeff_local(wp.vec2f(p0[0], p0[1] + fd_eps), p1, p2, f)
+    c0m = _triangle_face_coeff_local(wp.vec2f(p0[0], p0[1] - fd_eps), p1, p2, f)
+    d0y = ((go0 * c0p[0] + go1 * c0p[1]) - (go0 * c0m[0] + go1 * c0m[1])) * inv_2h
+    wp.atomic_add(grad_points, i0, 0, phi_f * d0x)
+    wp.atomic_add(grad_points, i0, 1, phi_f * d0y)
+
+    # Vertex 1 x/y derivatives.
+    c1p = _triangle_face_coeff_local(p0, wp.vec2f(p1[0] + fd_eps, p1[1]), p2, f)
+    c1m = _triangle_face_coeff_local(p0, wp.vec2f(p1[0] - fd_eps, p1[1]), p2, f)
+    d1x = ((go0 * c1p[0] + go1 * c1p[1]) - (go0 * c1m[0] + go1 * c1m[1])) * inv_2h
+    c1p = _triangle_face_coeff_local(p0, wp.vec2f(p1[0], p1[1] + fd_eps), p2, f)
+    c1m = _triangle_face_coeff_local(p0, wp.vec2f(p1[0], p1[1] - fd_eps), p2, f)
+    d1y = ((go0 * c1p[0] + go1 * c1p[1]) - (go0 * c1m[0] + go1 * c1m[1])) * inv_2h
+    wp.atomic_add(grad_points, i1, 0, phi_f * d1x)
+    wp.atomic_add(grad_points, i1, 1, phi_f * d1y)
+
+    # Vertex 2 x/y derivatives.
+    c2p = _triangle_face_coeff_local(p0, p1, wp.vec2f(p2[0] + fd_eps, p2[1]), f)
+    c2m = _triangle_face_coeff_local(p0, p1, wp.vec2f(p2[0] - fd_eps, p2[1]), f)
+    d2x = ((go0 * c2p[0] + go1 * c2p[1]) - (go0 * c2m[0] + go1 * c2m[1])) * inv_2h
+    c2p = _triangle_face_coeff_local(p0, p1, wp.vec2f(p2[0], p2[1] + fd_eps), f)
+    c2m = _triangle_face_coeff_local(p0, p1, wp.vec2f(p2[0], p2[1] - fd_eps), f)
+    d2y = ((go0 * c2p[0] + go1 * c2p[1]) - (go0 * c2m[0] + go1 * c2m[1])) * inv_2h
+    wp.atomic_add(grad_points, i2, 0, phi_f * d2x)
+    wp.atomic_add(grad_points, i2, 1, phi_f * d2y)
+
+
+@wp.kernel
+def _mesh_green_gauss_3d_backward_points_kernel(
+    points: wp.array2d(dtype=wp.float32),
+    cells: wp.array2d(dtype=wp.int32),
+    neighbors: wp.array2d(dtype=wp.int32),
+    values: wp.array2d(dtype=wp.float32),
+    grad_output: wp.array3d(dtype=wp.float32),
+    fd_eps: float,
+    grad_points: wp.array2d(dtype=wp.float32),
+):
+    i, f, comp = wp.tid()
+    j = neighbors[i, f]
+
+    vi = values[i, comp]
+    phi_f = vi
+    if j >= 0:
+        phi_f = 0.5 * (vi + values[j, comp])
+
+    go0 = grad_output[i, 0, comp]
+    go1 = grad_output[i, 1, comp]
+    go2 = grad_output[i, 2, comp]
+    inv_2h = 0.5 / fd_eps
+
+    i0 = cells[i, 0]
+    i1 = cells[i, 1]
+    i2 = cells[i, 2]
+    i3 = cells[i, 3]
+    p0 = _point3(points, i0)
+    p1 = _point3(points, i1)
+    p2 = _point3(points, i2)
+    p3 = _point3(points, i3)
+
+    # Vertex 0 x/y/z derivatives.
+    c0p = _tetra_face_coeff_local(wp.vec3f(p0[0] + fd_eps, p0[1], p0[2]), p1, p2, p3, f)
+    c0m = _tetra_face_coeff_local(wp.vec3f(p0[0] - fd_eps, p0[1], p0[2]), p1, p2, p3, f)
+    d0x = (
+        (go0 * c0p[0] + go1 * c0p[1] + go2 * c0p[2])
+        - (go0 * c0m[0] + go1 * c0m[1] + go2 * c0m[2])
+    ) * inv_2h
+    c0p = _tetra_face_coeff_local(wp.vec3f(p0[0], p0[1] + fd_eps, p0[2]), p1, p2, p3, f)
+    c0m = _tetra_face_coeff_local(wp.vec3f(p0[0], p0[1] - fd_eps, p0[2]), p1, p2, p3, f)
+    d0y = (
+        (go0 * c0p[0] + go1 * c0p[1] + go2 * c0p[2])
+        - (go0 * c0m[0] + go1 * c0m[1] + go2 * c0m[2])
+    ) * inv_2h
+    c0p = _tetra_face_coeff_local(wp.vec3f(p0[0], p0[1], p0[2] + fd_eps), p1, p2, p3, f)
+    c0m = _tetra_face_coeff_local(wp.vec3f(p0[0], p0[1], p0[2] - fd_eps), p1, p2, p3, f)
+    d0z = (
+        (go0 * c0p[0] + go1 * c0p[1] + go2 * c0p[2])
+        - (go0 * c0m[0] + go1 * c0m[1] + go2 * c0m[2])
+    ) * inv_2h
+    wp.atomic_add(grad_points, i0, 0, phi_f * d0x)
+    wp.atomic_add(grad_points, i0, 1, phi_f * d0y)
+    wp.atomic_add(grad_points, i0, 2, phi_f * d0z)
+
+    # Vertex 1 x/y/z derivatives.
+    c1p = _tetra_face_coeff_local(p0, wp.vec3f(p1[0] + fd_eps, p1[1], p1[2]), p2, p3, f)
+    c1m = _tetra_face_coeff_local(p0, wp.vec3f(p1[0] - fd_eps, p1[1], p1[2]), p2, p3, f)
+    d1x = (
+        (go0 * c1p[0] + go1 * c1p[1] + go2 * c1p[2])
+        - (go0 * c1m[0] + go1 * c1m[1] + go2 * c1m[2])
+    ) * inv_2h
+    c1p = _tetra_face_coeff_local(p0, wp.vec3f(p1[0], p1[1] + fd_eps, p1[2]), p2, p3, f)
+    c1m = _tetra_face_coeff_local(p0, wp.vec3f(p1[0], p1[1] - fd_eps, p1[2]), p2, p3, f)
+    d1y = (
+        (go0 * c1p[0] + go1 * c1p[1] + go2 * c1p[2])
+        - (go0 * c1m[0] + go1 * c1m[1] + go2 * c1m[2])
+    ) * inv_2h
+    c1p = _tetra_face_coeff_local(p0, wp.vec3f(p1[0], p1[1], p1[2] + fd_eps), p2, p3, f)
+    c1m = _tetra_face_coeff_local(p0, wp.vec3f(p1[0], p1[1], p1[2] - fd_eps), p2, p3, f)
+    d1z = (
+        (go0 * c1p[0] + go1 * c1p[1] + go2 * c1p[2])
+        - (go0 * c1m[0] + go1 * c1m[1] + go2 * c1m[2])
+    ) * inv_2h
+    wp.atomic_add(grad_points, i1, 0, phi_f * d1x)
+    wp.atomic_add(grad_points, i1, 1, phi_f * d1y)
+    wp.atomic_add(grad_points, i1, 2, phi_f * d1z)
+
+    # Vertex 2 x/y/z derivatives.
+    c2p = _tetra_face_coeff_local(p0, p1, wp.vec3f(p2[0] + fd_eps, p2[1], p2[2]), p3, f)
+    c2m = _tetra_face_coeff_local(p0, p1, wp.vec3f(p2[0] - fd_eps, p2[1], p2[2]), p3, f)
+    d2x = (
+        (go0 * c2p[0] + go1 * c2p[1] + go2 * c2p[2])
+        - (go0 * c2m[0] + go1 * c2m[1] + go2 * c2m[2])
+    ) * inv_2h
+    c2p = _tetra_face_coeff_local(p0, p1, wp.vec3f(p2[0], p2[1] + fd_eps, p2[2]), p3, f)
+    c2m = _tetra_face_coeff_local(p0, p1, wp.vec3f(p2[0], p2[1] - fd_eps, p2[2]), p3, f)
+    d2y = (
+        (go0 * c2p[0] + go1 * c2p[1] + go2 * c2p[2])
+        - (go0 * c2m[0] + go1 * c2m[1] + go2 * c2m[2])
+    ) * inv_2h
+    c2p = _tetra_face_coeff_local(p0, p1, wp.vec3f(p2[0], p2[1], p2[2] + fd_eps), p3, f)
+    c2m = _tetra_face_coeff_local(p0, p1, wp.vec3f(p2[0], p2[1], p2[2] - fd_eps), p3, f)
+    d2z = (
+        (go0 * c2p[0] + go1 * c2p[1] + go2 * c2p[2])
+        - (go0 * c2m[0] + go1 * c2m[1] + go2 * c2m[2])
+    ) * inv_2h
+    wp.atomic_add(grad_points, i2, 0, phi_f * d2x)
+    wp.atomic_add(grad_points, i2, 1, phi_f * d2y)
+    wp.atomic_add(grad_points, i2, 2, phi_f * d2z)
+
+    # Vertex 3 x/y/z derivatives.
+    c3p = _tetra_face_coeff_local(p0, p1, p2, wp.vec3f(p3[0] + fd_eps, p3[1], p3[2]), f)
+    c3m = _tetra_face_coeff_local(p0, p1, p2, wp.vec3f(p3[0] - fd_eps, p3[1], p3[2]), f)
+    d3x = (
+        (go0 * c3p[0] + go1 * c3p[1] + go2 * c3p[2])
+        - (go0 * c3m[0] + go1 * c3m[1] + go2 * c3m[2])
+    ) * inv_2h
+    c3p = _tetra_face_coeff_local(p0, p1, p2, wp.vec3f(p3[0], p3[1] + fd_eps, p3[2]), f)
+    c3m = _tetra_face_coeff_local(p0, p1, p2, wp.vec3f(p3[0], p3[1] - fd_eps, p3[2]), f)
+    d3y = (
+        (go0 * c3p[0] + go1 * c3p[1] + go2 * c3p[2])
+        - (go0 * c3m[0] + go1 * c3m[1] + go2 * c3m[2])
+    ) * inv_2h
+    c3p = _tetra_face_coeff_local(p0, p1, p2, wp.vec3f(p3[0], p3[1], p3[2] + fd_eps), f)
+    c3m = _tetra_face_coeff_local(p0, p1, p2, wp.vec3f(p3[0], p3[1], p3[2] - fd_eps), f)
+    d3z = (
+        (go0 * c3p[0] + go1 * c3p[1] + go2 * c3p[2])
+        - (go0 * c3m[0] + go1 * c3m[1] + go2 * c3m[2])
+    ) * inv_2h
+    wp.atomic_add(grad_points, i3, 0, phi_f * d3x)
+    wp.atomic_add(grad_points, i3, 1, phi_f * d3y)
+    wp.atomic_add(grad_points, i3, 2, phi_f * d3z)
+
+
 def _launch_forward(
     *,
     points_fp32: torch.Tensor,
@@ -308,7 +562,7 @@ def _launch_backward(
         )
 
 
-def _launch_backward_with_tape(
+def _launch_backward_points(
     *,
     points_fp32: torch.Tensor,
     cells_i32: torch.Tensor,
@@ -316,64 +570,38 @@ def _launch_backward_with_tape(
     values_flat_fp32: torch.Tensor,
     grad_output_components_fp32: torch.Tensor,
     dims: int,
-    needs_points: bool,
-    needs_values: bool,
+    grad_points: torch.Tensor,
     wp_device,
     wp_stream,
-) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-    """Run Warp Tape autodiff for gradients w.r.t. points and/or values."""
+) -> None:
+    """Launch explicit Green-Gauss backward kernels for point gradients."""
     kernel = (
-        _mesh_green_gauss_2d_forward_kernel
+        _mesh_green_gauss_2d_backward_points_kernel
         if dims == 2
-        else _mesh_green_gauss_3d_forward_kernel
+        else _mesh_green_gauss_3d_backward_points_kernel
     )
 
     n_cells = values_flat_fp32.shape[0]
     n_components = values_flat_fp32.shape[1]
-    grads_flat = torch.empty(
-        (n_cells, dims, n_components),
-        device=values_flat_fp32.device,
-        dtype=torch.float32,
-    )
+    n_faces = neighbors_i32.shape[1]
+    fd_eps = 1.0e-4
 
     with wp.ScopedStream(wp_stream):
-        with wp.Tape() as tape:
-            wp_points = wp.from_torch(
-                points_fp32, dtype=wp.float32, requires_grad=needs_points
-            )
-            wp_cells = wp.from_torch(cells_i32, dtype=wp.int32)
-            wp_neighbors = wp.from_torch(neighbors_i32, dtype=wp.int32)
-            wp_values = wp.from_torch(
-                values_flat_fp32, dtype=wp.float32, requires_grad=needs_values
-            )
-            wp_grads = wp.from_torch(grads_flat, dtype=wp.float32, requires_grad=True)
-
-            wp.launch(
-                kernel=kernel,
-                dim=(n_cells, n_components),
-                inputs=[
-                    wp_points,
-                    wp_cells,
-                    wp_neighbors,
-                    wp_values,
-                    wp_grads,
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
-
-        grad_map = {
-            wp_grads: wp.from_torch(grad_output_components_fp32, dtype=wp.float32)
-        }
-        tape.backward(grads=grad_map)
-
-        grad_points = None
-        grad_values = None
-        if needs_points:
-            grad_points = wp.to_torch(tape.gradients[wp_points])
-        if needs_values:
-            grad_values = wp.to_torch(tape.gradients[wp_values])
-    return grad_points, grad_values
+        wp.launch(
+            kernel=kernel,
+            dim=(n_cells, n_faces, n_components),
+            inputs=[
+                wp.from_torch(points_fp32, dtype=wp.float32),
+                wp.from_torch(cells_i32, dtype=wp.int32),
+                wp.from_torch(neighbors_i32, dtype=wp.int32),
+                wp.from_torch(values_flat_fp32, dtype=wp.float32),
+                wp.from_torch(grad_output_components_fp32, dtype=wp.float32),
+                float(fd_eps),
+                wp.from_torch(grad_points, dtype=wp.float32),
+            ],
+            device=wp_device,
+            stream=wp_stream,
+        )
 
 
 @torch.library.custom_op(
@@ -481,32 +709,30 @@ def backward_mesh_green_gauss_gradient(
     grad_output_components = grad_output_components.contiguous()
 
     grad_points = None
-    grad_values_flat = torch.zeros(
-        (n_cells, n_components),
-        device=grad_output.device,
-        dtype=torch.float32,
-    )
+    grad_values_flat = None
     wp_device, wp_stream = FunctionSpec.warp_launch_context(grad_output_fp32)
     if needs_points:
-        grad_points_fp32, grad_values_fp32 = _launch_backward_with_tape(
+        grad_points_fp32 = torch.zeros_like(points_fp32, dtype=torch.float32)
+        _launch_backward_points(
             points_fp32=points_fp32,
             cells_i32=cells_i32,
             neighbors_i32=neighbors_i32,
             values_flat_fp32=values_flat_fp32,
             grad_output_components_fp32=grad_output_components,
             dims=ctx.dims,
-            needs_points=needs_points,
-            needs_values=needs_values,
+            grad_points=grad_points_fp32,
             wp_device=wp_device,
             wp_stream=wp_stream,
         )
-        if grad_points_fp32 is not None:
-            grad_points = grad_points_fp32
-            if grad_points.dtype != ctx.points_dtype:
-                grad_points = grad_points.to(dtype=ctx.points_dtype)
-        if needs_values and grad_values_fp32 is not None:
-            grad_values_flat = grad_values_fp32
-    elif needs_values:
+        grad_points = grad_points_fp32
+        if grad_points.dtype != ctx.points_dtype:
+            grad_points = grad_points.to(dtype=ctx.points_dtype)
+    if needs_values:
+        grad_values_flat = torch.zeros(
+            (n_cells, n_components),
+            device=grad_output.device,
+            dtype=torch.float32,
+        )
         _launch_backward(
             points_fp32=points_fp32,
             cells_i32=cells_i32,
@@ -519,7 +745,7 @@ def backward_mesh_green_gauss_gradient(
         )
 
     grad_values = None
-    if needs_values:
+    if needs_values and grad_values_flat is not None:
         grad_values = grad_values_flat.reshape(values_shape)
         if grad_values.dtype != ctx.values_dtype:
             grad_values = grad_values.to(dtype=ctx.values_dtype)

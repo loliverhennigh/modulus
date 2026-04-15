@@ -41,11 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `uniform_grid_gradient`, `rectilinear_grid_gradient`,
   `spectral_grid_gradient`, `meshless_fd_derivatives`, `mesh_lsq_gradient`,
   and `mesh_green_gauss_gradient`.
-- Added Warp custom-op backward support for `mesh_lsq_gradient` and
-  `mesh_green_gauss_gradient` gradients with respect to both geometry points
-  and field values.
-- Replaced Warp Tape-based point-gradient backpropagation in LSQ/Green-Gauss
-  with explicit custom backward kernels and path-specific dispatch.
 
 ### Changed
 

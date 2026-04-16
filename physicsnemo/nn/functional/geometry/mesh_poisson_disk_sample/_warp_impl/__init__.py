@@ -16,20 +16,10 @@
 
 from __future__ import annotations
 
+from .op import mesh_poisson_disk_sample_warp
+
 _DART_THROWING_MODE = "dart_throwing"
 _WEIGHTED_SAMPLE_ELIMINATION_MODE = "weighted_sample_elimination"
-
-try:
-    from .op import mesh_poisson_disk_sample_warp
-except Exception as exc:  # pragma: no cover - optional dependency path
-    _WARP_IMPORT_ERROR = exc
-
-    def mesh_poisson_disk_sample_warp(*args, **kwargs):
-        raise ImportError(
-            "mesh_poisson_disk_sample requires the optional Warp backend "
-            "(warp-lang>=0.6.0)"
-        ) from _WARP_IMPORT_ERROR
-
 
 __all__ = [
     "mesh_poisson_disk_sample_warp",

@@ -51,6 +51,7 @@ _WSE_DELETE_BATCH_SIZE_MIN = 8
 _WSE_DELETE_BATCH_SIZE_MAX = 128
 _WSE_DELETE_CANDIDATE_POOL_MIN = 1024
 _WSE_DELETE_CANDIDATE_POOL_PER_DELETE = 64
+_WSE_OPEN3D_INIT_FACTOR = 5
 
 
 # ----------------------------------------------------------------------------
@@ -269,7 +270,6 @@ def _weighted_sample_elimination_warp(
     target_num_points: int,
     surface_area: float,
     hash_grid_resolution: tuple[int, int, int],
-    verbose: bool = False,
 ) -> torch.Tensor:
     # Early return when no elimination is required.
     num_samples = sample_positions.shape[0]
@@ -526,10 +526,6 @@ def _weighted_sample_elimination_warp(
                 )
 
             steps_done += batch_count
-            if verbose and (steps_done % 256 == 0 or steps_done >= delete_count):
-                print(
-                    f"weighted elimination progress: {steps_done}/{delete_count} deletions"
-                )
 
     kept_indices = torch.nonzero(deleted == 0, as_tuple=False).squeeze(1)
     if kept_indices.numel() > target_num_points:
@@ -545,9 +541,7 @@ def _mesh_poisson_disk_sample_warp(
     batch_size: int = 131072,
     max_points: int = 2_000_000,
     max_iterations: int = 64,
-    verbose: bool = False,
     random_seed: int = 42,
-    open3d_init_factor: int = 5,
     hash_grid_resolution: int | Sequence[int] | torch.Tensor = 128,
     mode: str = _DART_THROWING_MODE,
     target_num_points: int | None = None,
@@ -563,8 +557,6 @@ def _mesh_poisson_disk_sample_warp(
         raise ValueError("max_points must be strictly positive")
     if max_iterations <= 0:
         raise ValueError("max_iterations must be strictly positive")
-    if open3d_init_factor <= 0:
-        raise ValueError("open3d_init_factor must be strictly positive")
 
     # Normalize the Poisson sampling mode.
     if mode not in _VALID_MODES:
@@ -609,7 +601,7 @@ def _mesh_poisson_disk_sample_warp(
         # Match Open3D's initialization behavior: init_factor * target samples.
         pool_target = max(
             target_num_points + 1,
-            int(round(target_num_points * open3d_init_factor)),
+            int(round(target_num_points * _WSE_OPEN3D_INIT_FACTOR)),
         )
 
         if per_vertex_radius.numel() > 0:
@@ -632,13 +624,7 @@ def _mesh_poisson_disk_sample_warp(
             target_num_points=target_num_points,
             surface_area=total_area,
             hash_grid_resolution=grid_resolution,
-            verbose=verbose,
         )
-        if verbose:
-            print(
-                f"Weighted sample elimination selected {output.shape[0]} points "
-                f"from {pool_target} uniform candidates"
-            )
         return output
 
     # Allocate accepted/candidate buffers reused throughout dart throwing.
@@ -755,7 +741,6 @@ def _mesh_poisson_disk_sample_warp(
             pass_distance: float,
             pass_seed: int,
             pass_limit: int,
-            stage_name: str,
         ) -> int:
             accepted_count.zero_()
             current_count = 0
@@ -854,12 +839,6 @@ def _mesh_poisson_disk_sample_warp(
                 )
                 current_count = count_after
 
-                if verbose:
-                    print(
-                        f"{stage_name} iteration {iteration:02d}: accepted {accepted_now} "
-                        f"(total: {min(current_count, pass_limit)})"
-                    )
-
                 # Stop on saturation or no-progress iterations.
                 if accepted_now <= 0 or current_count >= pass_limit:
                     break
@@ -871,7 +850,6 @@ def _mesh_poisson_disk_sample_warp(
             pass_distance=min_distance,
             pass_seed=random_seed,
             pass_limit=max_points,
-            stage_name="dart-throwing",
         )
         return accepted_positions[:final_count].contiguous()
 

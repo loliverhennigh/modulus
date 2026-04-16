@@ -83,6 +83,34 @@ def test_signed_distance_field_warp(dtype: torch.dtype, device: str):
         rtol=1e-6,
     )
 
+    # Multi-dimensional query shapes preserve leading dimensions.
+    query_grid = query_points.reshape(1, 2, 3)
+    sdf_grid, hit_grid = signed_distance_field(
+        mesh_vertices=mesh_vertices,
+        mesh_indices=mesh_indices_flat,
+        input_points=query_grid,
+        use_sign_winding_number=False,
+    )
+    assert sdf_grid.shape == (1, 2)
+    assert hit_grid.shape == (1, 2, 3)
+
+    # No-hit path clips distance to max_dist and returns input point as hit-point.
+    far_point = torch.tensor([[5.0, 5.0, 5.0]], device=device, dtype=dtype)
+    sdf_far, hit_far = signed_distance_field(
+        mesh_vertices=mesh_vertices,
+        mesh_indices=mesh_indices_flat,
+        input_points=far_point,
+        max_dist=1.0e-6,
+        use_sign_winding_number=False,
+    )
+    torch.testing.assert_close(
+        sdf_far,
+        torch.tensor([1.0e-6], device=device, dtype=dtype),
+        atol=1.0e-7,
+        rtol=0.0,
+    )
+    torch.testing.assert_close(hit_far, far_point, atol=1.0e-7, rtol=0.0)
+
 
 # Validate SDF input/error handling and index-shape compatibility paths.
 @requires_module("warp")
@@ -129,6 +157,14 @@ def test_signed_distance_field_error_handling(device: str):
             mesh_vertices,
             torch.zeros(1, 2, 3, device=device, dtype=torch.int32),
             query_points,
+        )
+
+    # Reject non-floating query points.
+    with pytest.raises(TypeError, match="floating-point"):
+        signed_distance_field(
+            mesh_vertices,
+            mesh_indices_flat,
+            torch.ones(1, 3, device=device, dtype=torch.int32),
         )
 
 

@@ -74,13 +74,8 @@ class MeshPoissonDiskSample(FunctionSpec):
         If ``None``, the mode uses ``max_points``.
     max_iterations : int, optional
         Iteration cap for the sampler. Default is ``64``.
-    verbose : bool, optional
-        If ``True``, prints per-iteration acceptance stats.
     random_seed : int, optional
         Base random seed for deterministic candidate generation.
-    open3d_init_factor : int, optional
-        Oversampling factor used by the Yuksel-style weighted elimination path.
-        This mirrors Open3D's default behavior. Default is ``5``.
     hash_grid_resolution : int | Sequence[int], optional
         Hash-grid resolution, either scalar or ``(nx, ny, nz)``.
         Default is ``128``.
@@ -121,9 +116,7 @@ class MeshPoissonDiskSample(FunctionSpec):
         batch_size: int = 131072,
         max_points: int = 2_000_000,
         max_iterations: int = 64,
-        verbose: bool = False,
         random_seed: int = 42,
-        open3d_init_factor: int = 5,
         hash_grid_resolution: int | Sequence[int] | torch.Tensor = 128,
         mode: str = _DART_THROWING_MODE,
         target_num_points: int | None = None,
@@ -136,9 +129,7 @@ class MeshPoissonDiskSample(FunctionSpec):
             batch_size=batch_size,
             max_points=max_points,
             max_iterations=max_iterations,
-            verbose=verbose,
             random_seed=random_seed,
-            open3d_init_factor=open3d_init_factor,
             hash_grid_resolution=hash_grid_resolution,
             mode=mode,
             target_num_points=target_num_points,
@@ -185,7 +176,6 @@ class MeshPoissonDiskSample(FunctionSpec):
                     "batch_size": batch_size,
                     "max_points": 32768,
                     "max_iterations": 12,
-                    "verbose": False,
                     "random_seed": 2026 + seed,
                     "hash_grid_resolution": 128,
                 },

@@ -64,7 +64,6 @@ def test_mesh_poisson_disk_sample_warp(device: str):
         "batch_size": 4096,
         "max_points": 2048,
         "max_iterations": 10,
-        "verbose": False,
         "random_seed": 1234,
         "hash_grid_resolution": 64,
     }
@@ -199,7 +198,6 @@ def test_mesh_poisson_disk_sample_weighted_quality_sanity(device: str):
         target_num_points=target_num_points,
         mode="weighted_sample_elimination",
         random_seed=random_seed,
-        open3d_init_factor=5,
         implementation="warp",
     )
     assert output.shape == (target_num_points, 3)
@@ -312,16 +310,6 @@ def test_mesh_poisson_disk_sample_error_handling(device: str):
             mesh_vertices,
             mesh_indices_2d,
             max_iterations=0,
-            implementation="warp",
-        )
-
-    with pytest.raises(
-        ValueError, match="open3d_init_factor must be strictly positive"
-    ):
-        mesh_poisson_disk_sample(
-            mesh_vertices,
-            mesh_indices_2d,
-            open3d_init_factor=0,
             implementation="warp",
         )
 

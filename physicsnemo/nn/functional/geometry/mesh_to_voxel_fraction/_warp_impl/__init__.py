@@ -14,6 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .op import mesh_to_voxel_fraction_warp
+from __future__ import annotations
+
+try:
+    from .op import mesh_to_voxel_fraction_warp
+except Exception as exc:  # pragma: no cover - optional dependency path
+    _WARP_IMPORT_ERROR = exc
+
+    def mesh_to_voxel_fraction_warp(*args, **kwargs):
+        raise ImportError(
+            "mesh_to_voxel_fraction requires the optional Warp backend "
+            "(warp-lang>=0.6.0)"
+        ) from _WARP_IMPORT_ERROR
+
 
 __all__ = ["mesh_to_voxel_fraction_warp"]

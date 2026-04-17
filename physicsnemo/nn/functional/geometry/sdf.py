@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -18,6 +18,7 @@ import torch
 import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
+from physicsnemo.nn.functional.geometry._benchmark_utils import make_uv_sphere_mesh
 
 # Warp is a required dependency in v2.0+.
 
@@ -187,6 +188,7 @@ def signed_distance_field_impl_fake(
     max_dist: float = 1e8,
     use_sign_winding_number: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return meta tensors for tracing/compilation of the SDF custom op."""
     if mesh_vertices.device != input_points.device:
         raise RuntimeError("mesh_vertices and input_points must be on the same device")
 
@@ -268,6 +270,7 @@ class SignedDistanceField(FunctionSpec):
         max_dist: float = 1e8,
         use_sign_winding_number: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Dispatch the Warp-backed SDF custom op."""
         return signed_distance_field_impl(
             mesh_vertices,
             mesh_indices,
@@ -278,16 +281,15 @@ class SignedDistanceField(FunctionSpec):
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        from physicsnemo.mesh.primitives.procedural.lumpy_sphere import (
-            load as load_lumpy_sphere,
-        )
+        """Build representative benchmark inputs across mesh/query scales."""
 
         device = torch.device(device)
-        # Build benchmark cases with increasing lumpy-sphere mesh resolution.
+        # Build benchmark cases with increasing sphere mesh resolution.
         for label, subdivisions, num_points in cls._BENCHMARK_CASES:
-            mesh = load_lumpy_sphere(subdivisions=subdivisions, device=str(device))
-            mesh_vertices = mesh.points.to(torch.float32).contiguous()
-            mesh_indices = mesh.cells.to(torch.int32).reshape(-1).contiguous()
+            mesh_vertices, mesh_indices = make_uv_sphere_mesh(
+                device=device,
+                subdivisions=subdivisions,
+            )
 
             # Sample query points in a padded axis-aligned box around the surface.
             bbox_min = mesh_vertices.min(dim=0).values

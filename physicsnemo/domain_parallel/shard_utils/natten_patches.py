@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -14,13 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib.util
-from typing import Any, Callable, List, Tuple, Union
+from __future__ import annotations
+
+from typing import Any, Callable
 
 import torch
-import wrapt
 from torch.distributed.tensor.placement_types import Shard
 
+from physicsnemo.core.version_check import OptionalImport
 from physicsnemo.domain_parallel import ShardTensor
 from physicsnemo.domain_parallel.shard_utils.halo import (
     HaloConfig,
@@ -31,27 +32,42 @@ from physicsnemo.domain_parallel.shard_utils.patch_core import (
     MissingShardPatch,
     UndeterminedShardingError,
 )
+from physicsnemo.nn.functional.natten import na1d, na2d, na3d
 
-__all__ = ["na2d_wrapper"]
+_natten = OptionalImport("natten")
+_raw_func_map = {
+    na1d: lambda: _natten.functional.na1d,
+    na2d: lambda: _natten.functional.na2d,
+    na3d: lambda: _natten.functional.na3d,
+}
+
+__all__ = ["na1d_wrapper", "na2d_wrapper", "na3d_wrapper"]
 
 
 def compute_halo_from_kernel_and_dilation(kernel_size: int, dilation: int) -> int:
-    """Compute the halo size needed for neighborhood attention along a single dimension.
+    r"""Compute the halo size needed for neighborhood attention along a single dimension.
 
     For neighborhood attention, the halo size is determined by the kernel size and dilation.
     Currently only supports odd kernel sizes with dilation=1.
 
-    Args:
-        kernel_size: Size of attention kernel window along this dimension
-        dilation: Dilation factor for attention kernel
+    Parameters
+    ----------
+    kernel_size : int
+        Size of attention kernel window along this dimension.
+    dilation : int
+        Dilation factor for attention kernel.
 
-    Returns:
-        Required halo size on each side of a data chunk
+    Returns
+    -------
+    int
+        Required halo size on each side of a data chunk.
 
-    Raises:
-        MissingShardPatch: If kernel configuration is not supported for sharding
-            - Even kernel sizes not supported
-            - Dilation != 1 not supported
+    Raises
+    ------
+    MissingShardPatch
+        If kernel configuration is not supported for sharding:
+        - Even kernel sizes not supported
+        - Dilation != 1 not supported
     """
     # Currently, reject even kernel_sizes and dilation != 1:
     if kernel_size % 2 == 0:
@@ -73,20 +89,23 @@ def compute_halo_configs_from_natten_args(
     example_input: ShardTensor,
     kernel_size: int,
     dilation: int,
-) -> List[HaloConfig]:
-    """Compute halo configurations for a sharded tensor based on convolution arguments.
+) -> list[HaloConfig]:
+    r"""Compute halo configurations for a sharded tensor based on neighborhood attention arguments.
 
-    Args:
-        example_input: The sharded tensor that will be used in neighborhood attention
-        kernel_size: Size of attention kernel window
-        dilation: Dilation factor for attention kernel
+    Parameters
+    ----------
+    example_input : ShardTensor
+        The sharded tensor that will be used in neighborhood attention.
+    kernel_size : int
+        Size of attention kernel window.
+    dilation : int
+        Dilation factor for attention kernel.
 
-    Returns:
-        List of HaloConfig objects for each sharded dimension
+    Returns
+    -------
+    List[HaloConfig]
+        List of HaloConfig objects for each sharded dimension.
     """
-    # Compute required halo size from kernel parameters
-    halo_size = compute_halo_from_kernel_and_dilation(kernel_size, dilation)
-
     placements = example_input._spec.placements
 
     halo_configs = []
@@ -119,59 +138,70 @@ def compute_halo_configs_from_natten_args(
     return halo_configs
 
 
-def partial_na2d(
+def _partial_natten(
     q: ShardTensor,
     k: ShardTensor,
     v: ShardTensor,
     kernel_size: int,
     dilation: int,
     base_func: Callable,
+    **natten_kwargs: Any,
 ) -> ShardTensor:
+    r"""Compute neighborhood attention on a sharded tensor with halo exchange.
+
+    1. Figure out the size of halos needed.
+    2. Apply the halo padding (differentiable)
+    3. Perform the neighborhood attention on the padded tensor. (differentiable)
+    4. "UnHalo" the output tensor (different from, say, convolutions)
+    5. Return the updated tensor as a ShardTensor.
+
+    Parameters
+    ----------
+    q : ShardTensor
+        Query tensor as ShardTensor.
+    k : ShardTensor
+        Key tensor as ShardTensor.
+    v : ShardTensor
+        Value tensor as ShardTensor.
+    kernel_size : int
+        Size of attention kernel window.
+    dilation : int
+        Dilation factor for attention kernel.
+    base_func : Callable
+        The base neighborhood attention function to call with padded tensors. Called as
+        ``base_func(lq, lk, lv, kernel_size=kernel_size, dilation=dilation, **natten_kwargs)``.
+    **natten_kwargs : Any
+        Additional keyword arguments passed through to ``base_func`` (e.g. ``is_causal``, ``scale``, ``stride``).
+
+    Returns
+    -------
+    ShardTensor
+        ShardTensor containing the result of neighborhood attention.
+
+    Raises
+    ------
+    MissingShardPatch
+        If kernel configuration is not supported for sharding.
     """
-    High Level, differentiable function to compute neighborhood attention on a sharded tensor.
-
-    Operation works like so:
-    - Figure out the size of halos needed.
-    - Apply the halo padding (differentiable)
-    - Perform the neighborhood attention on the padded tensor. (differentiable)
-    - "UnHalo" the output tensor (different from, say, convolutions)
-    - Return the updated tensor as a ShardTensor.
-
-    Args:
-        q: Query tensor as ShardTensor
-        k: Key tensor as ShardTensor
-        v: Value tensor as ShardTensor
-        kernel_size: Size of attention kernel window
-        dilation: Dilation factor for attention kernel
-        base_func: The base neighborhood attention function to call with padded tensors
-
-    Returns:
-        ShardTensor containing the result of neighborhood attention
-
-    Raises:
-        MissingShardPatch: If kernel configuration is not supported for sharding
-        UndeterminedShardingError: If input tensor types are mismatched
-    """
-
     # First, get the tensors locally and perform halos:
     lq, lk, lv = q.to_local(), k.to_local(), v.to_local()
 
     # Compute halo configs for these tensors.  We can assume
     # the halo configs are the same for q/k/v and just do it once:
-
     halo_configs = compute_halo_configs_from_natten_args(q, kernel_size, dilation)
 
-    # Apply the halo padding to the input tensor
+    # Apply the halo padding to the input tensors
     for halo_config in halo_configs:
         lq = halo_padding(lq, q._spec.mesh, halo_config)
         lk = halo_padding(lk, k._spec.mesh, halo_config)
         lv = halo_padding(lv, v._spec.mesh, halo_config)
 
-    # Apply native na2d operation
-    x = base_func(lq, lk, lv, kernel_size, dilation)
+    # Apply native na2d operation (dilation explicit; other options via natten_kwargs)
+    x = base_func(
+        lq, lk, lv, kernel_size=kernel_size, dilation=dilation, **natten_kwargs
+    )
 
     # Remove halos and convert back to ShardTensor
-    # x = UnSliceHaloND.apply(x, halo, q._spec)
     for halo_config in halo_configs:
         x = unhalo_padding(x, q._spec.mesh, halo_config)
 
@@ -182,62 +212,66 @@ def partial_na2d(
     return x
 
 
-# Make sure the module exists before importing it:
+def _natten_wrapper(
+    func: Callable,
+    types: tuple[Any, ...],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> torch.Tensor | ShardTensor:
+    r"""Shared wrapper for natten functions to support sharded tensors.
 
-natten_spec = importlib.util.find_spec("natten")
-if natten_spec is not None:
+    Registered with :meth:`ShardTensor.register_function_handler` so that calls
+    to :func:`~physicsnemo.nn.functional.natten.na1d`,
+    :func:`~physicsnemo.nn.functional.natten.na2d`, or
+    :func:`~physicsnemo.nn.functional.natten.na3d` automatically route through
+    this handler when any argument is a :class:`ShardTensor`.
 
-    @wrapt.patch_function_wrapper(
-        "natten.functional", "na2d", enabled=ShardTensor.patches_enabled
-    )
-    def na2d_wrapper(
-        wrapped: Any, instance: Any, args: tuple, kwargs: dict
-    ) -> Union[torch.Tensor, ShardTensor]:
-        """Wrapper for natten.functional.na2d to support sharded tensors.
+    Parameters
+    ----------
+    func : Callable
+        The wrapped natten function (passed by ``__torch_function__``).
+    types : tuple[Any, ...]
+        The types of the inputs (unused).
+    args : tuple[Any, ...]
+        Positional arguments containing query, key, value tensors and kernel_size.
+    kwargs : dict[str, Any]
+        Keyword arguments including ``dilation``.
 
-        Handles both regular torch.Tensor inputs and distributed ShardTensor inputs.
-        For regular tensors, passes through to the wrapped na2d function.
-        For ShardTensor inputs, handles adding halos and applying distributed na2d.
+    Returns
+    -------
+    Union[torch.Tensor, ShardTensor]
+        Result tensor as either ``torch.Tensor`` or ShardTensor depending on input types.
 
-        Args:
-            wrapped: Original na2d function being wrapped
-            instance: Instance the wrapped function is bound to
-            args: Positional arguments containing query, key, value tensors
-            kwargs: Keyword arguments including kernel_size and dilation
+    Raises
+    ------
+    UndeterminedShardingError
+        If input tensor types are mismatched.
+    """
+    q, k, v, kernel_size = args[0], args[1], args[2], args[3]
 
-        Returns:
-            Result tensor as either torch.Tensor or ShardTensor depending on input types
+    dilation = kwargs.get("dilation", 1)
+    natten_kwargs = {_k: _v for _k, _v in kwargs.items() if _k != "dilation"}
 
-        Raises:
-            UndeterminedShardingError: If input tensor types are mismatched
-        """
-
-        def fetch_qkv(
-            q: Any, k: Any, v: Any, *args: Any, **kwargs: Any
-        ) -> Tuple[Any, Any, Any]:
-            """Helper to extract query, key, value tensors from args."""
-            return q, k, v
-
-        q, k, v = fetch_qkv(*args)
-
-        # Get kernel parameters
-        dilation = kwargs.get("dilation", 1)
-        kernel_size = kwargs["kernel_size"]
-
-        if all([isinstance(_t, torch.Tensor) for _t in (q, k, v)]):
-            return wrapped(*args, **kwargs)
-        elif all([isinstance(_t, ShardTensor) for _t in (q, k, v)]):
-            return partial_na2d(q, k, v, kernel_size, dilation, base_func=wrapped)
-
-        else:
-            raise UndeterminedShardingError(
-                "q, k, and v must all be the same types (torch.Tensor or ShardTensor)"
-            )
-
-else:
-
-    def na2d_wrapper(*args: Any, **kwargs: Any) -> None:
-        """Placeholder wrapper when natten module is not installed."""
-        raise Exception(
-            "na2d_wrapper not supported because module 'natten' not installed"
+    if all(type(_t) is torch.Tensor for _t in (q, k, v)):
+        return func(
+            q, k, v, kernel_size=kernel_size, dilation=dilation, **natten_kwargs
         )
+    elif all(isinstance(_t, ShardTensor) for _t in (q, k, v)):
+        raw_func = _raw_func_map[func]()
+        return _partial_natten(
+            q, k, v, kernel_size, dilation, base_func=raw_func, **natten_kwargs
+        )
+    else:
+        raise UndeterminedShardingError(
+            "q, k, and v must all be the same types (torch.Tensor or ShardTensor)"
+        )
+
+
+# Public aliases for explicit registration
+na1d_wrapper = _natten_wrapper
+na2d_wrapper = _natten_wrapper
+na3d_wrapper = _natten_wrapper
+
+ShardTensor.register_function_handler(na1d, na1d_wrapper)
+ShardTensor.register_function_handler(na2d, na2d_wrapper)
+ShardTensor.register_function_handler(na3d, na3d_wrapper)

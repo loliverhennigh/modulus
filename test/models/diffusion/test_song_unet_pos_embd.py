@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -15,6 +15,9 @@
 # limitations under the License.
 # ruff: noqa: E402
 
+import warnings
+
+import numpy as np
 import pytest
 import torch
 
@@ -139,38 +142,80 @@ def test_song_unet_embedding_selector(device):
     assert torch.equal(selected_embeds, expected_embeds)
 
 
-def test_song_unet_constructor(device):
-    """Test the Song UNet constructor options"""
+@pytest.mark.parametrize(
+    "config",
+    ["default", "custom"],
+    ids=["with_defaults", "with_custom_args"],
+)
+def test_song_unet_constructor(device, config):
+    """Test SongUNetPosEmbd model constructor and attributes (MOD-008a).
 
-    # DDM++
-    img_resolution = 16
-    in_channels = 2
-    out_channels = 2
-    N_pos = 4
-    model = UNet(
-        img_resolution=img_resolution,
-        in_channels=in_channels + N_pos,
-        out_channels=out_channels,
-    ).to(device)
-    noise_labels = torch.randn([1]).to(device)
-    class_labels = torch.randint(0, 1, (1, 1)).to(device)
-    input_image = torch.ones([1, 2, 16, 16]).to(device)
-    output_image = model(input_image, noise_labels, class_labels)
-    assert output_image.shape == (1, out_channels, img_resolution, img_resolution)
+    This test verifies:
+    1. Model can be instantiated with default arguments
+    2. Model can be instantiated with custom arguments
+    3. All public attributes have expected values
+    """
+    if config == "default":
+        N_pos = 4
+        model = UNet(
+            img_resolution=16,
+            in_channels=2 + N_pos,
+            out_channels=2,
+        ).to(device)
 
-    # test rectangular shape
-    model = UNet(
-        img_resolution=[img_resolution, img_resolution * 2],
-        in_channels=in_channels + N_pos,
-        out_channels=out_channels,
-    ).to(device)
-    noise_labels = torch.randn([1]).to(device)
-    class_labels = torch.randint(0, 1, (1, 1)).to(device)
-    input_image = torch.ones([1, out_channels, img_resolution, img_resolution * 2]).to(
-        device
-    )
-    output_image = model(input_image, noise_labels, class_labels)
-    assert output_image.shape == (1, out_channels, img_resolution, img_resolution * 2)
+        # Verify default attribute values
+        assert model.img_shape_y == 16
+        assert model.img_shape_x == 16
+        assert model.gridtype == "sinusoidal"
+        assert model.N_grid_channels == 4
+        assert model.lead_time_mode is False
+        assert model.pos_embd is not None
+        assert model.pos_embd.shape == (N_pos, 16, 16)
+        assert model.lt_embd is None
+        assert model.profile_mode is False
+        assert model.amp_mode is False
+
+        # Verify forward pass shape
+        noise_labels = torch.randn([1]).to(device)
+        class_labels = torch.randint(0, 1, (1, 1)).to(device)
+        input_image = torch.ones([1, 2, 16, 16]).to(device)
+        output_image = model(input_image, noise_labels, class_labels)
+        assert output_image.shape == (1, 2, 16, 16)
+    else:
+        N_pos = 8
+        model = UNet(
+            img_resolution=[16, 32],
+            in_channels=2 + N_pos,
+            out_channels=2,
+            gridtype="learnable",
+            N_grid_channels=N_pos,
+            model_channels=64,
+            channel_mult=[1, 2, 2],
+            num_blocks=2,
+        ).to(device)
+
+        # Verify custom attribute values
+        assert model.img_shape_y == 16
+        assert model.img_shape_x == 32
+        assert model.gridtype == "learnable"
+        assert model.N_grid_channels == 8
+        assert model.lead_time_mode is False
+        assert model.pos_embd is not None
+        assert model.pos_embd.shape == (N_pos, 16, 32)
+        assert model.lt_embd is None
+
+        # Verify forward pass shape
+        noise_labels = torch.randn([1]).to(device)
+        class_labels = torch.randint(0, 1, (1, 1)).to(device)
+        input_image = torch.ones([1, 2, 16, 32]).to(device)
+        output_image = model(input_image, noise_labels, class_labels)
+        assert output_image.shape == (1, 2, 16, 32)
+
+    # Common assertions
+    assert isinstance(model, UNet)
+    assert hasattr(model, "enc")
+    assert hasattr(model, "dec")
+    assert hasattr(model, "meta")
 
 
 def test_song_unet_position_embedding(device):
@@ -230,6 +275,80 @@ def test_fails_if_grid_is_invalid():
             gridtype="sinusoidal",
             N_grid_channels=11,
         )
+
+    with pytest.raises(ValueError):
+        UNet(
+            img_resolution=img_resolution,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            gridtype="sinusoidal_octave",
+            N_grid_channels=11,
+        )
+
+
+def test_sinusoidal_octave_freq_bands():
+    """Test that sinusoidal_octave produces correct octave-doubled freq bands (issue #1522).
+
+    Builds the expected embedding grid manually with ``2.0 ** np.arange(num_freq)``
+    and checks that the model's ``pos_embd`` buffer matches exactly.
+    """
+    img_resolution = 16
+    N_pos = 12  # num_freq = 3 -> freq_bands = [1, 2, 4]
+    model = UNet(
+        img_resolution=img_resolution,
+        in_channels=2 + N_pos,
+        out_channels=2,
+        gridtype="sinusoidal_octave",
+        N_grid_channels=N_pos,
+    )
+
+    # Recompute the expected grid with the correct formula
+    num_freq = N_pos // 4
+    freq_bands = 2.0 ** np.arange(num_freq)
+    grid_x, grid_y = np.meshgrid(
+        np.linspace(0, 2 * np.pi, img_resolution),
+        np.linspace(0, 2 * np.pi, img_resolution),
+    )
+    grid_list = []
+    for freq in freq_bands:
+        for fn in [np.sin, np.cos]:
+            grid_list.append(fn(grid_x * freq))
+            grid_list.append(fn(grid_y * freq))
+    expected = torch.from_numpy(np.stack(grid_list, axis=0)).float()
+
+    torch.testing.assert_close(model.pos_embd, expected)
+
+
+def test_sinusoidal_octave_differs_from_legacy():
+    """Test that sinusoidal_octave and legacy sinusoidal produce different embeddings.
+
+    With num_freq >= 2 the legacy ``np.linspace`` formula generates non-integer
+    powers of 2, so the two embeddings must differ. Also verifies the octave
+    embedding matches the expected [1, 2, 4, ...] frequency progression.
+    """
+    img_resolution = 16
+    N_pos = 12  # num_freq = 3
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        legacy = UNet(
+            img_resolution=img_resolution,
+            in_channels=2 + N_pos,
+            out_channels=2,
+            gridtype="sinusoidal",
+            N_grid_channels=N_pos,
+        )
+    octave = UNet(
+        img_resolution=img_resolution,
+        in_channels=2 + N_pos,
+        out_channels=2,
+        gridtype="sinusoidal_octave",
+        N_grid_channels=N_pos,
+    )
+
+    assert not torch.allclose(legacy.pos_embd, octave.pos_embd), (
+        "Legacy and octave embeddings should differ for num_freq >= 2"
+    )
 
 
 # Skip CPU tests because too slow

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -27,6 +27,9 @@ b = torch.randn(N, device=device)
 
 
 def f(a, b):
+    """
+    Dummy docstring for a trivial function
+    """
     # This is a truly non-local operation: full reduction is needed.
     return torch.dot(a, b)
 

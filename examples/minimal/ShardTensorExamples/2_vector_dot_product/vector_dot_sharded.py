@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -18,7 +18,8 @@ import torch
 import torch.distributed as dist
 import time
 
-from physicsnemo.distributed import DistributedManager, scatter_tensor, ShardTensor
+from physicsnemo.distributed import DistributedManager
+from physicsnemo.domain_parallel import scatter_tensor, ShardTensor
 from torch.distributed.tensor.placement_types import Shard, Replicate
 
 
@@ -52,6 +53,9 @@ def sharded_dot_product(func: callable, types: tuple, args: tuple, kwargs: dict)
     # the same input signature.  You can use python argument unpacking to
     # extract what you need:
     def extract_args(x, y, *args, **kwargs):
+        """
+        Use python arg magic to get x and y
+        """
         return x, y
 
     x, y = extract_args(*args, **kwargs)
@@ -119,6 +123,9 @@ b = torch.randn(N, device=device)
 
 
 def f(x, y):
+    """
+    Simply return the dot product
+    """
     return torch.dot(x, y)
 
 

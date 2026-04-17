@@ -173,7 +173,7 @@ pv_mesh = pv.examples.load_airplane()  # See pyvista.org for more datasets
 mesh = from_pyvista(pv_mesh)
 
 # Or, equivalently:
-from physicsnemo.mesh.examples.pyvista_datasets.airplane import load
+from physicsnemo.mesh.primitives.pyvista_datasets.airplane import load
 mesh = load()
 
 print(mesh)
@@ -450,8 +450,73 @@ Mesh(
 ```
 
 All data moves together with `.to("cuda")` or `.to("cpu")`. Expensive computations
-(centroids, normals, curvature) are automatically cached in the data dictionaries with
-keys starting with `_`.
+(centroids, normals, curvature) are lazily cached in a dedicated `_cache` TensorDict,
+separate from `point_data` / `cell_data` so user data is never mixed with internal
+cached geometry.
+
+### Dimension-Parametrized Types
+
+`Mesh` supports subscript notation `Mesh[manifold_dims, spatial_dims]` for type
+annotations and runtime `isinstance` checks:
+
+```python
+def compute_normals(mesh: Mesh[2, 3]) -> torch.Tensor:
+    ...  # accepts only triangle meshes in 3D
+
+isinstance(mesh, Mesh[2, 3])    # True for triangles in 3D
+isinstance(mesh, Mesh[1, ...])  # True for any edge mesh
+Mesh[2, 3].boundary             # -> Mesh[1, 3]
+```
+
+Use `...` (Ellipsis) to leave a dimension unconstrained.
+
+---
+
+## torch.compile Compatibility
+
+PhysicsNeMo-Mesh operations are generally compatible with `torch.compile`, but some
+operations may cause graph breaks due to dynamic shapes or data-dependent control flow.
+
+### Generally Compilable
+
+- Point and cell arithmetic operations
+- Tensor operations on mesh data (e.g., computing centroids, areas)
+- Barycentric coordinate computation
+- Basic transformations (translate, rotate, scale)
+
+### May Cause Graph Breaks
+
+The following patterns may cause graph breaks under `torch.compile`:
+
+- **`scatter_add_` operations**: Used extensively for edge counting, facet extraction,
+  and adjacency computations
+- **`torch.where` with variable-length output**: Returns tensors whose size depends
+  on data values
+- **Dynamic shape operations**: Operations like `torch.unique` that return
+  variable-sized outputs
+
+### Recommendations
+
+1. **Separate preprocessing from inner loops**: Wrap mesh topology computations
+   (boundaries, neighbors, facets) in a separate function and compile only the
+   numerical computation inner loops
+
+   ```python
+   # Preprocessing (may have graph breaks)
+   neighbors = mesh.get_point_to_points_adjacency()
+
+   # Compilable inner loop
+   @torch.compile
+   def compute_laplacian(points, neighbor_indices, neighbor_offsets):
+       # Pure tensor arithmetic here
+       ...
+   ```
+
+2. **Use `mode="reduce-overhead"`**: For mixed workloads with some graph breaks
+
+3. **Pre-compute cached properties**: Access properties like `mesh.cell_areas`,
+   `mesh.cell_normals` etc. before entering compiled code to avoid graph breaks
+   from lazy computation
 
 ---
 

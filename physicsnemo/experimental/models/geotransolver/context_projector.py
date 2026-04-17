@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -39,9 +39,11 @@ from einops import rearrange
 from jaxtyping import Float
 
 from physicsnemo.core.version_check import check_version_spec
-from physicsnemo.models.transolver.Physics_Attention import gumbel_softmax
-from physicsnemo.nn.ball_query import BQWarp
-from physicsnemo.nn.mlp_layers import Mlp
+from physicsnemo.nn import gumbel_softmax
+from physicsnemo.nn import BQWarp
+from physicsnemo.nn import Mlp
+
+from physicsnemo.nn import ConcreteDropout
 
 # Check optional dependency availability
 TE_AVAILABLE = check_version_spec("transformer_engine", "0.1.0", hard_fail=False)
@@ -116,6 +118,7 @@ class ContextProjector(nn.Module):
         slice_num: int = 64,
         use_te: bool = True,
         plus: bool = False,
+        concrete_dropout: bool = False,
     ) -> None:
         super().__init__()
         inner_dim = dim_head * heads
@@ -135,7 +138,6 @@ class ContextProjector(nn.Module):
 
         # Attention components
         self.softmax = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
         self.temperature = nn.Parameter(torch.ones([1, heads, 1, 1]) * 0.5)
 
         # Transolver++ adaptive temperature projection
@@ -149,6 +151,15 @@ class ContextProjector(nn.Module):
 
         # Slice projection layer maps from head dimension to slice space
         self.in_project_slice = linear_layer(dim_head, slice_num)
+
+        # Concrete dropout on the output slice tokens
+        if concrete_dropout:
+            self.output_dropout = ConcreteDropout(
+                in_features=dim_head,
+                init_p=max(dropout, 0.05),
+            )
+        else:
+            self.output_dropout = None
 
     def project_input_onto_slices(
         self, x: Float[torch.Tensor, "batch tokens channels"]
@@ -310,6 +321,10 @@ class ContextProjector(nn.Module):
             slice_projections, feature_projection
         )
 
+        # Apply concrete dropout to output slice tokens
+        if self.output_dropout is not None:
+            slice_tokens = self.output_dropout(slice_tokens)
+
         return slice_tokens
 
 
@@ -348,7 +363,7 @@ class GeometricFeatureProcessor(nn.Module):
     See Also
     --------
     :class:`MultiScaleFeatureExtractor` : Uses multiple GeometricFeatureProcessor instances.
-    :class:`~physicsnemo.nn.ball_query.BQWarp` : The ball query operation used internally.
+    :class:`~physicsnemo.nn.BQWarp` : The ball query operation used internally.
 
     Examples
     --------
@@ -504,6 +519,7 @@ class MultiScaleFeatureExtractor(nn.Module):
         slice_num: int = 64,
         use_te: bool = True,
         plus: bool = False,
+        concrete_dropout: bool = False,
     ) -> None:
         super().__init__()
         self.num_scales = len(radii)
@@ -522,7 +538,14 @@ class MultiScaleFeatureExtractor(nn.Module):
         self.tokenizers = nn.ModuleList(
             [
                 ContextProjector(
-                    hidden_dim, n_head, dim_head, dropout, slice_num, use_te, plus
+                    hidden_dim,
+                    n_head,
+                    dim_head,
+                    dropout,
+                    slice_num,
+                    use_te,
+                    plus,
+                    concrete_dropout=concrete_dropout,
                 )
                 for _ in range(self.num_scales)
             ]
@@ -663,6 +686,7 @@ class GlobalContextBuilder(nn.Module):
         use_te: bool = True,
         plus: bool = False,
         include_local_features: bool = False,
+        concrete_dropout: bool = False,
     ) -> None:
         super().__init__()
 
@@ -690,6 +714,7 @@ class GlobalContextBuilder(nn.Module):
                         slice_num,
                         use_te,
                         plus,
+                        concrete_dropout=concrete_dropout,
                     )
                     for _ in functional_dims
                 ]
@@ -701,7 +726,14 @@ class GlobalContextBuilder(nn.Module):
         # Geometry tokenizer for global geometry context
         if geometry_dim is not None:
             self.geometry_tokenizer = ContextProjector(
-                geometry_dim, n_head, dim_head, dropout, slice_num, use_te, plus
+                geometry_dim,
+                n_head,
+                dim_head,
+                dropout,
+                slice_num,
+                use_te,
+                plus,
+                concrete_dropout=concrete_dropout,
             )
             context_dim += dim_head
         else:
@@ -710,7 +742,14 @@ class GlobalContextBuilder(nn.Module):
         # Global embedding tokenizer
         if global_dim is not None:
             self.global_tokenizer = ContextProjector(
-                global_dim, n_head, dim_head, dropout, slice_num, use_te, plus
+                global_dim,
+                n_head,
+                dim_head,
+                dropout,
+                slice_num,
+                use_te,
+                plus,
+                concrete_dropout=concrete_dropout,
             )
             context_dim += dim_head
         else:

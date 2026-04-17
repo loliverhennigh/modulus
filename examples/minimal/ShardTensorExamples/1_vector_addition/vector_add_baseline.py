@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -27,12 +27,18 @@ b = torch.randn(N, device=device)
 
 
 def f(a, b):
+    """
+    Dummy docstring for a trivial function
+    """
     # This is a truly local operation: no communication is needed.
     return a + b
 
 
 # run a couple times to warmup:
 for i in range(5):
+    """
+    Dummy docstring for a trivial function
+    """
     c = f(a, b)
 
 # Optional: Benchmark it if you like:

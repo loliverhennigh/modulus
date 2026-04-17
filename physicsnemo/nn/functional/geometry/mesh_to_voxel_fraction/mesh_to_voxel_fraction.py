@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -21,6 +21,7 @@ from collections.abc import Sequence
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
+from physicsnemo.nn.functional.geometry._benchmark_utils import make_uv_sphere_mesh
 
 from ._warp_impl import mesh_to_voxel_fraction_warp
 
@@ -106,6 +107,7 @@ class MeshToVoxelFraction(FunctionSpec):
         winding_number_threshold: float = 0.5,
         winding_number_accuracy: float = 2.0,
     ) -> torch.Tensor:
+        """Run the Warp backend voxel-fraction estimator on a triangle mesh."""
         return mesh_to_voxel_fraction_warp(
             mesh_vertices=mesh_vertices,
             mesh_indices=mesh_indices,
@@ -121,19 +123,17 @@ class MeshToVoxelFraction(FunctionSpec):
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        from physicsnemo.mesh.primitives.procedural.lumpy_sphere import (
-            load as load_lumpy_sphere,
-        )
-
+        """Build benchmark inputs across mesh complexity and grid workloads."""
         device = torch.device(device)
 
         # Build benchmark cases with increasing grid resolution/workload.
         for seed, (label, subdivisions, grid_n, n_samples, open_mesh) in enumerate(
             cls._BENCHMARK_CASES
         ):
-            mesh = load_lumpy_sphere(subdivisions=subdivisions, device=str(device))
-            mesh_vertices = mesh.points.to(torch.float32).contiguous()
-            mesh_indices = mesh.cells.to(torch.int32).reshape(-1).contiguous()
+            mesh_vertices, mesh_indices = make_uv_sphere_mesh(
+                device=device,
+                subdivisions=subdivisions,
+            )
 
             # Define a padded cubic domain around the mesh bounds.
             bbox_min = mesh_vertices.min(dim=0).values

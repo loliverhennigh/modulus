@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -51,6 +51,11 @@ Basic usage:
 torch.Size([2, 1000, 3])
 """
 
+from physicsnemo.nn import (
+      ConcreteDropout,
+      collect_concrete_dropout_losses,
+      get_concrete_dropout_rates,
+)
 from .context_projector import ContextProjector, GlobalContextBuilder
 from .gale import GALE, GALE_block
 from .geotransolver import GeoTransolver, GeoTransolverMetaData
@@ -62,4 +67,7 @@ __all__ = [
     "GALE_block",
     "ContextProjector",
     "GlobalContextBuilder",
+    "ConcreteDropout",
+    "collect_concrete_dropout_losses",
+    "get_concrete_dropout_rates",
 ]

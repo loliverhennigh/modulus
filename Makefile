@@ -29,14 +29,14 @@ lint:
 	pre-commit run markdownlint -a && \
 	pre-commit run check-added-large-files -a
 
-license: 
-	python test/ci_tests/header_check.py --all-files
+license:
+	pre-commit run license -a
 
 doctest:
 	coverage run \
 		--rcfile='test/coverage.docstring.rc' \
 		-m pytest \
-		--doctest-modules physicsnemo/ --ignore-glob=*internal* --ignore-glob=*experimental*
+		--doctest-modules physicsnemo/ --ignore-glob=*internal* --ignore-glob=*experimental* --ignore-glob=*deploy/onnx*
 
 pytest: 
 	coverage run \
@@ -70,10 +70,10 @@ else
     $(error Unknown CPU architecture ${ARCH} detected)
 endif
 
-MODULUS_GIT_HASH = $(shell git rev-parse --short HEAD)
+PHYSICSNEMO_GIT_HASH = $(shell git rev-parse --short HEAD)
 
 container-deploy:
-	docker build -t physicsnemo:deploy --build-arg TARGETPLATFORM=${TARGETPLATFORM} --build-arg MODULUS_GIT_HASH=${MODULUS_GIT_HASH} --target deploy -f Dockerfile .
+	docker build -t physicsnemo:deploy --build-arg TARGETPLATFORM=${TARGETPLATFORM} --build-arg PHYSICSNEMO_GIT_HASH=${PHYSICSNEMO_GIT_HASH} --target deploy -f Dockerfile .
 
 container-ci:
 	docker build -t physicsnemo:ci --build-arg TARGETPLATFORM=${TARGETPLATFORM} --target ci -f Dockerfile .

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -21,6 +21,7 @@ from collections.abc import Sequence
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
+from physicsnemo.nn.functional.geometry._benchmark_utils import make_uv_sphere_mesh
 
 from ._warp_impl import (
     _DART_THROWING_MODE,
@@ -121,6 +122,7 @@ class MeshPoissonDiskSample(FunctionSpec):
         mode: str = _DART_THROWING_MODE,
         target_num_points: int | None = None,
     ) -> torch.Tensor:
+        """Run the Warp backend Poisson-disk sampler on triangle meshes."""
         return mesh_poisson_disk_sample_warp(
             mesh_vertices=mesh_vertices,
             mesh_indices=mesh_indices,
@@ -137,10 +139,7 @@ class MeshPoissonDiskSample(FunctionSpec):
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        from physicsnemo.mesh.primitives.procedural.lumpy_sphere import (
-            load as load_lumpy_sphere,
-        )
-
+        """Build benchmark inputs spanning mesh size and adaptive-radius usage."""
         device = torch.device(device)
 
         # Build benchmark cases in increasing workload order.
@@ -151,9 +150,10 @@ class MeshPoissonDiskSample(FunctionSpec):
             batch_size,
             min_distance,
         ) in enumerate(cls._BENCHMARK_CASES):
-            mesh = load_lumpy_sphere(subdivisions=subdivisions, device=str(device))
-            mesh_vertices = mesh.points.to(torch.float32).contiguous()
-            mesh_indices = mesh.cells.to(torch.int32).contiguous()
+            mesh_vertices, mesh_indices = make_uv_sphere_mesh(
+                device=device,
+                subdivisions=subdivisions,
+            )
 
             per_vertex_radius = None
             if adaptive:

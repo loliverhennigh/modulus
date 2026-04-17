@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -16,12 +16,14 @@
 
 import contextlib
 import math
+import warnings
 from dataclasses import dataclass
-from typing import Callable, List, Literal, Optional, Set, Union
+from typing import Callable, List, Literal, Set, Union
 
 import numpy as np
 import nvtx
 import torch
+from jaxtyping import Float
 from torch.nn.functional import silu
 from torch.utils.checkpoint import checkpoint
 
@@ -178,6 +180,9 @@ class SongUNet(Module):
         temporal information about the diffusion process. In that sense it is a
         simpler version of the positional embedding used in
         :class:`~physicsnemo.models.diffusion_unets.SongUNetPosEmbd`.
+    bottleneck_attention : bool, optional, default=True
+        If ``True``, applies self-attention at the bottleneck (innermost decoder block).
+        Set to ``False`` to disable bottleneck attention for faster inference.
     use_apex_gn : bool, optional, default=False
         A flag indicating whether we want to use Apex GroupNorm for NHWC layout.
         Apex needs to be installed for this to work. Need to set this as False on cpu.
@@ -208,11 +213,11 @@ class SongUNet(Module):
         The noise labels of shape :math:`(B,)`. Used for conditioning on
         the diffusion noise level.
     class_labels : torch.Tensor
-        The class labels of shape :math:`(B, \text{label_dim})`. Used for
+        The class labels of shape :math:`(B, \text{label\_dim})`. Used for
         conditioning on any vector-valued quantity. Can pass ``None`` when
         ``label_dim`` is 0.
     augment_labels : torch.Tensor, optional, default=None
-        The augmentation labels of shape :math:`(B, \text{augment_dim})`. Used
+        The augmentation labels of shape :math:`(B, \text{augment\_dim})`. Used
         for conditioning on any additional vector-valued quantity. Can pass
         ``None`` when ``augment_dim`` is 0.
 
@@ -276,6 +281,7 @@ class SongUNet(Module):
         resample_filter: List[int] = [1, 1],
         checkpoint_level: int = 0,
         additive_pos_embed: bool = False,
+        bottleneck_attention: bool = True,
         use_apex_gn: bool = False,
         act: str = "silu",
         profile_mode: bool = False,
@@ -300,6 +306,8 @@ class SongUNet(Module):
             )
 
         super().__init__(meta=MetaData())
+        self.label_dim = label_dim
+        self.augment_dim = augment_dim
         self.label_dropout = label_dropout
         self.embedding_type = embedding_type
         emb_channels = model_channels * channel_mult_emb
@@ -395,6 +403,12 @@ class SongUNet(Module):
                 amp_mode=amp_mode,
                 **init,
             )
+        else:
+            # Register a zero embedding tensor so it can get distributed properly if using FSDP/domain parallelism
+            # persistent=False so we don't pollute the state_dict
+            self.register_buffer(
+                "zero_emb", torch.zeros(1, emb_channels), persistent=False
+            )
 
         # Encoder.
         self.enc = torch.nn.ModuleDict()
@@ -464,7 +478,10 @@ class SongUNet(Module):
             res = self.img_shape_y >> level
             if level == len(channel_mult) - 1:
                 self.dec[f"{res}x{res}_in0"] = UNetBlock(
-                    in_channels=cout, out_channels=cout, attention=True, **block_kwargs
+                    in_channels=cout,
+                    out_channels=cout,
+                    attention=bottleneck_attention,
+                    **block_kwargs,
                 )
                 self.dec[f"{res}x{res}_in1"] = UNetBlock(
                     in_channels=cout, out_channels=cout, **block_kwargs
@@ -519,73 +536,87 @@ class SongUNet(Module):
         "Should be set to ``True`` to enable automatic mixed precision.",
     )
 
-    def forward(self, x, noise_labels, class_labels, augment_labels=None):
+    def forward(
+        self,
+        x: Float[torch.Tensor, "B C_in H_in W_in"],
+        noise_labels: Float[torch.Tensor, " B_or_1"],
+        class_labels: Float[torch.Tensor, "B label_dim"] | None = None,
+        augment_labels: Float[torch.Tensor, "B augment_dim"] | None = None,
+    ) -> Float[torch.Tensor, "B C_out H_in W_in"]:
         with (
             nvtx.annotate(message="SongUNet", color="blue")
             if self.profile_mode
             else contextlib.nullcontext()
         ):
-            # Validate input shapes
-            batch_size = x.shape[0]
+            # Input validation
+            if not torch.compiler.is_compiling():
+                batch_size = x.shape[0]
 
-            if x.ndim != 4:
-                raise ValueError(
-                    f"Expected 'x' to be a 4D tensor, "
-                    f"got {x.ndim}D tensor with shape {tuple(x.shape)}"
-                )
-
-            # Check spatial dimensions are powers of 2 or multiples of 2^{N-1}
-            for d in x.shape[-2:]:
-                # Check if d is a power of 2
-                is_power_of_2 = (d & (d - 1)) == 0 and d > 0
-                # If not power of 2, must be multiple of self._input_shape_mult
-                if not (
-                    (is_power_of_2 and d < self._input_shape_mult)
-                    or (d % self._input_shape_mult == 0)
-                ):
+                if x.ndim != 4:
                     raise ValueError(
-                        f"Input spatial dimensions ({x.shape[-2:]}) must be "
-                        f"either powers of 2 or multiples of 2**(N-1) where "
-                        f"N (={self._num_levels}) is the number of levels "
-                        f"in the U-Net."
+                        f"Expected 'x' to be a 4D tensor, "
+                        f"got {x.ndim}D tensor with shape {tuple(x.shape)}"
                     )
 
-            # TODO: noise_labels of shape (1,) means that all inputs share the
-            # same noise level. This should be removed in the future, though.
-            if noise_labels.ndim != 1 or noise_labels.shape[0] not in (batch_size, 1):
-                raise ValueError(
-                    f"Expected 'noise_labels' shape ({batch_size},) or (1,), "
-                    f"got {tuple(noise_labels.shape)}"
-                )
+                # Check spatial dimensions are powers of 2 or multiples of 2^{N-1}
+                for d in x.shape[-2:]:
+                    is_power_of_2 = (d & (d - 1)) == 0 and d > 0
+                    if not (
+                        (is_power_of_2 and d < self._input_shape_mult)
+                        or (d % self._input_shape_mult == 0)
+                    ):
+                        raise ValueError(
+                            f"Input spatial dimensions ({x.shape[-2:]}) must be "
+                            f"either powers of 2 or multiples of 2**(N-1) where "
+                            f"N (={self._num_levels}) is the number of levels "
+                            f"in the U-Net."
+                        )
 
-            if class_labels is not None and (
-                class_labels.ndim != 2 or class_labels.shape[0] != batch_size
-            ):
-                raise ValueError(
-                    f"Expected 'class_labels' shape ({batch_size}, C), "
-                    f"got {tuple(class_labels.shape)}"
-                )
+                # TODO: noise_labels of shape (1,) means that all inputs share the
+                # same noise level. This should be removed in the future, though.
+                if noise_labels.ndim != 1 or noise_labels.shape[0] not in (
+                    batch_size,
+                    1,
+                ):
+                    raise ValueError(
+                        f"Expected 'noise_labels' shape ({batch_size},) or (1,), "
+                        f"got {tuple(noise_labels.shape)}"
+                    )
 
-            if augment_labels is not None and (
-                augment_labels.ndim != 2 or augment_labels.shape[0] != batch_size
-            ):
-                raise ValueError(
-                    f"Expected 'augment_labels' shape ({batch_size}, C), "
-                    f"got {tuple(augment_labels.shape)}"
-                )
+                if (
+                    self.label_dim > 0
+                    and class_labels is not None
+                    and class_labels.shape != (batch_size, self.label_dim)
+                ):
+                    raise ValueError(
+                        f"Expected 'class_labels' shape ({batch_size}, {self.label_dim}), "
+                        f"got {tuple(class_labels.shape)}"
+                    )
 
+                if (
+                    self.augment_dim > 0
+                    and augment_labels is not None
+                    and augment_labels.shape != (batch_size, self.augment_dim)
+                ):
+                    raise ValueError(
+                        f"Expected 'augment_labels' shape ({batch_size}, {self.augment_dim}), "
+                        f"got {tuple(augment_labels.shape)}"
+                    )
+
+            # Convert to channels-last layout if using Apex GroupNorm
             if (
                 self.use_apex_gn
                 and (not x.is_contiguous(memory_format=torch.channels_last))
                 and x.dim() == 4
             ):
                 x = x.to(memory_format=torch.channels_last)
+
+            # Compute conditioning embeddings from noise, class, and augment labels
             if self.embedding_type != "zero":
-                # Mapping.
                 emb = self.map_noise(noise_labels)
-                emb = (
-                    emb.reshape(emb.shape[0], 2, -1).flip(1).reshape(*emb.shape)
-                )  # swap sin/cos
+                emb_shape = emb.shape
+                emb = emb.reshape(emb.shape[0], 2, -1)  # swap sin/cos
+                emb = torch.concat([emb[:, 1:], emb[:, :1]], dim=1).reshape(*emb_shape)
                 if self.map_label is not None:
                     tmp = class_labels
                     if self.training and self.label_dropout:
@@ -601,13 +632,9 @@ class SongUNet(Module):
                 emb = silu(self.map_layer0(emb))
                 emb = silu(self.map_layer1(emb))
             else:
-                emb = torch.zeros(
-                    (noise_labels.shape[0], self.emb_channels),
-                    device=x.device,
-                    dtype=x.dtype,
-                )
+                emb = self.zero_emb.repeat(noise_labels.shape[0], 1)
 
-            # Encoder.
+            # Encoder: progressively downsample and cache skip connections
             skips = []
             aux = x
             for name, block in self.enc.items():
@@ -628,23 +655,20 @@ class SongUNet(Module):
                             x = x + self.spatial_emb.to(dtype=x.dtype)
                         skips.append(x)
                     else:
-                        # For UNetBlocks check if we should use gradient checkpointing
+                        # Apply UNetBlock with optional gradient checkpointing
                         if isinstance(block, UNetBlock):
                             if (
                                 math.floor(math.sqrt(x.shape[-2] * x.shape[-1]))
                                 > self.checkpoint_threshold
                             ):
-                                # self.checkpoint = checkpoint?
-                                # else: self.checkpoint  = lambda(block,x,emb:block(x,emb))
                                 x = checkpoint(block, x, emb, use_reentrant=False)
                             else:
-                                # AssertionError: Only support NHWC layout.
                                 x = block(x, emb)
                         else:
                             x = block(x)
                         skips.append(x)
 
-            # Decoder.
+            # Decoder: progressively upsample and merge skip connections
             aux = None
             tmp = None
             for name, block in self.dec.items():
@@ -663,7 +687,7 @@ class SongUNet(Module):
                     else:
                         if x.shape[1] != block.in_channels:
                             x = torch.cat([x, skips.pop()], dim=1)
-                        # check for checkpointing on decoder blocks and up sampling blocks
+                        # Apply UNetBlock with optional gradient checkpointing
                         if (
                             math.floor(math.sqrt(x.shape[-2] * x.shape[-1]))
                             > self.checkpoint_threshold
@@ -705,8 +729,14 @@ class SongUNetPosEmbd(SongUNet):
     • linear: uses a 2D rectilinear grid over the domain :math:`[-1, 1] \times
       [-1, 1]`.
 
-    • sinusoidal: uses sinusoidal functions of the spatial coordinates, with
-      possibly multiple frequency bands.
+    • sinusoidal: (**deprecated**) uses sinusoidal functions of the spatial
+      coordinates, with possibly multiple frequency bands. This uses a legacy
+      formula that does not produce exact octave doublings. Only use this when
+      loading pre-trained checkpoints. Use ``sinusoidal_octave`` for new models.
+
+    • sinusoidal_octave: uses sinusoidal functions of the spatial coordinates
+      with octave-spaced frequency bands (exact powers of 2). This is the
+      corrected version of ``sinusoidal``.
 
     • test: uses a 2D grid of integer indices, only used for testing.
 
@@ -745,8 +775,10 @@ class SongUNetPosEmbd(SongUNet):
         :class:`~physicsnemo.models.diffusion_unets.SongUNet`, this
         parameter should also include the number of channels in the positional
         embedding grid :math:`C_{PE}`.
-    gridtype : Literal["sinusoidal", "learnable", "linear", "test"], optional, default="sinusoidal"
+    gridtype : Literal["sinusoidal", "sinusoidal_octave", "learnable", "linear", "test"], optional, default="sinusoidal"
         Type of positional embedding to use. Controls how spatial pixels locations are encoded.
+        Use ``"sinusoidal_octave"`` for new models; ``"sinusoidal"`` is kept only for
+        backward compatibility with pre-trained checkpoints (see above).
     N_grid_channels : int, optional, default=4
         Number of channels :math:`C_{PE}` in the positional embedding grid. For 'sinusoidal' must be 4 or
         multiple of 4. For 'linear' and 'test' must be 2. For 'learnable' can be any
@@ -781,7 +813,7 @@ class SongUNetPosEmbd(SongUNet):
         The noise labels of shape :math:`(B,)`. Used for conditioning on
         the diffusion noise level.
     class_labels : torch.Tensor
-        The class labels of shape :math:`(B, \text{label_dim})`. Used for
+        The class labels of shape :math:`(B, \text{label\_dim})`. Used for
         conditioning on any vector-valued quantity. Can pass ``None`` when
         ``label_dim`` is 0.
     global_index : torch.Tensor, optional, default=None
@@ -794,7 +826,7 @@ class SongUNetPosEmbd(SongUNet):
         A function that selects the positional embeddings to use. See
         :meth:`positional_embedding_selector` for details.
     augment_labels : torch.Tensor, optional, default=None
-        The augmentation labels of shape :math:`(B, \text{augment_dim})`. Used
+        The augmentation labels of shape :math:`(B, \text{augment\_dim})`. Used
         for conditioning on any additional vector-valued quantity. Can pass
         ``None`` when ``augment_dim`` is 0.
 
@@ -869,10 +901,13 @@ class SongUNetPosEmbd(SongUNet):
         encoder_type: str = "standard",
         decoder_type: str = "standard",
         resample_filter: List[int] = [1, 1],
-        gridtype: Literal["sinusoidal", "learnable", "linear", "test"] = "sinusoidal",
+        gridtype: Literal[
+            "sinusoidal", "sinusoidal_octave", "learnable", "linear", "test"
+        ] = "sinusoidal",
         N_grid_channels: int = 4,
         checkpoint_level: int = 0,
         additive_pos_embed: bool = False,
+        bottleneck_attention: bool = True,
         use_apex_gn: bool = False,
         act: str = "silu",
         profile_mode: bool = False,
@@ -911,6 +946,7 @@ class SongUNetPosEmbd(SongUNet):
             resample_filter=resample_filter,
             checkpoint_level=checkpoint_level,
             additive_pos_embed=additive_pos_embed,
+            bottleneck_attention=bottleneck_attention,
             use_apex_gn=use_apex_gn,
             act=act,
             profile_mode=profile_mode,
@@ -948,23 +984,25 @@ class SongUNetPosEmbd(SongUNet):
 
     def forward(
         self,
-        x,
-        noise_labels,
-        class_labels,
-        global_index: Optional[torch.Tensor] = None,
-        embedding_selector: Optional[Callable] = None,
-        augment_labels=None,
-        lead_time_label=None,
-    ):
+        x: Float[torch.Tensor, "B C_in H_in W_in"],
+        noise_labels: Float[torch.Tensor, " B_or_1"],
+        class_labels: Float[torch.Tensor, "B label_dim"] | None = None,
+        global_index: Float[torch.Tensor, "P 2 H_in W_in"] | None = None,
+        embedding_selector: Callable | None = None,
+        augment_labels: Float[torch.Tensor, "B augment_dim"] | None = None,
+        lead_time_label: Float[torch.Tensor, " B"] | None = None,
+    ) -> Float[torch.Tensor, "B C_out H_in W_in"]:
         with (
             nvtx.annotate(message="SongUNetPosEmbd", color="blue")
             if self.profile_mode
             else contextlib.nullcontext()
         ):
-            if embedding_selector is not None and global_index is not None:
-                raise ValueError(
-                    "Cannot provide both embedding_selector and global_index."
-                )
+            ### Input validation
+            if not torch.compiler.is_compiling():
+                if embedding_selector is not None and global_index is not None:
+                    raise ValueError(
+                        "Cannot provide both embedding_selector and global_index."
+                    )
 
             # Append positional embedding to input conditioning
             if (self.pos_embd is not None) or (self.lt_embd is not None):
@@ -981,11 +1019,13 @@ class SongUNetPosEmbd(SongUNet):
                     )
                 x = torch.cat((x, selected_pos_embd.to(x.dtype)), dim=1)
 
+            # Run the U-Net forward pass
             out = super().forward(x, noise_labels, class_labels, augment_labels)
 
+            # Apply softmax to probability channels if lead-time mode is enabled
             if self.lead_time_mode and self.prob_channels:
-                # if training mode, let crossEntropyLoss do softmax. The model outputs logits.
-                # if eval mode, the model outputs probability
+                # In training mode, output logits for crossEntropyLoss
+                # In eval mode, output probabilities via softmax
                 scalar = self.scalar
                 if out.dtype != scalar.dtype:
                     scalar = scalar.to(out.dtype)
@@ -1001,10 +1041,10 @@ class SongUNetPosEmbd(SongUNet):
 
     def positional_embedding_indexing(
         self,
-        x: torch.Tensor,
-        global_index: Optional[torch.Tensor] = None,
-        lead_time_label: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        x: Float[torch.Tensor, "PB C H_in W_in"],
+        global_index: Float[torch.Tensor, "P 2 H_in W_in"] | None = None,
+        lead_time_label: Float[torch.Tensor, " B"] | None = None,
+    ) -> Float[torch.Tensor, "PB C_emb H_in W_in"]:
         r"""Select positional embeddings using global indices.
 
         This method uses global indices to select specific subset of the
@@ -1165,10 +1205,10 @@ class SongUNetPosEmbd(SongUNet):
 
     def positional_embedding_selector(
         self,
-        x: torch.Tensor,
+        x: Float[torch.Tensor, "PB C H_in W_in"],
         embedding_selector: Callable[[torch.Tensor], torch.Tensor],
-        lead_time_label=None,
-    ) -> torch.Tensor:
+        lead_time_label: Float[torch.Tensor, " B"] | None = None,
+    ) -> Float[torch.Tensor, "PB C_emb H_in W_in"]:
         r"""Select positional embeddings using a selector function.
 
         Similar to :meth:`positional_embedding_indexing`, but instead uses a selector
@@ -1284,7 +1324,14 @@ class SongUNetPosEmbd(SongUNet):
             )  # (2, img_shape_y, img_shape_x)
             grid.requires_grad = False
         elif self.gridtype == "sinusoidal" and self.N_grid_channels == 4:
-            # print('sinusuidal grid added ......')
+            warnings.warn(
+                'gridtype="sinusoidal" uses a legacy frequency-band formula that '
+                "does not produce exact octave doublings. Use "
+                '"sinusoidal_octave" for new models. Only use "sinusoidal" '
+                "when loading pre-trained checkpoints.",
+                FutureWarning,
+                stacklevel=2,
+            )
             x1 = np.meshgrid(np.sin(np.linspace(0, 2 * np.pi, self.img_shape_x)))
             x2 = np.meshgrid(np.cos(np.linspace(0, 2 * np.pi, self.img_shape_x)))
             y1 = np.meshgrid(np.sin(np.linspace(0, 2 * np.pi, self.img_shape_y)))
@@ -1296,10 +1343,36 @@ class SongUNetPosEmbd(SongUNet):
             )
             grid.requires_grad = False
         elif self.gridtype == "sinusoidal" and self.N_grid_channels != 4:
+            warnings.warn(
+                'gridtype="sinusoidal" uses a legacy frequency-band formula that '
+                "does not produce exact octave doublings. Use "
+                '"sinusoidal_octave" for new models. Only use "sinusoidal" '
+                "when loading pre-trained checkpoints.",
+                FutureWarning,
+                stacklevel=2,
+            )
             if self.N_grid_channels % 4 != 0:
                 raise ValueError("N_grid_channels must be a factor of 4")
             num_freq = self.N_grid_channels // 4
             freq_bands = 2.0 ** np.linspace(0.0, num_freq, num=num_freq)
+            grid_list = []
+            grid_x, grid_y = np.meshgrid(
+                np.linspace(0, 2 * np.pi, self.img_shape_x),
+                np.linspace(0, 2 * np.pi, self.img_shape_y),
+            )
+            for freq in freq_bands:
+                for p_fn in [np.sin, np.cos]:
+                    grid_list.append(p_fn(grid_x * freq))
+                    grid_list.append(p_fn(grid_y * freq))
+            grid = torch.from_numpy(
+                np.stack(grid_list, axis=0)
+            )  # (N_grid_channels, img_shape_y, img_shape_x)
+            grid.requires_grad = False
+        elif self.gridtype == "sinusoidal_octave":
+            if self.N_grid_channels % 4 != 0:
+                raise ValueError("N_grid_channels must be a multiple of 4")
+            num_freq = self.N_grid_channels // 4
+            freq_bands = 2.0 ** np.arange(num_freq)
             grid_list = []
             grid_x, grid_y = np.meshgrid(
                 np.linspace(0, 2 * np.pi, self.img_shape_x),
@@ -1358,7 +1431,7 @@ class SongUNetPosLtEmbd(SongUNetPosEmbd):
     The mechanism to condition on lead-time labels is implemented by:
 
     • First generating a grid of learnable lead-time embeddings of shape
-      :math:`(\text{lead_time_steps}, C_{LT}, H, W)`. The spatial resolution of
+      :math:`(\text{lead\_time\_steps}, C_{LT}, H, W)`. The spatial resolution of
       the lead-time embeddings is the same as the input/output image.
 
     • Then, given an input ``x``, select the lead-time embeddings that
@@ -1402,7 +1475,7 @@ class SongUNetPosLtEmbd(SongUNetPosEmbd):
         The noise labels of shape :math:`(B,)`. Used for conditioning on
         the diffusion noise level.
     class_labels : torch.Tensor
-        The class labels of shape :math:`(B, \text{label_dim})`. Used for
+        The class labels of shape :math:`(B, \text{label\_dim})`. Used for
         conditioning on any vector-valued quantity. Can pass ``None`` when
         ``label_dim`` is 0.
     global_index : torch.Tensor, optional, default=None
@@ -1414,7 +1487,7 @@ class SongUNetPosLtEmbd(SongUNetPosEmbd):
         A function that selects the positional embeddings to use. See
         :meth:`positional_embedding_selector` for details.
     augment_labels : torch.Tensor, optional, default=None
-        The augmentation labels of shape :math:`(B, \text{augment_dim})`. Used
+        The augmentation labels of shape :math:`(B, \text{augment\_dim})`. Used
         for conditioning on any additional vector-valued quantity.
     lead_time_label : torch.Tensor, optional, default=None
         The lead-time labels of shape :math:`(B,)`. Used for selecting
@@ -1497,6 +1570,7 @@ class SongUNetPosLtEmbd(SongUNetPosEmbd):
         prob_channels: List[int] = [],
         checkpoint_level: int = 0,
         additive_pos_embed: bool = False,
+        bottleneck_attention: bool = True,
         use_apex_gn: bool = False,
         act: str = "silu",
         profile_mode: bool = False,
@@ -1525,6 +1599,7 @@ class SongUNetPosLtEmbd(SongUNetPosEmbd):
             N_grid_channels=N_grid_channels,
             checkpoint_level=checkpoint_level,
             additive_pos_embed=additive_pos_embed,
+            bottleneck_attention=bottleneck_attention,
             use_apex_gn=use_apex_gn,
             act=act,
             profile_mode=profile_mode,
@@ -1537,14 +1612,14 @@ class SongUNetPosLtEmbd(SongUNetPosEmbd):
 
     def forward(
         self,
-        x,
-        noise_labels,
-        class_labels,
-        lead_time_label=None,
-        global_index: Optional[torch.Tensor] = None,
-        embedding_selector: Optional[Callable] = None,
-        augment_labels=None,
-    ):
+        x: Float[torch.Tensor, "B C_in H_in W_in"],
+        noise_labels: Float[torch.Tensor, " B_or_1"],
+        class_labels: Float[torch.Tensor, "B label_dim"] | None = None,
+        lead_time_label: Float[torch.Tensor, " B"] | None = None,
+        global_index: Float[torch.Tensor, "P 2 H_in W_in"] | None = None,
+        embedding_selector: Callable | None = None,
+        augment_labels: Float[torch.Tensor, "B augment_dim"] | None = None,
+    ) -> Float[torch.Tensor, "B C_out H_in W_in"]:
         return super().forward(
             x=x,
             noise_labels=noise_labels,

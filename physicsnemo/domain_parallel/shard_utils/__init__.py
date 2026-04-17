@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -34,12 +34,11 @@ if ST_AVAILABLE:
         )
         from .knn import knn_sharded_wrapper
         from .mesh_ops import sharded_signed_distance_field_wrapper
-
-        # Currently disabled until wrapt is removed
-        # from .natten_patches import na2d_wrapper
+        from .natten_patches import na1d_wrapper, na2d_wrapper, na3d_wrapper
         from .normalization_patches import group_norm_wrapper
         from .padding import generic_pad_nd_wrapper
         from .point_cloud_ops import radius_search_wrapper
         from .pooling_patches import generic_avg_pool_nd_wrapper
         from .unary_ops import unsqueeze_wrapper
         from .unpooling_patches import generic_interpolate_wrapper
+        from .view_ops import reshape_wrapper, view_wrapper

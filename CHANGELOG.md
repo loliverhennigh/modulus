@@ -57,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `physicsnemo.nn.functional.knn` or
   `physicsnemo.nn.functional.radius_search`) should migrate to
   `physicsnemo.nn.functional.neighbors.*`.
+- Consolidated Warp interpolation kernels for grid-to-point and point-to-grid
+  backends, and added missing kernel/helper docstrings.
 
 ### Deprecated
 

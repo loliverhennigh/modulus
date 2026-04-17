@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from typing import List, Tuple
 
 import torch
-from jaxtyping import Float
 from torch import Tensor
 
 from physicsnemo.core.function_spec import FunctionSpec
@@ -26,8 +26,40 @@ from ._torch_impl import interpolation_torch
 from ._warp_impl import interpolation_warp
 
 
-class Interpolation(FunctionSpec):
-    """Interpolate values from a grid at query point locations.
+class GridToPointInterpolation(FunctionSpec):
+    r"""Interpolate values from a structured grid at query point locations.
+
+    This functional evaluates a scalar or multi-channel field defined on a regular
+    Cartesian grid at arbitrary query points in 1D, 2D, or 3D.
+
+    For a query point :math:`\mathbf{x}` and a grid field :math:`f`, interpolation
+    is computed as a weighted sum over local stencil points:
+
+    .. math::
+
+       \hat{f}(\mathbf{x}) = \sum_{i \in \mathcal{N}(\mathbf{x})}
+       w_i(\mathbf{x})\, f_i
+
+    where :math:`\mathcal{N}(\mathbf{x})` is the interpolation neighborhood and
+    :math:`w_i(\mathbf{x})` are interpolation weights.
+
+    The interpolation mode controls the stencil and weights:
+
+    - ``nearest_neighbor``: nearest grid point (piecewise constant, 1-point stencil)
+    - ``linear``: multilinear interpolation (2^d stencil in d dimensions)
+    - ``smooth_step_1``: multilinear-style interpolation with smooth-step weights
+      :math:`3t^2 - 2t^3`
+    - ``smooth_step_2``: multilinear-style interpolation with quintic smooth-step
+      weights :math:`t^3(6t^2 - 15t + 10)`
+    - ``gaussian``: local Gaussian weighting over a larger fixed stencil
+
+    Notes
+    -----
+    - Grid spacing and extents are provided by ``grid``.
+    - The ``warp`` and ``torch`` backends are intended to be numerically aligned.
+    - ``warp`` is the default dispatch path for ``grid_to_point_interpolation``.
+    - The deprecated ``interpolation`` alias defaults to ``torch`` unless an
+      explicit ``implementation`` is provided.
 
     Parameters
     ----------
@@ -45,21 +77,30 @@ class Interpolation(FunctionSpec):
         Implementation to use. When ``None``, dispatch selects the available
         implementation.
 
-    Notes
-    -----
-    TODO: ``torch`` is the default dispatch implementation for now. The
-    Warp implementation will be promoted to the default after additional
-    validation and testing.
     """
 
-    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=1)
+    _BENCHMARK_CASES = (
+        ("1d-nearest-g2048-n8192", 1, 2048, 8192, "nearest_neighbor"),
+        ("1d-linear-g2048-n8192", 1, 2048, 8192, "linear"),
+        ("2d-smooth1-g128-n1024", 2, 128, 1024, "smooth_step_1"),
+        ("2d-smooth2-g128-n1024", 2, 128, 1024, "smooth_step_2"),
+        ("3d-linear-g32-n512", 3, 32, 512, "linear"),
+        ("3d-smooth2-g32-n512", 3, 32, 512, "smooth_step_2"),
+        ("3d-gaussian-g32-n512", 3, 32, 512, "gaussian"),
+    )
+    _COMPARE_ATOL = 5e-5
+    _COMPARE_RTOL = 1e-4
+    _COMPARE_BACKWARD_ATOL = 2e-2
+    _COMPARE_BACKWARD_RTOL = 5e-2
+
+    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=0)
     def warp_forward(
-        query_points: Float[Tensor, "num_queries dim"],
-        context_grid: Float[Tensor, "channels ..."],
+        query_points: Tensor,
+        context_grid: Tensor,
         grid: List[Tuple[float, float, int]],
         interpolation_type: str = "smooth_step_2",
         mem_speed_trade: bool = True,
-    ) -> Float[Tensor, "num_queries channels"]:
+    ) -> Tensor:
         return interpolation_warp(
             query_points,
             context_grid,
@@ -68,14 +109,14 @@ class Interpolation(FunctionSpec):
             mem_speed_trade=mem_speed_trade,
         )
 
-    @FunctionSpec.register(name="torch", rank=0, baseline=True)
+    @FunctionSpec.register(name="torch", rank=1, baseline=True)
     def torch_forward(
-        query_points: Float[Tensor, "num_queries dim"],
-        context_grid: Float[Tensor, "channels ..."],
+        query_points: Tensor,
+        context_grid: Tensor,
         grid: List[Tuple[float, float, int]],
         interpolation_type: str = "smooth_step_2",
         mem_speed_trade: bool = True,
-    ) -> Float[Tensor, "num_queries channels"]:
+    ) -> Tensor:
         return interpolation_torch(
             query_points,
             context_grid,
@@ -84,19 +125,8 @@ class Interpolation(FunctionSpec):
             mem_speed_trade=mem_speed_trade,
         )
 
-    _BENCHMARK_CASES = (
-        ("1d-nearest", 1, 2048, 8192, "nearest_neighbor"),
-        ("1d-linear", 1, 2048, 8192, "linear"),
-        ("2d-smooth1", 2, 128, 1024, "smooth_step_1"),
-        ("2d-smooth2", 2, 128, 1024, "smooth_step_2"),
-        ("3d-linear", 3, 32, 512, "linear"),
-        ("3d-smooth2", 3, 32, 512, "smooth_step_2"),
-        ("3d-gaussian", 3, 32, 512, "gaussian"),
-    )
-
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
-        """Yield labeled forward benchmark inputs from 1D to 3D cases."""
         device = torch.device(device)
         for label, dims, grid_size, num_points, interp_name in cls._BENCHMARK_CASES:
             grid = [(-1.0, 2.0, grid_size)] * dims
@@ -115,14 +145,13 @@ class Interpolation(FunctionSpec):
                 axis=-1,
             )
             yield (
-                f"{label}-g{grid_size}-n{num_points}",
+                label,
                 (query_points, context_grid, grid),
                 {"interpolation_type": interp_name, "mem_speed_trade": True},
             )
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
-        """Yield labeled backward benchmark inputs with differentiable tensors."""
         device = torch.device(device)
         for label, dims, grid_size, num_points, interp_name in cls._BENCHMARK_CASES:
             grid = [(-1.0, 2.0, grid_size)] * dims
@@ -141,26 +170,51 @@ class Interpolation(FunctionSpec):
                 axis=-1,
             ).requires_grad_(True)
             yield (
-                f"{label}-grad-g{grid_size}-n{num_points}",
+                label,
                 (query_points, context_grid, grid),
                 {"interpolation_type": interp_name, "mem_speed_trade": True},
             )
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
-        """Compare forward outputs between two interpolation backends."""
-        torch.testing.assert_close(output, reference, atol=5e-5, rtol=1e-4)
+        torch.testing.assert_close(
+            output,
+            reference,
+            atol=cls._COMPARE_ATOL,
+            rtol=cls._COMPARE_RTOL,
+        )
 
     @classmethod
     def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
-        """Compare backward gradients between two interpolation backends."""
-        torch.testing.assert_close(output, reference, atol=5e-5, rtol=1e-4)
+        torch.testing.assert_close(
+            output,
+            reference,
+            atol=cls._COMPARE_BACKWARD_ATOL,
+            rtol=cls._COMPARE_BACKWARD_RTOL,
+        )
 
 
-interpolation = Interpolation.make_function("interpolation")
+grid_to_point_interpolation = GridToPointInterpolation.make_function(
+    "grid_to_point_interpolation"
+)
+
+
+def interpolation(*args, **kwargs):
+    """Deprecated alias for ``grid_to_point_interpolation``."""
+    warnings.warn(
+        "`interpolation` is deprecated and will be removed in a future release. "
+        "Use `grid_to_point_interpolation` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    # Preserve historical default behavior for the deprecated alias while still
+    # allowing explicit backend selection overrides.
+    kwargs.setdefault("implementation", "torch")
+    return grid_to_point_interpolation(*args, **kwargs)
 
 
 __all__ = [
-    "Interpolation",
+    "GridToPointInterpolation",
+    "grid_to_point_interpolation",
     "interpolation",
 ]

@@ -34,7 +34,10 @@ from physicsnemo.nn.functional.fourier_spectral import (
     ViewAsComplex,
 )
 from physicsnemo.nn.functional.geometry import SignedDistanceField
-from physicsnemo.nn.functional.interpolation import Interpolation
+from physicsnemo.nn.functional.interpolation import (
+    GridToPointInterpolation,
+    PointToGridInterpolation,
+)
 from physicsnemo.nn.functional.neighbors import KNN, RadiusSearch
 from physicsnemo.nn.functional.regularization_parameterization import (
     DropPath,
@@ -60,7 +63,8 @@ FUNCTIONAL_SPECS = (
     # Geometry.
     SignedDistanceField,
     # Interpolation.
-    Interpolation,
+    GridToPointInterpolation,
+    PointToGridInterpolation,
     # Fourier spectral.
     RFFT,
     RFFT2,

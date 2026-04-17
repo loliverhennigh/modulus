@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -133,6 +133,11 @@ def mesh_to_voxel_fraction_impl(
     winding_number_threshold: float = 0.5,
     winding_number_accuracy: float = 2.0,
 ) -> torch.Tensor:
+    """Execute the Warp voxel-fraction kernel on normalized tensor inputs.
+
+    Parameters are already expanded to scalar grid dimensions and a tensor
+    ``origin`` so this function can serve as the low-level custom op entrypoint.
+    """
     # Validate mesh and parameter inputs.
     if mesh_vertices.device != mesh_indices.device:
         raise ValueError("mesh_vertices and mesh_indices must be on the same device")
@@ -244,6 +249,7 @@ def mesh_to_voxel_fraction_impl_fake(
     winding_number_threshold: float = 0.5,
     winding_number_accuracy: float = 2.0,
 ) -> torch.Tensor:
+    """Return a fake output tensor for tracing/compilation shape propagation."""
     if mesh_vertices.device != mesh_indices.device:
         raise ValueError("mesh_vertices and mesh_indices must be on the same device")
     if mesh_vertices.device != origin.device:

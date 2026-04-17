@@ -83,38 +83,10 @@ def test_signed_distance_field_warp(dtype: torch.dtype, device: str):
         rtol=1e-6,
     )
 
-    # Multi-dimensional query shapes preserve leading dimensions.
-    query_grid = query_points.reshape(1, 2, 3)
-    sdf_grid, hit_grid = signed_distance_field(
-        mesh_vertices=mesh_vertices,
-        mesh_indices=mesh_indices_flat,
-        input_points=query_grid,
-        use_sign_winding_number=False,
-    )
-    assert sdf_grid.shape == (1, 2)
-    assert hit_grid.shape == (1, 2, 3)
 
-    # No-hit path clips distance to max_dist and returns input point as hit-point.
-    far_point = torch.tensor([[5.0, 5.0, 5.0]], device=device, dtype=dtype)
-    sdf_far, hit_far = signed_distance_field(
-        mesh_vertices=mesh_vertices,
-        mesh_indices=mesh_indices_flat,
-        input_points=far_point,
-        max_dist=1.0e-6,
-        use_sign_winding_number=False,
-    )
-    torch.testing.assert_close(
-        sdf_far,
-        torch.tensor([1.0e-6], device=device, dtype=dtype),
-        atol=1.0e-7,
-        rtol=0.0,
-    )
-    torch.testing.assert_close(hit_far, far_point, atol=1.0e-7, rtol=0.0)
-
-
-# Validate SDF input/error handling and index-shape compatibility paths.
+# Validate SDF index-shape compatibility paths.
 @requires_module("warp")
-def test_signed_distance_field_error_handling(device: str):
+def test_signed_distance_field_index_layout_compatibility(device: str):
     device = torch.device(device)
     mesh_vertices = _tetrahedron_vertices().to(device=device, dtype=torch.float32)
     mesh_indices_flat = torch.tensor(
@@ -135,38 +107,6 @@ def test_signed_distance_field_error_handling(device: str):
     torch.testing.assert_close(sdf_flat, sdf_faces)
     torch.testing.assert_close(hit_flat, hit_faces)
 
-    # Reject malformed query-point shape.
-    with pytest.raises(ValueError, match="last dimension of size 3"):
-        signed_distance_field(
-            mesh_vertices,
-            mesh_indices_flat,
-            torch.randn(4, 2, device=device, dtype=torch.float32),
-        )
-
-    # Reject malformed face connectivity shape.
-    with pytest.raises(ValueError, match="shape \\(n_faces, 3\\)"):
-        signed_distance_field(
-            mesh_vertices,
-            torch.zeros(4, 4, device=device, dtype=torch.int32),
-            query_points,
-        )
-
-    # Reject unsupported connectivity rank.
-    with pytest.raises(ValueError, match="1D flattened indices or 2D"):
-        signed_distance_field(
-            mesh_vertices,
-            torch.zeros(1, 2, 3, device=device, dtype=torch.int32),
-            query_points,
-        )
-
-    # Reject non-floating query points.
-    with pytest.raises(TypeError, match="floating-point"):
-        signed_distance_field(
-            mesh_vertices,
-            mesh_indices_flat,
-            torch.ones(1, 3, device=device, dtype=torch.int32),
-        )
-
 
 # Validate benchmark input generation contract for SDF.
 @requires_module("warp")
@@ -186,3 +126,31 @@ def test_signed_distance_field_make_inputs_forward(device: str):
     assert sdf_out.ndim == 1
     assert hit_points.ndim == 2
     assert hit_points.shape[1] == 3
+
+
+# Validate SDF input and shape error handling paths.
+@requires_module("warp")
+def test_signed_distance_field_error_handling(device: str):
+    device = torch.device(device)
+    mesh_vertices = _tetrahedron_vertices().to(device=device, dtype=torch.float32)
+    mesh_indices_flat = torch.tensor(
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        device=device,
+        dtype=torch.int32,
+    )
+    query_points = torch.tensor([[0.1, 0.2, 0.3]], device=device, dtype=torch.float32)
+
+    # Query points must have xyz in the last dimension.
+    bad_queries = torch.randn(4, 2, device=device, dtype=torch.float32)
+    with pytest.raises(ValueError, match="last dimension of size 3"):
+        signed_distance_field(mesh_vertices, mesh_indices_flat, bad_queries)
+
+    # 2D mesh indices must be shaped as (n_faces, 3).
+    bad_connectivity_shape = torch.zeros(4, 4, device=device, dtype=torch.int32)
+    with pytest.raises(ValueError, match="shape \\(n_faces, 3\\)"):
+        signed_distance_field(mesh_vertices, bad_connectivity_shape, query_points)
+
+    # Connectivity may be 1D flattened or 2D triangular faces only.
+    bad_connectivity_rank = torch.zeros(1, 2, 3, device=device, dtype=torch.int32)
+    with pytest.raises(ValueError, match="1D flattened indices or 2D"):
+        signed_distance_field(mesh_vertices, bad_connectivity_rank, query_points)

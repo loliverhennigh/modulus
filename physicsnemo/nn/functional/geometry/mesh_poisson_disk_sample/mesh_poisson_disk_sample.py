@@ -21,7 +21,6 @@ from collections.abc import Sequence
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.nn.functional.geometry._benchmark_utils import make_uv_sphere_mesh
 
 from ._warp_impl import (
     _DART_THROWING_MODE,
@@ -150,10 +149,60 @@ class MeshPoissonDiskSample(FunctionSpec):
             batch_size,
             min_distance,
         ) in enumerate(cls._BENCHMARK_CASES):
-            mesh_vertices, mesh_indices = make_uv_sphere_mesh(
-                device=device,
-                subdivisions=subdivisions,
+            n_rings = 4 * (2**subdivisions)
+            n_segments = 8 * (2**subdivisions)
+
+            phi = torch.linspace(0.0, torch.pi, n_rings + 2, device=device)[1:-1]
+            theta = torch.linspace(0.0, 2.0 * torch.pi, n_segments + 1, device=device)[
+                :-1
+            ]
+            phi_g, theta_g = torch.meshgrid(phi, theta, indexing="ij")
+
+            sin_phi = phi_g.sin()
+            ring_points = torch.stack(
+                [sin_phi * theta_g.cos(), sin_phi * theta_g.sin(), phi_g.cos()],
+                dim=-1,
+            ).reshape(-1, 3)
+
+            mesh_vertices = torch.cat(
+                [
+                    torch.tensor([[0.0, 0.0, 1.0]], device=device),
+                    ring_points,
+                    torch.tensor([[0.0, 0.0, -1.0]], device=device),
+                ]
+            ).to(torch.float32)
+
+            south_idx = n_rings * n_segments + 1
+            j = torch.arange(n_segments, device=device)
+            j_next = (j + 1) % n_segments
+
+            north_fan = torch.stack([torch.zeros_like(j), 1 + j, 1 + j_next], dim=1)
+
+            r = torch.arange(n_rings - 1, device=device).unsqueeze(1)
+            base = 1 + r * n_segments
+            p00 = base + j
+            p01 = base + j_next
+            p10 = base + n_segments + j
+            p11 = base + n_segments + j_next
+            body_tris = torch.stack(
+                [
+                    torch.stack([p00, p10, p11], dim=-1),
+                    torch.stack([p00, p11, p01], dim=-1),
+                ],
+                dim=2,
+            ).reshape(-1, 3)
+
+            last = south_idx - n_segments
+            south_fan = torch.stack(
+                [last + j, torch.full_like(j, south_idx), last + j_next], dim=1
             )
+
+            mesh_indices = (
+                torch.cat([north_fan, body_tris, south_fan])
+                .to(torch.int32)
+                .contiguous()
+            )
+            mesh_vertices = mesh_vertices.contiguous()
 
             per_vertex_radius = None
             if adaptive:

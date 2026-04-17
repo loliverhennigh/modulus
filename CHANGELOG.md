@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added geometry functionals for mesh Poisson-disk sampling,
+  mesh-to-voxel occupancy, and signed-distance-field queries.
+
 ### Changed
 
 - PhysicsNemo v2.0 contains significant reorganization of tools.  Please see

@@ -33,24 +33,22 @@ def _bvh_query_distance(
     sdf_hit_point: wp.array(dtype=wp.vec3f),
     use_sign_winding_number: bool = False,
 ):
-    """
-    Computes the signed distance from each point in the given array `points`
-    to the mesh represented by `mesh`,within the maximum distance `max_dist`,
-    and stores the result in the array `sdf`.
+    """Compute signed distance and closest hit-point for each query point.
 
-    Parameters:
-        mesh (wp.uint64): The identifier of the mesh.
-        points (wp.array): An array of 3D points for which to compute the
-            signed distance.
-        max_dist (wp.float32): The maximum distance within which to search
-            for the closest point on the mesh.
-        sdf (wp.array): An array to store the computed signed distances.
-        sdf_hit_point (wp.array): An array to store the computed hit points.
-        sdf_hit_point_id (wp.array): An array to store the computed hit point ids.
-        use_sign_winding_number (bool): Flag to use sign_winding_number method for SDF.
-
-    Returns:
-        None
+    Parameters
+    ----------
+    mesh_id : wp.uint64
+        Identifier of the query mesh.
+    points : wp.array
+        Array of query points with dtype ``wp.vec3f``.
+    max_dist : wp.float32
+        Maximum closest-point search distance.
+    sdf : wp.array
+        Output signed-distance array.
+    sdf_hit_point : wp.array
+        Output closest-point array.
+    use_sign_winding_number : bool, optional
+        Whether to query sign via winding-number or normal-sign convention.
     """
     tid = wp.tid()
 

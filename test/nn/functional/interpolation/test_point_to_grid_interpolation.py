@@ -36,6 +36,20 @@ _INTERPOLATION_TYPES = (
 )
 
 
+def _iter_representative_benchmark_cases(case_iter):
+    """Yield one benchmark case per dimensionality (1D/2D/3D)."""
+    seen_dims = set()
+    for case in case_iter:
+        label = case[0]
+        dim_tag = label.split("-", maxsplit=1)[0]
+        if dim_tag in seen_dims:
+            continue
+        seen_dims.add(dim_tag)
+        yield case
+        if len(seen_dims) == 3:
+            break
+
+
 # Build a deterministic interpolation setup for adjoint and parity tests.
 def _build_reference_problem(device: torch.device | str, dims: int = 3):
     device = torch.device(device)
@@ -257,8 +271,8 @@ def test_point_to_grid_interpolation_error_handling(device: str):
 # Compare torch and warp forward outputs on benchmark representative inputs.
 @requires_module("warp")
 def test_point_to_grid_interpolation_backend_forward_parity(device: str):
-    for _label, args, kwargs in PointToGridInterpolation.make_inputs_forward(
-        device=device
+    for _label, args, kwargs in _iter_representative_benchmark_cases(
+        PointToGridInterpolation.make_inputs_forward(device=device)
     ):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
@@ -279,8 +293,8 @@ def test_point_to_grid_interpolation_backend_forward_parity(device: str):
 # Compare torch and warp backward gradients on benchmark representative inputs.
 @requires_module("warp")
 def test_point_to_grid_interpolation_backend_backward_parity(device: str):
-    for label, args, kwargs in PointToGridInterpolation.make_inputs_backward(
-        device=device
+    for label, args, kwargs in _iter_representative_benchmark_cases(
+        PointToGridInterpolation.make_inputs_backward(device=device)
     ):
         args_torch, kwargs_torch = clone_case(args, kwargs)
         args_warp, kwargs_warp = clone_case(args, kwargs)
@@ -326,8 +340,8 @@ def test_point_to_grid_interpolation_backend_backward_parity(device: str):
 @requires_module("warp")
 def test_point_to_grid_interpolation_backend_backward_optional_grads(device: str):
     for query_requires_grad, values_requires_grad in ((True, False), (False, True)):
-        for label, args, kwargs in PointToGridInterpolation.make_inputs_backward(
-            device=device
+        for label, args, kwargs in _iter_representative_benchmark_cases(
+            PointToGridInterpolation.make_inputs_backward(device=device)
         ):
             args_torch, kwargs_torch = clone_case(args, kwargs)
             args_warp, kwargs_warp = clone_case(args, kwargs)

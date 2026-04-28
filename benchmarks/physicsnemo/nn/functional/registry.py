@@ -16,6 +16,15 @@
 
 """Registry of FunctionSpec classes to benchmark with ASV."""
 
+from physicsnemo.nn.functional.electromagnetics import (
+    ElectricFieldUpdate,
+    MagneticFieldUpdate,
+    PMLElectricFieldUpdate,
+    PMLInitializer,
+    PMLMagneticFieldUpdate,
+    PMLPhiEUpdate,
+    PMLPhiHUpdate,
+)
 from physicsnemo.nn.functional.fourier_spectral import (
     IRFFT,
     IRFFT2,
@@ -46,6 +55,14 @@ FUNCTIONAL_SPECS = (
     SignedDistanceField,
     # Interpolation.
     Interpolation,
+    # Electromagnetics.
+    ElectricFieldUpdate,
+    MagneticFieldUpdate,
+    PMLInitializer,
+    PMLPhiEUpdate,
+    PMLPhiHUpdate,
+    PMLElectricFieldUpdate,
+    PMLMagneticFieldUpdate,
     # Fourier spectral.
     RFFT,
     RFFT2,

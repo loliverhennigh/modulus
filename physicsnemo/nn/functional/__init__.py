@@ -14,6 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .electromagnetics import (
+    electric_field_update,
+    magnetic_field_update,
+    pml_electric_field_update,
+    pml_initializer,
+    pml_magnetic_field_update,
+    pml_phi_e_update,
+    pml_phi_h_update,
+)
 from .equivariant_ops import (
     legendre_polynomials,
     polar_and_dipole_basis,
@@ -32,6 +41,13 @@ __all__ = [
     "irfft",
     "irfft2",
     "drop_path",
+    "electric_field_update",
+    "magnetic_field_update",
+    "pml_electric_field_update",
+    "pml_initializer",
+    "pml_magnetic_field_update",
+    "pml_phi_e_update",
+    "pml_phi_h_update",
     "imag",
     "interpolation",
     "knn",

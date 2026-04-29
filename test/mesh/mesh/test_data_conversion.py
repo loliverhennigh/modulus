@@ -20,10 +20,215 @@ Tests validate data conversion across spatial dimensions, manifold dimensions,
 and compute backends, ensuring correct averaging and preservation of data types.
 """
 
+import os
+import tempfile
+
 import pytest
 import torch
+import torch.distributed as dist
+from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.tensor.placement_types import Replicate, Shard
 
 from physicsnemo.mesh.mesh import Mesh
+
+try:
+    from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
+except ImportError:  # pragma: no cover - optional runtime dependency
+    ST_AVAILABLE = False
+    ShardTensor = None
+
+
+_ACTIVE_MESH_TENSOR_MODE = "dense"
+_ACTIVE_MESH_DEVICE_MESH = None
+# Opt-in shard matrix (keeps default CI path unchanged):
+# PHYSICSNEMO_MESH_SHARD_TESTS=1 pytest ...
+_ENABLE_SHARD_MESH_TEST_MODES = (
+    os.getenv("PHYSICSNEMO_MESH_SHARD_TESTS", "0").strip().lower()
+    in ("1", "true", "yes", "on")
+)
+_MESH_TENSOR_MODES = (
+    ["dense", "shard_replicate", "shard_sharded"]
+    if _ENABLE_SHARD_MESH_TEST_MODES
+    else ["dense"]
+)
+
+
+def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Materialize ShardTensor/DTensor values for robust assertions."""
+    if hasattr(tensor, "full_tensor"):
+        return tensor.full_tensor()
+    return tensor
+
+
+def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
+    assert torch.allclose(_to_dense_tensor(a), _to_dense_tensor(b), **kwargs)
+
+
+def _assert_equal(a: torch.Tensor, b: torch.Tensor) -> None:
+    assert torch.equal(_to_dense_tensor(a), _to_dense_tensor(b))
+
+
+def _is_shard_mode() -> bool:
+    return _ACTIVE_MESH_TENSOR_MODE != "dense"
+
+
+def _placement_for_mode() -> Replicate | Shard:
+    if _ACTIVE_MESH_TENSOR_MODE == "shard_sharded":
+        return Shard(0)
+    return Replicate()
+
+
+def _to_mode_tensor(tensor: torch.Tensor, placement: Replicate | Shard):
+    if not _is_shard_mode():
+        return tensor
+    if tensor.device.type != "cpu":
+        pytest.skip(
+            "ShardTensor mesh test mode currently runs on CPU-only test tensors"
+        )
+    return ShardTensor.from_local(
+        tensor,
+        _ACTIVE_MESH_DEVICE_MESH,
+        [placement],
+        sharding_shapes="infer",
+    )
+
+
+def _convert_data_for_mode(
+    data: dict[str, torch.Tensor] | None,
+    *,
+    n_points: int,
+    n_cells: int,
+    point_placement: Replicate | Shard,
+    cell_placement: Replicate | Shard,
+):
+    if data is None or not _is_shard_mode():
+        return data
+
+    converted = {}
+    for key, value in data.items():
+        if not isinstance(value, torch.Tensor):
+            converted[key] = value
+            continue
+
+        if value.ndim == 0:
+            converted[key] = _to_mode_tensor(value, Replicate())
+        elif value.shape[0] == n_points:
+            converted[key] = _to_mode_tensor(value, point_placement)
+        elif value.shape[0] == n_cells:
+            converted[key] = _to_mode_tensor(value, cell_placement)
+        else:
+            converted[key] = _to_mode_tensor(value, Replicate())
+    return converted
+
+
+def make_mesh(
+    *,
+    points: torch.Tensor,
+    cells: torch.Tensor,
+    point_data: dict[str, torch.Tensor] | None = None,
+    cell_data: dict[str, torch.Tensor] | None = None,
+    global_data: dict[str, torch.Tensor] | None = None,
+) -> Mesh:
+    """Construct Mesh in dense or sharded tensor mode.
+
+    In sharded modes, points/cells and matching point/cell data fields are wrapped
+    as ShardTensors to emulate distributed execution while keeping these unit tests
+    single-process.
+    """
+    point_placement = _placement_for_mode()
+    cell_placement = _placement_for_mode()
+
+    mesh_points = _to_mode_tensor(points, point_placement)
+    mesh_cells = _to_mode_tensor(cells, cell_placement)
+
+    point_data = _convert_data_for_mode(
+        point_data,
+        n_points=points.shape[0],
+        n_cells=cells.shape[0],
+        point_placement=point_placement,
+        cell_placement=cell_placement,
+    )
+    cell_data = _convert_data_for_mode(
+        cell_data,
+        n_points=points.shape[0],
+        n_cells=cells.shape[0],
+        point_placement=point_placement,
+        cell_placement=cell_placement,
+    )
+    global_data = _convert_data_for_mode(
+        global_data,
+        n_points=points.shape[0],
+        n_cells=cells.shape[0],
+        point_placement=Replicate(),
+        cell_placement=Replicate(),
+    )
+
+    return Mesh(
+        points=mesh_points,
+        cells=mesh_cells,
+        point_data=point_data,
+        cell_data=cell_data,
+        global_data=global_data,
+    )
+
+
+def _to_mesh_field_value(value: torch.Tensor, *, n_items: int):
+    if not _is_shard_mode() or not isinstance(value, torch.Tensor):
+        return value
+    if value.ndim > 0 and value.shape[0] == n_items:
+        return _to_mode_tensor(value, _placement_for_mode())
+    return _to_mode_tensor(value, Replicate())
+
+
+@pytest.fixture(params=_MESH_TENSOR_MODES)
+def mesh_tensor_mode(request):
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def _single_rank_dist_group():
+    """Initialize a single-rank process group for local ShardTensor tests."""
+    if dist.is_initialized():
+        yield
+        return
+
+    with tempfile.NamedTemporaryFile(prefix="mesh_shard_pg_", delete=True) as f:
+        dist.init_process_group(
+            backend="gloo",
+            init_method=f"file://{f.name}",
+            rank=0,
+            world_size=1,
+        )
+        try:
+            yield
+        finally:
+            if dist.is_initialized():
+                dist.destroy_process_group()
+
+
+@pytest.fixture
+def mesh_shard_device_mesh(mesh_tensor_mode, _single_rank_dist_group):
+    if mesh_tensor_mode == "dense":
+        return None
+
+    if not ST_AVAILABLE or ShardTensor is None:
+        pytest.skip("ShardTensor runtime is unavailable in this environment")
+
+    return init_device_mesh("cpu", (1,))
+
+
+@pytest.fixture(autouse=True)
+def _activate_mesh_mode(mesh_tensor_mode, mesh_shard_device_mesh):
+    global _ACTIVE_MESH_TENSOR_MODE, _ACTIVE_MESH_DEVICE_MESH
+    prev_mode = _ACTIVE_MESH_TENSOR_MODE
+    prev_mesh = _ACTIVE_MESH_DEVICE_MESH
+    _ACTIVE_MESH_TENSOR_MODE = mesh_tensor_mode
+    _ACTIVE_MESH_DEVICE_MESH = mesh_shard_device_mesh
+    try:
+        yield
+    finally:
+        _ACTIVE_MESH_TENSOR_MODE = prev_mode
+        _ACTIVE_MESH_DEVICE_MESH = prev_mesh
 
 ### Helper Functions ###
 
@@ -83,7 +288,7 @@ def create_simple_mesh(
     else:
         raise ValueError(f"Unsupported {n_manifold_dims=}")
 
-    return Mesh(points=points, cells=cells)
+    return make_mesh(points=points, cells=cells)
 
 
 def assert_on_device(tensor: torch.Tensor, expected_device: str) -> None:
@@ -117,7 +322,7 @@ class TestCellDataToPointData:
                 [1, 3, 2],
             ]
         )
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             cell_data={"temperature": torch.tensor([100.0, 200.0])},
@@ -132,20 +337,20 @@ class TestCellDataToPointData:
 
         ### Check point data values
         # Point 0: only in cell 0 -> 100.0
-        assert torch.allclose(result.point_data["temperature"][0], torch.tensor(100.0))
+        _assert_allclose(result.point_data["temperature"][0], torch.tensor(100.0))
         # Point 1: in cells 0 and 1 -> (100 + 200) / 2 = 150.0
-        assert torch.allclose(result.point_data["temperature"][1], torch.tensor(150.0))
+        _assert_allclose(result.point_data["temperature"][1], torch.tensor(150.0))
         # Point 2: in cells 0 and 1 -> 150.0
-        assert torch.allclose(result.point_data["temperature"][2], torch.tensor(150.0))
+        _assert_allclose(result.point_data["temperature"][2], torch.tensor(150.0))
         # Point 3: only in cell 1 -> 200.0
-        assert torch.allclose(result.point_data["temperature"][3], torch.tensor(200.0))
+        _assert_allclose(result.point_data["temperature"][3], torch.tensor(200.0))
 
     def test_multidimensional_data(self):
         """Test conversion of multi-dimensional cell data."""
         ### Create mesh with vector cell data
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             cell_data={"velocity": torch.tensor([[1.0, 2.0, 3.0]])},
@@ -157,7 +362,7 @@ class TestCellDataToPointData:
         ### All points should get the same vector
         assert result.point_data["velocity"].shape == (3, 3)
         for i in range(3):
-            assert torch.allclose(
+            _assert_allclose(
                 result.point_data["velocity"][i],
                 torch.tensor([1.0, 2.0, 3.0]),
             )
@@ -167,7 +372,7 @@ class TestCellDataToPointData:
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
         original_value = torch.tensor([42.0])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             cell_data={"value": original_value.clone()},
@@ -176,13 +381,13 @@ class TestCellDataToPointData:
         result = mesh.cell_data_to_point_data()
 
         ### Original cell data unchanged
-        assert torch.allclose(result.cell_data["value"], original_value)
+        _assert_allclose(result.cell_data["value"], original_value)
 
     def test_key_conflict_raises_error(self):
         """Test that duplicate keys raise error by default."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"value": torch.tensor([1.0, 2.0, 3.0])},
@@ -197,7 +402,7 @@ class TestCellDataToPointData:
         """Test that overwrite_keys=True allows overwriting."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"value": torch.tensor([1.0, 2.0, 3.0])},
@@ -208,7 +413,7 @@ class TestCellDataToPointData:
         result = mesh.cell_data_to_point_data(overwrite_keys=True)
 
         ### Point data should be overwritten
-        assert torch.allclose(
+        _assert_allclose(
             result.point_data["value"], torch.tensor([100.0, 100.0, 100.0])
         )
 
@@ -216,7 +421,7 @@ class TestCellDataToPointData:
         """Test that cached properties (under "_cache") are skipped."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(points=points, cells=cells)
+        mesh = make_mesh(points=points, cells=cells)
 
         ### Access a cached property
         _ = mesh.cell_centroids  # This creates cache
@@ -248,7 +453,7 @@ class TestPointDataToCellData:
                 [1, 3, 2],
             ]
         )
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"temperature": torch.tensor([100.0, 200.0, 300.0, 400.0])},
@@ -263,16 +468,16 @@ class TestPointDataToCellData:
 
         ### Check cell data values
         # Cell 0: vertices [0, 1, 2] -> (100 + 200 + 300) / 3 = 200.0
-        assert torch.allclose(result.cell_data["temperature"][0], torch.tensor(200.0))
+        _assert_allclose(result.cell_data["temperature"][0], torch.tensor(200.0))
         # Cell 1: vertices [1, 3, 2] -> (200 + 400 + 300) / 3 = 300.0
-        assert torch.allclose(result.cell_data["temperature"][1], torch.tensor(300.0))
+        _assert_allclose(result.cell_data["temperature"][1], torch.tensor(300.0))
 
     def test_multidimensional_data(self):
         """Test conversion of multi-dimensional point data."""
         ### Create mesh with vector point data
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"velocity": torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])},
@@ -283,14 +488,14 @@ class TestPointDataToCellData:
 
         ### Cell should get average of vertex vectors
         expected = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]).mean(dim=0)
-        assert torch.allclose(result.cell_data["velocity"][0], expected)
+        _assert_allclose(result.cell_data["velocity"][0], expected)
 
     def test_preserves_original_data(self):
         """Test that original point data is preserved."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
         original_value = torch.tensor([1.0, 2.0, 3.0])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"value": original_value.clone()},
@@ -299,13 +504,13 @@ class TestPointDataToCellData:
         result = mesh.point_data_to_cell_data()
 
         ### Original point data unchanged
-        assert torch.allclose(result.point_data["value"], original_value)
+        _assert_allclose(result.point_data["value"], original_value)
 
     def test_key_conflict_raises_error(self):
         """Test that duplicate keys raise error by default."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"value": torch.tensor([1.0, 2.0, 3.0])},
@@ -320,7 +525,7 @@ class TestPointDataToCellData:
         """Test that overwrite_keys=True allows overwriting."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"value": torch.tensor([10.0, 20.0, 30.0])},
@@ -332,13 +537,13 @@ class TestPointDataToCellData:
 
         ### Cell data should be overwritten with average of point data
         expected = torch.tensor([10.0, 20.0, 30.0]).mean()
-        assert torch.allclose(result.cell_data["value"], expected)
+        _assert_allclose(result.cell_data["value"], expected)
 
     def test_skips_cached_properties(self):
         """Test that cached properties (under "_cache") are skipped."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         cells = torch.tensor([[0, 1, 2]])
-        mesh = Mesh(points=points, cells=cells)
+        mesh = make_mesh(points=points, cells=cells)
 
         mesh._cache["point", "test_cached_value"] = torch.tensor([1.0, 2.0, 3.0])
 
@@ -360,7 +565,7 @@ class TestPointDataToCellData:
             ]
         )
         cells = torch.tensor([[0, 1, 2, 3]])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"value": torch.tensor([1.0, 2.0, 3.0, 4.0])},
@@ -371,7 +576,7 @@ class TestPointDataToCellData:
 
         ### Cell value should be average of vertex values
         expected = torch.tensor([1.0, 2.0, 3.0, 4.0]).mean()
-        assert torch.allclose(result.cell_data["value"][0], expected)
+        _assert_allclose(result.cell_data["value"][0], expected)
 
 
 class TestRoundTripConversion:
@@ -388,7 +593,7 @@ class TestRoundTripConversion:
         )
         cells = torch.tensor([[0, 1, 2]])
         original_value = torch.tensor([42.0])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             cell_data={"value": original_value.clone()},
@@ -399,7 +604,7 @@ class TestRoundTripConversion:
         result = result.point_data_to_cell_data(overwrite_keys=True)
 
         ### For single cell mesh, should recover original value
-        assert torch.allclose(result.cell_data["value"], original_value)
+        _assert_allclose(result.cell_data["value"], original_value)
 
     def test_point_to_cell_to_point(self):
         """Test converting point -> cell -> point."""
@@ -412,7 +617,7 @@ class TestRoundTripConversion:
         )
         cells = torch.tensor([[0, 1, 2]])
         original_values = torch.tensor([10.0, 20.0, 30.0])
-        mesh = Mesh(
+        mesh = make_mesh(
             points=points,
             cells=cells,
             point_data={"value": original_values.clone()},
@@ -424,7 +629,7 @@ class TestRoundTripConversion:
 
         ### For single cell mesh, all points should get the average value
         avg = original_values.mean()
-        assert torch.allclose(result.point_data["value"], torch.tensor([avg, avg, avg]))
+        _assert_allclose(result.point_data["value"], torch.tensor([avg, avg, avg]))
 
 
 ### Parametrized Tests for Exhaustive Dimensional Coverage ###
@@ -451,7 +656,7 @@ class TestDataConversionParametrized:
 
         # Add scalar cell data
         cell_values = torch.arange(mesh.n_cells, dtype=torch.float32, device=device)
-        mesh.cell_data["value"] = cell_values
+        mesh.cell_data["value"] = _to_mesh_field_value(cell_values, n_items=mesh.n_cells)
 
         result = mesh.cell_data_to_point_data()
 
@@ -463,7 +668,7 @@ class TestDataConversionParametrized:
         assert_on_device(result.point_data["value"], device)
 
         # Verify original data preserved
-        assert torch.equal(result.cell_data["value"], cell_values)
+        _assert_equal(result.cell_data["value"], cell_values)
 
     @pytest.mark.parametrize(
         "n_spatial_dims,n_manifold_dims",
@@ -483,7 +688,9 @@ class TestDataConversionParametrized:
 
         # Add scalar point data
         point_values = torch.arange(mesh.n_points, dtype=torch.float32, device=device)
-        mesh.point_data["value"] = point_values
+        mesh.point_data["value"] = _to_mesh_field_value(
+            point_values, n_items=mesh.n_points
+        )
 
         result = mesh.point_data_to_cell_data()
 
@@ -495,7 +702,7 @@ class TestDataConversionParametrized:
         assert_on_device(result.cell_data["value"], device)
 
         # Verify original data preserved
-        assert torch.equal(result.point_data["value"], point_values)
+        _assert_equal(result.point_data["value"], point_values)
 
     @pytest.mark.parametrize(
         "n_spatial_dims,n_manifold_dims",
@@ -514,7 +721,7 @@ class TestDataConversionParametrized:
 
         # Add vector cell data
         vectors = torch.randn(mesh.n_cells, n_spatial_dims, device=device)
-        mesh.cell_data["velocity"] = vectors
+        mesh.cell_data["velocity"] = _to_mesh_field_value(vectors, n_items=mesh.n_cells)
 
         result = mesh.cell_data_to_point_data()
 
@@ -541,7 +748,9 @@ class TestDataConversionParametrized:
 
         # Add vector point data
         vectors = torch.randn(mesh.n_points, n_spatial_dims, device=device)
-        mesh.point_data["velocity"] = vectors
+        mesh.point_data["velocity"] = _to_mesh_field_value(
+            vectors, n_items=mesh.n_points
+        )
 
         result = mesh.point_data_to_cell_data()
 
@@ -598,7 +807,7 @@ class TestDataConversionParametrized:
         cell_values = (
             torch.arange(mesh.n_cells, dtype=torch.float32, device=device) * 10.0
         )
-        mesh.cell_data["value"] = cell_values
+        mesh.cell_data["value"] = _to_mesh_field_value(cell_values, n_items=mesh.n_cells)
 
         # Round trip: cell → point → cell
         intermediate = mesh.cell_data_to_point_data()

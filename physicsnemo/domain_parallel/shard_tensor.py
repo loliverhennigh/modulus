@@ -908,6 +908,38 @@ class ShardTensor(DTensor):
 
         return _ToTorchTensor.apply(self, grad_placements)
 
+    def new_replicated_zeros(
+        self,
+        shape: Sequence[int] | torch.Size,
+        *,
+        dtype: torch.dtype | None = None,
+    ) -> "ShardTensor":
+        r"""Create a replicated zero tensor on this tensor's mesh.
+
+        This is useful for reductions/accumulators where an op naturally produces
+        a replicated output regardless of input placement.
+
+        Parameters
+        ----------
+        shape : Sequence[int] or torch.Size
+            Global shape of the output tensor.
+        dtype : torch.dtype, optional
+            Output dtype. Defaults to this tensor's dtype.
+
+        Returns
+        -------
+        ShardTensor
+            A replicated ShardTensor of zeros on the same mesh.
+        """
+        out_dtype = self.dtype if dtype is None else dtype
+        local = torch.zeros(tuple(shape), dtype=out_dtype, device=self.device)
+        return ShardTensor.from_local(
+            local,
+            self._spec.mesh,
+            [Replicate() for _ in range(self._spec.mesh.ndim)],
+            sharding_shapes="infer",
+        )
+
     def full_tensor(
         self, *, grad_placements: Sequence[Placement] | None = None
     ) -> torch.Tensor:
@@ -963,6 +995,71 @@ class ShardTensor(DTensor):
             self = self.redistribute(placements=new_placements)
 
         return self.to_local().backward(*args, **kwargs)
+
+
+def replicated_zeros_like(
+    tensor: torch.Tensor,
+    shape: Sequence[int] | torch.Size,
+    *,
+    dtype: torch.dtype | None = None,
+) -> torch.Tensor:
+    r"""Create zeros matching a tensor's device/mesh semantics.
+
+    For ``ShardTensor`` inputs this returns a replicated ``ShardTensor`` on the
+    same mesh. For regular tensors this falls back to ``torch.zeros`` on the
+    input device.
+    """
+    if isinstance(tensor, ShardTensor):
+        return tensor.new_replicated_zeros(shape, dtype=dtype)
+    out_dtype = tensor.dtype if dtype is None else dtype
+    return torch.zeros(tuple(shape), dtype=out_dtype, device=tensor.device)
+
+
+def _cross_wrapper(func, types, args, kwargs):
+    if kwargs is None:
+        kwargs = {}
+
+    if kwargs.get("out", None) is not None:
+        raise RuntimeError("torch.linalg.cross(out=...) is not supported for ShardTensor.")
+
+    input_tensor = args[0] if len(args) > 0 else kwargs.get("input")
+    other_tensor = args[1] if len(args) > 1 else kwargs.get("other")
+    dim = kwargs.get("dim", -1)
+    if len(args) > 2:
+        dim = args[2]
+
+    if not isinstance(input_tensor, ShardTensor) or not isinstance(
+        other_tensor, ShardTensor
+    ):
+        raise RuntimeError(
+            "torch.linalg.cross with ShardTensor inputs requires both arguments to be ShardTensor."
+        )
+
+    if input_tensor._spec.mesh != other_tensor._spec.mesh:
+        raise RuntimeError(
+            "torch.linalg.cross requires both ShardTensor inputs to share the same device mesh."
+        )
+    if input_tensor._spec.placements != other_tensor._spec.placements:
+        raise RuntimeError(
+            "torch.linalg.cross requires both ShardTensor inputs to have identical placements."
+        )
+
+    local_result = torch.linalg.cross(
+        input_tensor.to_local(),
+        other_tensor.to_local(),
+        dim=dim,
+    )
+    return ShardTensor.from_local(
+        local_result,
+        input_tensor._spec.mesh,
+        input_tensor._spec.placements,
+        sharding_shapes=input_tensor._spec.sharding_shapes(),
+    )
+
+
+ShardTensor.register_function_handler(torch.linalg.cross, _cross_wrapper)
+if hasattr(torch, "cross"):
+    ShardTensor.register_function_handler(torch.cross, _cross_wrapper)
 
 
 def scatter_tensor(

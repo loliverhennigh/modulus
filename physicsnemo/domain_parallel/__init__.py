@@ -47,7 +47,7 @@ if ST_AVAILABLE:
     # In minumum versions are met, we can import the shard tensor and spec.
 
     from ._shard_tensor_spec import ShardTensorSpec
-    from .shard_tensor import ShardTensor, scatter_tensor
+    from .shard_tensor import ShardTensor, replicated_zeros_like, scatter_tensor
 
     def register_custom_ops():
         # These imports will register the custom ops with the ShardTensor class.
@@ -69,3 +69,4 @@ else:
     ShardTensor = None
     ShardTensorSpec = None
     scatter_tensor = None
+    replicated_zeros_like = None

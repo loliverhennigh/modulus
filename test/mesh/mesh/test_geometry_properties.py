@@ -20,24 +20,136 @@ Validates cell_centroids, cell_areas, cell_normals, and point_normals by compari
 against PyVista's compute_cell_sizes and compute_normals methods.
 """
 
+import os
+import tempfile
+
 import pytest
 
 pytest.importorskip("pyvista")
 
 import numpy as np
 import torch
+import torch.distributed as dist
+from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.tensor.placement_types import Replicate, Shard
 
+from physicsnemo.mesh.mesh import Mesh
 from physicsnemo.mesh.io.io_pyvista import to_pyvista
 from physicsnemo.mesh.primitives.pyvista_datasets import bunny
 from physicsnemo.mesh.primitives.volumes import sphere_volume
+
+try:
+    from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
+except ImportError:  # pragma: no cover - optional runtime dependency
+    ST_AVAILABLE = False
+    ShardTensor = None
 
 ### Constants ###
 
 ATOL = 1e-4
 RTOL = 1e-4
+# Opt-in shard matrix (keeps default CI path unchanged):
+# PHYSICSNEMO_MESH_SHARD_TESTS=1 pytest ...
+_ENABLE_SHARD_MESH_TEST_MODES = (
+    os.getenv("PHYSICSNEMO_MESH_SHARD_TESTS", "0").strip().lower()
+    in ("1", "true", "yes", "on")
+)
+_MESH_TENSOR_MODES = (
+    ["dense", "shard_replicate", "shard_sharded"]
+    if _ENABLE_SHARD_MESH_TEST_MODES
+    else ["dense"]
+)
+
+
+@pytest.fixture(params=_MESH_TENSOR_MODES)
+def mesh_tensor_mode(request):
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def _single_rank_dist_group():
+    if dist.is_initialized():
+        yield
+        return
+
+    with tempfile.NamedTemporaryFile(prefix="mesh_shard_pg_", delete=True) as f:
+        dist.init_process_group(
+            backend="gloo",
+            init_method=f"file://{f.name}",
+            rank=0,
+            world_size=1,
+        )
+        try:
+            yield
+        finally:
+            if dist.is_initialized():
+                dist.destroy_process_group()
+
+
+@pytest.fixture
+def mesh_shard_device_mesh(mesh_tensor_mode, _single_rank_dist_group):
+    if mesh_tensor_mode == "dense":
+        return None
+
+    if not ST_AVAILABLE or ShardTensor is None:
+        pytest.skip("ShardTensor runtime is unavailable in this environment")
+
+    return init_device_mesh("cpu", (1,))
 
 
 ### Helper Functions ###
+
+
+def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    if hasattr(tensor, "full_tensor"):
+        return tensor.full_tensor()
+    return tensor
+
+
+def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
+    assert torch.allclose(_to_dense_tensor(a), _to_dense_tensor(b), **kwargs)
+
+
+def _to_mode_tensor(
+    tensor: torch.Tensor,
+    *,
+    mesh_tensor_mode: str,
+    mesh_shard_device_mesh,
+    placement: Replicate | Shard,
+):
+    if mesh_tensor_mode == "dense":
+        return tensor
+    if tensor.device.type != "cpu":
+        pytest.skip("ShardTensor mesh geometry tests currently run on CPU tensors")
+    return ShardTensor.from_local(
+        tensor,
+        mesh_shard_device_mesh,
+        [placement],
+        sharding_shapes="infer",
+    )
+
+
+def _mesh_to_mode(mesh: Mesh, *, mesh_tensor_mode: str, mesh_shard_device_mesh) -> Mesh:
+    if mesh_tensor_mode == "dense":
+        return mesh
+    placement = Shard(0) if mesh_tensor_mode == "shard_sharded" else Replicate()
+    return Mesh(
+        points=_to_mode_tensor(
+            mesh.points,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+            placement=placement,
+        ),
+        cells=_to_mode_tensor(
+            mesh.cells,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+            placement=placement,
+        ),
+        point_data=mesh.point_data,
+        cell_data=mesh.cell_data,
+        global_data=mesh.global_data,
+    )
 
 
 def assert_normals_equal(
@@ -66,6 +178,7 @@ def assert_normals_equal(
     rtol : float
         Relative tolerance for comparison.
     """
+    mesh_normals = _to_dense_tensor(mesh_normals)
     pv_tensor = torch.from_numpy(pv_normals).float()
 
     ### Identify isolated vertices (zero-length normals in both)
@@ -109,11 +222,16 @@ def assert_normals_equal(
 class TestCellCentroids:
     """Tests for Mesh.cell_centroids property."""
 
-    def test_2d_manifold_bunny(self):
+    def test_2d_manifold_bunny(self, mesh_tensor_mode, mesh_shard_device_mesh):
         """Test cell centroids on 2D manifold (triangular surface mesh)."""
         ### Load bunny mesh and convert to PyVista
-        mesh = bunny.load()
-        pv_mesh = to_pyvista(mesh)
+        dense_mesh = bunny.load()
+        mesh = _mesh_to_mode(
+            dense_mesh,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        pv_mesh = to_pyvista(dense_mesh)
 
         ### Compute centroids with both implementations
         mesh_centroids = mesh.cell_centroids  # shape: (n_cells, 3)
@@ -121,16 +239,18 @@ class TestCellCentroids:
 
         ### Compare results
         pv_tensor = torch.from_numpy(pv_centroids).float()
-        assert torch.allclose(mesh_centroids, pv_tensor, atol=ATOL, rtol=RTOL), (
-            f"Cell centroids differ for bunny mesh.\n"
-            f"Max diff: {(mesh_centroids - pv_tensor).abs().max()}"
-        )
+        _assert_allclose(mesh_centroids, pv_tensor, atol=ATOL, rtol=RTOL)
 
-    def test_3d_manifold_sphere_volume(self):
+    def test_3d_manifold_sphere_volume(self, mesh_tensor_mode, mesh_shard_device_mesh):
         """Test cell centroids on 3D manifold (tetrahedral volume mesh)."""
         ### Load sphere volume mesh and convert to PyVista
-        mesh = sphere_volume.load()
-        pv_mesh = to_pyvista(mesh)
+        dense_mesh = sphere_volume.load()
+        mesh = _mesh_to_mode(
+            dense_mesh,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        pv_mesh = to_pyvista(dense_mesh)
 
         ### Compute centroids with both implementations
         mesh_centroids = mesh.cell_centroids  # shape: (n_cells, 3)
@@ -138,20 +258,22 @@ class TestCellCentroids:
 
         ### Compare results
         pv_tensor = torch.from_numpy(pv_centroids).float()
-        assert torch.allclose(mesh_centroids, pv_tensor, atol=ATOL, rtol=RTOL), (
-            f"Cell centroids differ for sphere volume mesh.\n"
-            f"Max diff: {(mesh_centroids - pv_tensor).abs().max()}"
-        )
+        _assert_allclose(mesh_centroids, pv_tensor, atol=ATOL, rtol=RTOL)
 
 
 class TestCellAreas:
     """Tests for Mesh.cell_areas property."""
 
-    def test_2d_manifold_bunny(self):
+    def test_2d_manifold_bunny(self, mesh_tensor_mode, mesh_shard_device_mesh):
         """Test cell areas on 2D manifold (triangular surface mesh)."""
         ### Load bunny mesh and convert to PyVista
-        mesh = bunny.load()
-        pv_mesh = to_pyvista(mesh)
+        dense_mesh = bunny.load()
+        mesh = _mesh_to_mode(
+            dense_mesh,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        pv_mesh = to_pyvista(dense_mesh)
 
         ### Compute areas with both implementations
         mesh_areas = mesh.cell_areas  # shape: (n_cells,)
@@ -160,19 +282,21 @@ class TestCellAreas:
 
         ### Compare results
         pv_tensor = torch.from_numpy(pv_areas).float()
-        assert torch.allclose(mesh_areas, pv_tensor, atol=ATOL, rtol=RTOL), (
-            f"Cell areas differ for bunny mesh.\n"
-            f"Max diff: {(mesh_areas - pv_tensor).abs().max()}"
-        )
+        _assert_allclose(mesh_areas, pv_tensor, atol=ATOL, rtol=RTOL)
 
-    def test_3d_manifold_sphere_volume(self):
+    def test_3d_manifold_sphere_volume(self, mesh_tensor_mode, mesh_shard_device_mesh):
         """Test cell volumes on 3D manifold (tetrahedral volume mesh).
 
         Note: For 3D manifolds, cell_areas returns the volume of each tetrahedron.
         """
         ### Load sphere volume mesh and convert to PyVista
-        mesh = sphere_volume.load()
-        pv_mesh = to_pyvista(mesh)
+        dense_mesh = sphere_volume.load()
+        mesh = _mesh_to_mode(
+            dense_mesh,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        pv_mesh = to_pyvista(dense_mesh)
 
         ### Compute volumes with both implementations
         mesh_volumes = mesh.cell_areas  # shape: (n_cells,)
@@ -181,23 +305,25 @@ class TestCellAreas:
 
         ### Compare results
         pv_tensor = torch.from_numpy(pv_volumes).float()
-        assert torch.allclose(mesh_volumes, pv_tensor, atol=ATOL, rtol=RTOL), (
-            f"Cell volumes differ for sphere volume mesh.\n"
-            f"Max diff: {(mesh_volumes - pv_tensor).abs().max()}"
-        )
+        _assert_allclose(mesh_volumes, pv_tensor, atol=ATOL, rtol=RTOL)
 
 
 class TestCellNormals:
     """Tests for Mesh.cell_normals property."""
 
-    def test_2d_manifold_bunny(self):
+    def test_2d_manifold_bunny(self, mesh_tensor_mode, mesh_shard_device_mesh):
         """Test cell normals on 2D manifold (triangular surface mesh).
 
         Cell normals are only defined for codimension-1 manifolds (e.g., triangles in 3D).
         """
         ### Load bunny mesh and convert to PyVista
-        mesh = bunny.load()
-        pv_mesh = to_pyvista(mesh)
+        dense_mesh = bunny.load()
+        mesh = _mesh_to_mode(
+            dense_mesh,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        pv_mesh = to_pyvista(dense_mesh)
 
         ### Compute normals with both implementations
         mesh_normals = mesh.cell_normals  # shape: (n_cells, 3)
@@ -223,14 +349,19 @@ class TestPointNormals:
     Tests use weighting="unweighted" to match PyVista/VTK's compute_normals behavior.
     """
 
-    def test_2d_manifold_bunny(self):
+    def test_2d_manifold_bunny(self, mesh_tensor_mode, mesh_shard_device_mesh):
         """Test point normals on 2D manifold (triangular surface mesh).
 
         Uses unweighted averaging to match PyVista/VTK behavior.
         """
         ### Load bunny mesh and convert to PyVista
-        mesh = bunny.load()
-        pv_mesh = to_pyvista(mesh)
+        dense_mesh = bunny.load()
+        mesh = _mesh_to_mode(
+            dense_mesh,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        pv_mesh = to_pyvista(dense_mesh)
 
         ### Compute normals with both implementations
         # Use compute_point_normals with weighting="unweighted" to match PyVista/VTK

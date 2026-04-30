@@ -29,13 +29,8 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor.placement_types import Replicate, Shard
 
+from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
 from physicsnemo.mesh.mesh import Mesh
-
-try:
-    from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
-except ImportError:  # pragma: no cover - optional runtime dependency
-    ST_AVAILABLE = False
-    ShardTensor = None
 
 
 _ACTIVE_MESH_TENSOR_MODE = "dense"

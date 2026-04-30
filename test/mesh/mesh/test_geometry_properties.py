@@ -33,16 +33,11 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor.placement_types import Replicate, Shard
 
+from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
 from physicsnemo.mesh.mesh import Mesh
 from physicsnemo.mesh.io.io_pyvista import to_pyvista
 from physicsnemo.mesh.primitives.pyvista_datasets import bunny
 from physicsnemo.mesh.primitives.volumes import sphere_volume
-
-try:
-    from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
-except ImportError:  # pragma: no cover - optional runtime dependency
-    ST_AVAILABLE = False
-    ShardTensor = None
 
 ### Constants ###
 

@@ -24,12 +24,8 @@ mesh entities (points, cells, facets).
 import torch
 from jaxtyping import Float, Int
 
+from physicsnemo.domain_parallel import replicated_zeros_like
 from physicsnemo.mesh.utilities._tolerances import safe_eps
-
-try:
-    from physicsnemo.domain_parallel import replicated_zeros_like
-except ImportError:  # pragma: no cover - optional runtime dependency
-    replicated_zeros_like = None
 
 
 def _is_sharded_tensor(tensor: torch.Tensor) -> bool:

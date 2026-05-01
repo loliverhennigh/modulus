@@ -103,8 +103,8 @@ def mesh_shard_device_mesh(request, mesh_tensor_mode: str):
 
 
 def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    """Materialize ShardTensor/DTensor values for robust assertions."""
-    if hasattr(tensor, "full_tensor"):
+    """Materialize ShardTensor values for robust assertions."""
+    if ShardTensor is not None and isinstance(tensor, ShardTensor):
         return tensor.full_tensor()
     return tensor
 

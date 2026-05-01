@@ -44,9 +44,9 @@ ST_AVAILABLE = check_version_spec("torch", "2.6.0a0", hard_fail=False)
 
 
 if ST_AVAILABLE:
-    # In minumum versions are met, we can import the shard tensor and spec.
+    # If minimum versions are met, we can import the shard tensor and spec.
+    # Import tensor op handlers here because they are valid on CPU and CUDA.
 
-    # Register device-agnostic tensor op handlers for CPU and CUDA ShardTensors.
     from ._shard_tensor_spec import ShardTensorSpec
     from .custom_ops import _tensor_ops  # noqa: F401
     from .shard_tensor import ShardTensor, scatter_tensor

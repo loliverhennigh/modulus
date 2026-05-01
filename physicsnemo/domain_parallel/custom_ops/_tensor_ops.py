@@ -43,10 +43,7 @@ aten = torch.ops.aten
 
 def _extract_cross_inputs(
     args: tuple[Any, ...], kwargs: dict[str, Any]
-) -> tuple[
-    ShardTensor,
-    ShardTensor,
-]:
+) -> tuple[ShardTensor, ShardTensor]:
     r"""Extract and validate ShardTensor inputs for cross-product handlers."""
     input_tensor = args[0] if len(args) > 0 else kwargs.get("input")
     other_tensor = args[1] if len(args) > 1 else kwargs.get("other")
@@ -420,8 +417,7 @@ def unbind_wrapper(
 # Python-level function handlers (__torch_function__).
 ShardTensor.register_function_handler(torch.linalg.cross, linalg_cross_wrapper)
 ShardTensor.register_function_handler(aten.linalg_cross.default, linalg_cross_wrapper)
-if hasattr(torch, "cross"):
-    ShardTensor.register_function_handler(torch.cross, cross_wrapper)
+ShardTensor.register_function_handler(torch.cross, cross_wrapper)
 ShardTensor.register_function_handler(torch.Tensor.cross, cross_wrapper)
 ShardTensor.register_function_handler(aten.cross.default, cross_wrapper)
 ShardTensor.register_function_handler(torch.unbind, unbind_wrapper)

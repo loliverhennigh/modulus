@@ -32,13 +32,144 @@ from torch.distributed.tensor.placement_types import (
     Shard,
 )
 
-from physicsnemo.domain_parallel import ShardTensor
 from physicsnemo.domain_parallel._shard_tensor_spec import (
     ShardTensorSpec,
     _stride_from_contiguous_shape_C_style,
 )
+from physicsnemo.domain_parallel.shard_tensor import ShardTensor
 
 aten = torch.ops.aten
+
+
+def _extract_cross_inputs(
+    args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[
+    ShardTensor,
+    ShardTensor,
+]:
+    r"""Extract and validate ShardTensor inputs for cross-product handlers."""
+    input_tensor = args[0] if len(args) > 0 else kwargs.get("input")
+    other_tensor = args[1] if len(args) > 1 else kwargs.get("other")
+
+    if not isinstance(input_tensor, ShardTensor) or not isinstance(
+        other_tensor, ShardTensor
+    ):
+        raise RuntimeError(
+            "cross with ShardTensor inputs requires both arguments to be ShardTensor."
+        )
+
+    if input_tensor._spec.mesh != other_tensor._spec.mesh:
+        raise RuntimeError(
+            "cross requires both ShardTensor inputs to share the same device mesh."
+        )
+    if input_tensor._spec.placements != other_tensor._spec.placements:
+        raise RuntimeError(
+            "cross requires both ShardTensor inputs to have identical placements."
+        )
+
+    return input_tensor, other_tensor
+
+
+def _cross_result_from_local(
+    input_tensor: ShardTensor,
+    local_input: torch.Tensor,
+    local_result: torch.Tensor,
+) -> ShardTensor:
+    r"""Wrap a local cross-product result with matching ShardTensor metadata."""
+    sharding_shapes = (
+        input_tensor._spec.sharding_shapes()
+        if local_result.shape == local_input.shape
+        else "infer"
+    )
+    return ShardTensor.from_local(
+        local_result,
+        input_tensor._spec.mesh,
+        input_tensor._spec.placements,
+        sharding_shapes=sharding_shapes,
+    )
+
+
+def _normalize_cross_dim(input_tensor: ShardTensor, dim: int | None) -> int:
+    r"""Return the global cross-product dimension and reject sharded vector dims."""
+    if dim is None:
+        try:
+            normalized_dim = next(
+                i for i, size in enumerate(input_tensor.shape) if size == 3
+            )
+        except StopIteration:
+            raise RuntimeError(
+                "torch.cross with ShardTensor dim=None requires an input dimension "
+                "of size 3."
+            )
+    else:
+        normalized_dim = dim % input_tensor.ndim
+
+    if any(
+        isinstance(placement, Shard) and placement.dim == normalized_dim
+        for placement in input_tensor._spec.placements
+    ):
+        raise RuntimeError(
+            "cross with ShardTensor inputs is not supported along a sharded dimension."
+        )
+    return normalized_dim
+
+
+def linalg_cross_wrapper(
+    func: Callable,
+    types: tuple[Any, ...],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> ShardTensor:
+    r"""Functional wrapper for ``torch.linalg.cross`` on ShardTensor inputs."""
+    if kwargs is None:
+        kwargs = {}
+
+    if kwargs.get("out", None) is not None:
+        raise RuntimeError(
+            "torch.linalg.cross(out=...) is not supported for ShardTensor."
+        )
+
+    input_tensor, other_tensor = _extract_cross_inputs(args, kwargs)
+    dim = kwargs.get("dim", -1)
+    if len(args) > 2:
+        dim = args[2]
+    dim = _normalize_cross_dim(input_tensor, dim)
+
+    local_input = input_tensor.to_local()
+    local_result = torch.linalg.cross(
+        local_input,
+        other_tensor.to_local(),
+        dim=dim,
+    )
+    return _cross_result_from_local(input_tensor, local_input, local_result)
+
+
+def cross_wrapper(
+    func: Callable,
+    types: tuple[Any, ...],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> ShardTensor:
+    r"""Functional wrapper for ``torch.cross`` on ShardTensor inputs."""
+    if kwargs is None:
+        kwargs = {}
+
+    if kwargs.get("out", None) is not None:
+        raise RuntimeError("torch.cross(out=...) is not supported for ShardTensor.")
+
+    input_tensor, other_tensor = _extract_cross_inputs(args, kwargs)
+    dim = kwargs.get("dim", None)
+    if len(args) > 2:
+        dim = args[2]
+    dim = _normalize_cross_dim(input_tensor, dim)
+
+    local_input = input_tensor.to_local()
+    local_result = torch.cross(
+        local_input,
+        other_tensor.to_local(),
+        dim=dim,
+    )
+    return _cross_result_from_local(input_tensor, local_input, local_result)
 
 
 def _unbind_output_metadata(
@@ -210,6 +341,10 @@ def unbind_wrapper(
 
 
 # Python-level function handlers (__torch_function__).
+ShardTensor.register_function_handler(torch.linalg.cross, linalg_cross_wrapper)
+if hasattr(torch, "cross"):
+    ShardTensor.register_function_handler(torch.cross, cross_wrapper)
+ShardTensor.register_function_handler(torch.Tensor.cross, cross_wrapper)
 ShardTensor.register_function_handler(torch.unbind, unbind_wrapper)
 ShardTensor.register_function_handler(torch.Tensor.unbind, unbind_wrapper)
 

@@ -46,17 +46,15 @@ ST_AVAILABLE = check_version_spec("torch", "2.6.0a0", hard_fail=False)
 if ST_AVAILABLE:
     # In minumum versions are met, we can import the shard tensor and spec.
 
+    # Register device-agnostic tensor op handlers for CPU and CUDA ShardTensors.
     from ._shard_tensor_spec import ShardTensorSpec
-    from .shard_tensor import ShardTensor, replicated_zeros_like, scatter_tensor
+    from .custom_ops import _tensor_ops  # noqa: F401
+    from .shard_tensor import ShardTensor, scatter_tensor
 
     def register_custom_ops():
         # These imports will register the custom ops with the ShardTensor class.
         # It's done here to avoid an import cycle.
-        from .custom_ops import (  # noqa: F401
-            _tensor_ops,
-            mean_wrapper,
-            sum_wrapper,
-        )
+        from .custom_ops import mean_wrapper, sum_wrapper  # noqa: F401
         from .shard_utils import register_shard_wrappers
 
         register_shard_wrappers()
@@ -69,4 +67,3 @@ else:
     ShardTensor = None
     ShardTensorSpec = None
     scatter_tensor = None
-    replicated_zeros_like = None

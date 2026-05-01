@@ -21,26 +21,27 @@ and compute backends, ensuring correct averaging and preservation of data types.
 """
 
 import os
+import sys
 import tempfile
 
 import pytest
 import torch
 import torch.distributed as dist
+from tensordict import TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor.placement_types import Replicate, Shard
 
-from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
+from physicsnemo.distributed import DistributedManager
+from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor, scatter_tensor
 from physicsnemo.mesh.mesh import Mesh
-
 
 _ACTIVE_MESH_TENSOR_MODE = "dense"
 _ACTIVE_MESH_DEVICE_MESH = None
 # Opt-in shard matrix (keeps default CI path unchanged):
 # PHYSICSNEMO_MESH_SHARD_TESTS=1 pytest ...
-_ENABLE_SHARD_MESH_TEST_MODES = (
-    os.getenv("PHYSICSNEMO_MESH_SHARD_TESTS", "0").strip().lower()
-    in ("1", "true", "yes", "on")
-)
+_ENABLE_SHARD_MESH_TEST_MODES = os.getenv(
+    "PHYSICSNEMO_MESH_SHARD_TESTS", "0"
+).strip().lower() in ("1", "true", "yes", "on")
 _MESH_TENSOR_MODES = (
     ["dense", "shard_replicate", "shard_sharded"]
     if _ENABLE_SHARD_MESH_TEST_MODES
@@ -56,73 +57,98 @@ def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
 
 
 def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
+    """Assert approximate equality after materializing distributed tensors."""
     assert torch.allclose(_to_dense_tensor(a), _to_dense_tensor(b), **kwargs)
 
 
 def _assert_equal(a: torch.Tensor, b: torch.Tensor) -> None:
+    """Assert exact equality after materializing distributed tensors."""
     assert torch.equal(_to_dense_tensor(a), _to_dense_tensor(b))
 
 
 def _is_shard_mode() -> bool:
+    """Return whether the active mesh tensor mode uses ShardTensor."""
     return _ACTIVE_MESH_TENSOR_MODE != "dense"
 
 
 def _placement_for_mode() -> Replicate | Shard:
+    """Return the placement for point/cell-sized tensors in the active mode."""
     if _ACTIVE_MESH_TENSOR_MODE == "shard_sharded":
         return Shard(0)
     return Replicate()
 
 
-def _to_mode_tensor(tensor: torch.Tensor, placement: Replicate | Shard):
+def _to_mode_tensor(tensor: torch.Tensor, placement: Replicate | Shard) -> torch.Tensor:
+    """Wrap a tensor as a ShardTensor when the active test mode requires it."""
     if not _is_shard_mode():
         return tensor
     if tensor.device.type != "cpu":
         pytest.skip(
             "ShardTensor mesh test mode currently runs on CPU-only test tensors"
         )
+    sharding_shapes = (
+        {0: [tuple(tensor.shape)]} if isinstance(placement, Shard) else "infer"
+    )
     return ShardTensor.from_local(
         tensor,
         _ACTIVE_MESH_DEVICE_MESH,
         [placement],
-        sharding_shapes="infer",
+        sharding_shapes=sharding_shapes,
     )
 
 
-def _convert_data_for_mode(
-    data: dict[str, torch.Tensor] | None,
+def _convert_leaf_for_mode(
+    value: torch.Tensor,
     *,
     n_points: int,
     n_cells: int,
     point_placement: Replicate | Shard,
     cell_placement: Replicate | Shard,
-):
+) -> torch.Tensor:
+    """Wrap one mesh data leaf according to its leading dimension."""
+    if value.ndim == 0:
+        return _to_mode_tensor(value, Replicate())
+    if value.shape[0] == n_points:
+        return _to_mode_tensor(value, point_placement)
+    if value.shape[0] == n_cells:
+        return _to_mode_tensor(value, cell_placement)
+    return _to_mode_tensor(value, Replicate())
+
+
+def _convert_data_for_mode(
+    data: TensorDict | dict[str, object] | None,
+    *,
+    n_points: int,
+    n_cells: int,
+    point_placement: Replicate | Shard,
+    cell_placement: Replicate | Shard,
+) -> TensorDict | dict[str, object] | None:
+    """Wrap all tensor leaves in mesh data, including nested TensorDict leaves."""
     if data is None or not _is_shard_mode():
         return data
 
-    converted = {}
-    for key, value in data.items():
+    def convert_value(value: torch.Tensor) -> torch.Tensor:
         if not isinstance(value, torch.Tensor):
-            converted[key] = value
-            continue
+            return value
+        return _convert_leaf_for_mode(
+            value,
+            n_points=n_points,
+            n_cells=n_cells,
+            point_placement=point_placement,
+            cell_placement=cell_placement,
+        )
 
-        if value.ndim == 0:
-            converted[key] = _to_mode_tensor(value, Replicate())
-        elif value.shape[0] == n_points:
-            converted[key] = _to_mode_tensor(value, point_placement)
-        elif value.shape[0] == n_cells:
-            converted[key] = _to_mode_tensor(value, cell_placement)
-        else:
-            converted[key] = _to_mode_tensor(value, Replicate())
-    return converted
+    data_td = data if isinstance(data, TensorDict) else TensorDict(data, batch_size=[])
+    return data_td.apply(convert_value)
 
 
 def make_mesh(
     *,
     points: torch.Tensor,
     cells: torch.Tensor,
-    point_data: dict[str, torch.Tensor] | None = None,
-    cell_data: dict[str, torch.Tensor] | None = None,
-    global_data: dict[str, torch.Tensor] | None = None,
+    point_data: TensorDict | dict[str, object] | None = None,
+    cell_data: TensorDict | dict[str, object] | None = None,
+    global_data: TensorDict | dict[str, object] | None = None,
 ) -> Mesh:
     """Construct Mesh in dense or sharded tensor mode.
 
@@ -167,7 +193,8 @@ def make_mesh(
     )
 
 
-def _to_mesh_field_value(value: torch.Tensor, *, n_items: int):
+def _to_mesh_field_value(value: torch.Tensor, *, n_items: int) -> torch.Tensor:
+    """Wrap an expected field value to match the active tensor mode."""
     if not _is_shard_mode() or not isinstance(value, torch.Tensor):
         return value
     if value.ndim > 0 and value.shape[0] == n_items:
@@ -176,7 +203,8 @@ def _to_mesh_field_value(value: torch.Tensor, *, n_items: int):
 
 
 @pytest.fixture(params=_MESH_TENSOR_MODES)
-def mesh_tensor_mode(request):
+def mesh_tensor_mode(request) -> str:
+    """Parametrize dense and opt-in ShardTensor mesh test modes."""
     return request.param
 
 
@@ -187,10 +215,13 @@ def _single_rank_dist_group():
         yield
         return
 
-    with tempfile.NamedTemporaryFile(prefix="mesh_shard_pg_", delete=True) as f:
+    os.environ.setdefault(
+        "GLOO_SOCKET_IFNAME", "lo0" if sys.platform == "darwin" else "lo"
+    )
+    with tempfile.TemporaryDirectory(prefix="mesh_shard_pg_") as tmpdir:
         dist.init_process_group(
             backend="gloo",
-            init_method=f"file://{f.name}",
+            init_method=f"file://{tmpdir}/rendezvous",
             rank=0,
             world_size=1,
         )
@@ -202,13 +233,15 @@ def _single_rank_dist_group():
 
 
 @pytest.fixture
-def mesh_shard_device_mesh(mesh_tensor_mode, _single_rank_dist_group):
+def mesh_shard_device_mesh(request, mesh_tensor_mode: str):
+    """Create a single-rank CPU mesh only for ShardTensor test modes."""
     if mesh_tensor_mode == "dense":
         return None
 
     if not ST_AVAILABLE or ShardTensor is None:
         pytest.skip("ShardTensor runtime is unavailable in this environment")
 
+    request.getfixturevalue("_single_rank_dist_group")
     return init_device_mesh("cpu", (1,))
 
 
@@ -224,6 +257,7 @@ def _activate_mesh_mode(mesh_tensor_mode, mesh_shard_device_mesh):
     finally:
         _ACTIVE_MESH_TENSOR_MODE = prev_mode
         _ACTIVE_MESH_DEVICE_MESH = prev_mesh
+
 
 ### Helper Functions ###
 
@@ -362,6 +396,40 @@ class TestCellDataToPointData:
                 torch.tensor([1.0, 2.0, 3.0]),
             )
 
+    def test_nested_tensordict_data(self):
+        """Test conversion of nested TensorDict cell data."""
+        points = torch.tensor(
+            [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0],
+            ]
+        )
+        cells = torch.tensor(
+            [
+                [0, 1, 2],
+                [1, 3, 2],
+            ]
+        )
+        cell_data = TensorDict(
+            {
+                "flow": TensorDict(
+                    {"temperature": torch.tensor([100.0, 200.0])},
+                    batch_size=[2],
+                )
+            },
+            batch_size=[2],
+        )
+        mesh = make_mesh(points=points, cells=cells, cell_data=cell_data)
+
+        result = mesh.cell_data_to_point_data()
+
+        _assert_allclose(
+            result.point_data["flow", "temperature"],
+            torch.tensor([100.0, 150.0, 150.0, 200.0]),
+        )
+
     def test_preserves_original_data(self):
         """Test that original cell data is preserved."""
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
@@ -426,6 +494,75 @@ class TestCellDataToPointData:
 
         ### Cached property should not be in point_data (should not leak from cell_data)
         assert result._cache.get(("point", "centroids"), None) is None
+
+
+@pytest.mark.multigpu_static
+def test_cell_data_to_point_data_multirank_sharded(distributed_mesh, mesh_tensor_mode):
+    """Test cell-to-point conversion with cell data sharded across ranks."""
+    if mesh_tensor_mode != "dense":
+        pytest.skip("Multi-rank test manages its own ShardTensor inputs")
+    if not ST_AVAILABLE or ShardTensor is None or scatter_tensor is None:
+        pytest.skip("ShardTensor runtime is unavailable in this environment")
+
+    dm = DistributedManager()
+    if dm.world_size != 2:
+        pytest.skip("This mesh conversion test expects exactly two ranks")
+
+    points = torch.tensor(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ],
+        device=dm.device,
+    )
+    cells = torch.tensor(
+        [
+            [0, 1, 2],
+            [1, 3, 2],
+        ],
+        device=dm.device,
+        dtype=torch.int64,
+    )
+    cell_temperature = torch.tensor([100.0, 200.0], device=dm.device)
+    placements = (Shard(0),)
+
+    mesh = Mesh(
+        points=scatter_tensor(
+            points,
+            global_src=0,
+            mesh=distributed_mesh,
+            placements=placements,
+            global_shape=points.shape,
+            dtype=points.dtype,
+        ),
+        cells=scatter_tensor(
+            cells,
+            global_src=0,
+            mesh=distributed_mesh,
+            placements=placements,
+            global_shape=cells.shape,
+            dtype=cells.dtype,
+        ),
+        cell_data={
+            "temperature": scatter_tensor(
+                cell_temperature,
+                global_src=0,
+                mesh=distributed_mesh,
+                placements=placements,
+                global_shape=cell_temperature.shape,
+                dtype=cell_temperature.dtype,
+            )
+        },
+    )
+
+    result = mesh.cell_data_to_point_data()
+
+    _assert_allclose(
+        result.point_data["temperature"],
+        torch.tensor([100.0, 150.0, 150.0, 200.0], device=dm.device),
+    )
 
 
 class TestPointDataToCellData:
@@ -651,7 +788,9 @@ class TestDataConversionParametrized:
 
         # Add scalar cell data
         cell_values = torch.arange(mesh.n_cells, dtype=torch.float32, device=device)
-        mesh.cell_data["value"] = _to_mesh_field_value(cell_values, n_items=mesh.n_cells)
+        mesh.cell_data["value"] = _to_mesh_field_value(
+            cell_values, n_items=mesh.n_cells
+        )
 
         result = mesh.cell_data_to_point_data()
 
@@ -802,7 +941,9 @@ class TestDataConversionParametrized:
         cell_values = (
             torch.arange(mesh.n_cells, dtype=torch.float32, device=device) * 10.0
         )
-        mesh.cell_data["value"] = _to_mesh_field_value(cell_values, n_items=mesh.n_cells)
+        mesh.cell_data["value"] = _to_mesh_field_value(
+            cell_values, n_items=mesh.n_cells
+        )
 
         # Round trip: cell → point → cell
         intermediate = mesh.cell_data_to_point_data()

@@ -24,26 +24,7 @@ mesh entities (points, cells, facets).
 import torch
 from jaxtyping import Float, Int
 
-from physicsnemo.domain_parallel import replicated_zeros_like
 from physicsnemo.mesh.utilities._tolerances import safe_eps
-
-
-def _is_sharded_tensor(tensor: torch.Tensor) -> bool:
-    return hasattr(tensor, "_spec") and hasattr(type(tensor), "from_local")
-
-
-def _replicated_zeros_like(
-    tensor: torch.Tensor, shape: tuple[int, ...], dtype: torch.dtype
-) -> torch.Tensor:
-    if not _is_sharded_tensor(tensor) or replicated_zeros_like is None:
-        return torch.zeros(shape, dtype=dtype, device=tensor.device)
-
-    # Delegate replicated temporary allocation to the ShardTensor layer.
-    return replicated_zeros_like(
-        tensor,
-        shape,
-        dtype=dtype,
-    )
 
 
 def scatter_aggregate(
@@ -101,7 +82,6 @@ def scatter_aggregate(
     >>> result = scatter_aggregate(src_data, src_to_dst, n_dst=2)
     >>> # result = [[1.5], [3.0]]  # point 0 gets mean of cells 0,1
     """
-    device = src_data.device
     dtype = src_data.dtype
 
     ### Get data shape beyond the first dimension
@@ -112,9 +92,7 @@ def scatter_aggregate(
 
     ### Fast path: unweighted sum is a single scatter_add_ with no extra work
     if weights is None and aggregation == "sum":
-        aggregated_data = _replicated_zeros_like(
-            src_data, (n_dst, *data_shape), dtype
-        )
+        aggregated_data = src_data.new_zeros((n_dst, *data_shape), dtype=dtype)
         expanded_indices = src_to_dst_mapping.view(
             -1, *([1] * len(data_shape))
         ).expand_as(src_data)
@@ -123,10 +101,7 @@ def scatter_aggregate(
 
     ### Initialize weights if not provided
     if weights is None:
-        if _is_sharded_tensor(src_data):
-            weights = torch.ones_like(src_to_dst_mapping, dtype=dtype)
-        else:
-            weights = torch.ones(len(src_to_dst_mapping), dtype=dtype, device=device)
+        weights = torch.ones_like(src_to_dst_mapping, dtype=dtype)
 
     ### Ensure weights have same dtype as data (avoid dtype mismatch in multiplication)
     if weights.dtype != dtype:
@@ -138,7 +113,7 @@ def scatter_aggregate(
     weighted_data = src_data * weights.view(weight_shape)
 
     ### Scatter-add weighted data to destinations
-    aggregated_data = _replicated_zeros_like(src_data, (n_dst, *data_shape), dtype)
+    aggregated_data = src_data.new_zeros((n_dst, *data_shape), dtype=dtype)
 
     # Expand src_to_dst_mapping to match data dimensions
     expanded_indices = src_to_dst_mapping.view(-1, *([1] * len(data_shape))).expand_as(
@@ -154,7 +129,7 @@ def scatter_aggregate(
     ### Normalize weighted sum to weighted mean
     if aggregation == "mean":
         ### Compute sum of weights at each destination
-        weight_sums = _replicated_zeros_like(src_data, (n_dst,), dtype)
+        weight_sums = src_data.new_zeros((n_dst,), dtype=dtype)
         weight_sums.scatter_add_(
             dim=0,
             index=src_to_dst_mapping,

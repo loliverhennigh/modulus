@@ -1463,13 +1463,14 @@ class Mesh:
         # Shape: (n_cells * n_vertices_per_cell,)
         point_indices = self.cells.flatten()
 
-        # Repeat each cell value once per incident vertex.
-        # This avoids advanced indexing with an explicit cell-index tensor.
+        # Repeat each cell value once per incident vertex. This avoids mixing a
+        # ShardTensor data field with a generated dense cell-index tensor.
 
         converted = self.cell_data.apply(
             lambda cell_values: scatter_aggregate(
                 src_data=cell_values.unsqueeze(1)
                 .expand(-1, n_vertices_per_cell, *cell_values.shape[1:])
+                .clone()
                 .reshape(-1, *cell_values.shape[1:]),
                 src_to_dst_mapping=point_indices,
                 n_dst=self.n_points,

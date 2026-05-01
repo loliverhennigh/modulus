@@ -89,9 +89,18 @@ def _cross_result_from_local(
     )
 
 
-def _normalize_cross_dim(input_tensor: ShardTensor, dim: int | None) -> int:
-    r"""Return the global cross-product dimension and reject sharded vector dims."""
+def _normalize_cross_dim(
+    input_tensor: ShardTensor,
+    dim: int | None,
+    *,
+    allow_none: bool,
+    op_name: str,
+) -> int:
+    r"""Return the global cross-product dimension and reject invalid vector dims."""
+    ndim = input_tensor.ndim
     if dim is None:
+        if not allow_none:
+            raise TypeError(f"{op_name}(): argument 'dim' must be int, not NoneType")
         try:
             normalized_dim = next(
                 i for i, size in enumerate(input_tensor.shape) if size == 3
@@ -102,7 +111,16 @@ def _normalize_cross_dim(input_tensor: ShardTensor, dim: int | None) -> int:
                 "of size 3."
             )
     else:
-        normalized_dim = dim % input_tensor.ndim
+        if not isinstance(dim, int):
+            raise TypeError(
+                f"{op_name}(): argument 'dim' must be int, not {type(dim).__name__}"
+            )
+        if dim < -ndim or dim >= ndim:
+            raise IndexError(
+                "Dimension out of range "
+                f"(expected to be in range of [{-ndim}, {ndim - 1}], but got {dim})"
+            )
+        normalized_dim = dim if dim >= 0 else dim + ndim
 
     if any(
         isinstance(placement, Shard) and placement.dim == normalized_dim
@@ -133,7 +151,12 @@ def linalg_cross_wrapper(
     dim = kwargs.get("dim", -1)
     if len(args) > 2:
         dim = args[2]
-    dim = _normalize_cross_dim(input_tensor, dim)
+    dim = _normalize_cross_dim(
+        input_tensor,
+        dim,
+        allow_none=False,
+        op_name="linalg_cross",
+    )
 
     local_input = input_tensor.to_local()
     local_result = torch.linalg.cross(
@@ -161,7 +184,12 @@ def cross_wrapper(
     dim = kwargs.get("dim", None)
     if len(args) > 2:
         dim = args[2]
-    dim = _normalize_cross_dim(input_tensor, dim)
+    dim = _normalize_cross_dim(
+        input_tensor,
+        dim,
+        allow_none=True,
+        op_name="cross",
+    )
 
     local_input = input_tensor.to_local()
     local_result = torch.cross(

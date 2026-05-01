@@ -96,3 +96,74 @@ def test_linalg_cross_rejects_sharded_cross_dim(distributed_mesh):
 
     with pytest.raises(RuntimeError, match="sharded dimension"):
         torch.linalg.cross(shard_a, shard_b, dim=2)
+
+
+@pytest.mark.multigpu_static
+def test_cross_rejects_out_of_range_dim(distributed_mesh):
+    """Explicit cross-product dimensions should match PyTorch range checks."""
+    dm = DistributedManager()
+    full_shape = (3, dm.world_size * 2, 5)
+    full_a = torch.arange(
+        math.prod(full_shape),
+        device=dm.device,
+        dtype=torch.float32,
+    ).reshape(full_shape)
+    full_b = full_a + 1
+
+    placements = (Shard(1),)
+    shard_a = scatter_tensor(
+        full_a,
+        global_src=0,
+        mesh=distributed_mesh,
+        placements=placements,
+        global_shape=full_a.shape,
+        dtype=full_a.dtype,
+    )
+    shard_b = scatter_tensor(
+        full_b,
+        global_src=0,
+        mesh=distributed_mesh,
+        placements=placements,
+        global_shape=full_b.shape,
+        dtype=full_b.dtype,
+    )
+
+    for op in (torch.cross, torch.linalg.cross):
+        with pytest.raises(IndexError, match="Dimension out of range"):
+            op(shard_a, shard_b, dim=3)
+        with pytest.raises(IndexError, match="Dimension out of range"):
+            op(shard_a, shard_b, dim=-4)
+
+
+@pytest.mark.multigpu_static
+def test_linalg_cross_rejects_none_dim(distributed_mesh):
+    """``torch.linalg.cross`` should reject ``dim=None`` like dense PyTorch."""
+    dm = DistributedManager()
+    full_shape = (3, dm.world_size * 2, 5)
+    full_a = torch.arange(
+        math.prod(full_shape),
+        device=dm.device,
+        dtype=torch.float32,
+    ).reshape(full_shape)
+    full_b = full_a + 1
+
+    placements = (Shard(1),)
+    shard_a = scatter_tensor(
+        full_a,
+        global_src=0,
+        mesh=distributed_mesh,
+        placements=placements,
+        global_shape=full_a.shape,
+        dtype=full_a.dtype,
+    )
+    shard_b = scatter_tensor(
+        full_b,
+        global_src=0,
+        mesh=distributed_mesh,
+        placements=placements,
+        global_shape=full_b.shape,
+        dtype=full_b.dtype,
+    )
+
+    with pytest.raises(TypeError, match="dim"):
+        torch.linalg.cross(shard_a, shard_b, dim=None)

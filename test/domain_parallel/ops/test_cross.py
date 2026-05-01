@@ -65,6 +65,48 @@ def test_torch_cross_default_dim_uses_global_shape(distributed_mesh):
 
 
 @pytest.mark.multigpu_static
+def test_aten_cross_ops(distributed_mesh):
+    """ATen cross ops should use ShardTensor handlers, not DTensor fallback."""
+    dm = DistributedManager()
+    local_leading_dim = 3
+    full_shape = (dm.world_size * local_leading_dim, 3, 2)
+    full_a = torch.arange(
+        math.prod(full_shape),
+        device=dm.device,
+        dtype=torch.float32,
+    ).reshape(full_shape)
+    full_b = torch.flip(full_a, dims=(0,)) + 1
+
+    placements = (Shard(0),)
+    shard_a = scatter_tensor(
+        full_a,
+        global_src=0,
+        mesh=distributed_mesh,
+        placements=placements,
+        global_shape=full_a.shape,
+        dtype=full_a.dtype,
+    )
+    shard_b = scatter_tensor(
+        full_b,
+        global_src=0,
+        mesh=distributed_mesh,
+        placements=placements,
+        global_shape=full_b.shape,
+        dtype=full_b.dtype,
+    )
+
+    aten_cross = torch.ops.aten.cross.default(shard_a, shard_b).full_tensor()
+    expected_cross = torch.ops.aten.cross.default(full_a, full_b)
+    assert torch.allclose(aten_cross, expected_cross)
+
+    aten_linalg_cross = torch.ops.aten.linalg_cross.default(
+        shard_a, shard_b, dim=1
+    ).full_tensor()
+    expected_linalg_cross = torch.ops.aten.linalg_cross.default(full_a, full_b, dim=1)
+    assert torch.allclose(aten_linalg_cross, expected_linalg_cross)
+
+
+@pytest.mark.multigpu_static
 def test_linalg_cross_rejects_sharded_cross_dim(distributed_mesh):
     """Cross products cannot be computed when the vector dimension is sharded."""
     dm = DistributedManager()

@@ -51,6 +51,12 @@ def _extract_cross_inputs(
     input_tensor = args[0] if len(args) > 0 else kwargs.get("input")
     other_tensor = args[1] if len(args) > 1 else kwargs.get("other")
 
+    _validate_cross_inputs(input_tensor, other_tensor)
+    return input_tensor, other_tensor
+
+
+def _validate_cross_inputs(input_tensor: Any, other_tensor: Any) -> None:
+    r"""Validate ShardTensor inputs for cross-product handlers."""
     if not isinstance(input_tensor, ShardTensor) or not isinstance(
         other_tensor, ShardTensor
     ):
@@ -66,8 +72,6 @@ def _extract_cross_inputs(
         raise RuntimeError(
             "cross requires both ShardTensor inputs to have identical placements."
         )
-
-    return input_tensor, other_tensor
 
 
 def _cross_result_from_local(
@@ -167,6 +171,29 @@ def linalg_cross_wrapper(
     return _cross_result_from_local(input_tensor, local_input, local_result)
 
 
+def _linalg_cross_dispatch(
+    input_tensor: ShardTensor,
+    other_tensor: ShardTensor,
+    *,
+    dim: int = -1,
+) -> ShardTensor:
+    r"""ATen dispatch handler for ``aten.linalg_cross.default``."""
+    _validate_cross_inputs(input_tensor, other_tensor)
+    dim = _normalize_cross_dim(
+        input_tensor,
+        dim,
+        allow_none=False,
+        op_name="linalg_cross",
+    )
+    local_input = input_tensor.to_local()
+    local_result = torch.linalg.cross(
+        local_input,
+        other_tensor.to_local(),
+        dim=dim,
+    )
+    return _cross_result_from_local(input_tensor, local_input, local_result)
+
+
 def cross_wrapper(
     func: Callable,
     types: tuple[Any, ...],
@@ -191,6 +218,28 @@ def cross_wrapper(
         op_name="cross",
     )
 
+    local_input = input_tensor.to_local()
+    local_result = torch.cross(
+        local_input,
+        other_tensor.to_local(),
+        dim=dim,
+    )
+    return _cross_result_from_local(input_tensor, local_input, local_result)
+
+
+def _cross_dispatch(
+    input_tensor: ShardTensor,
+    other_tensor: ShardTensor,
+    dim: int | None = None,
+) -> ShardTensor:
+    r"""ATen dispatch handler for ``aten.cross.default``."""
+    _validate_cross_inputs(input_tensor, other_tensor)
+    dim = _normalize_cross_dim(
+        input_tensor,
+        dim,
+        allow_none=True,
+        op_name="cross",
+    )
     local_input = input_tensor.to_local()
     local_result = torch.cross(
         local_input,
@@ -370,11 +419,15 @@ def unbind_wrapper(
 
 # Python-level function handlers (__torch_function__).
 ShardTensor.register_function_handler(torch.linalg.cross, linalg_cross_wrapper)
+ShardTensor.register_function_handler(aten.linalg_cross.default, linalg_cross_wrapper)
 if hasattr(torch, "cross"):
     ShardTensor.register_function_handler(torch.cross, cross_wrapper)
 ShardTensor.register_function_handler(torch.Tensor.cross, cross_wrapper)
+ShardTensor.register_function_handler(aten.cross.default, cross_wrapper)
 ShardTensor.register_function_handler(torch.unbind, unbind_wrapper)
 ShardTensor.register_function_handler(torch.Tensor.unbind, unbind_wrapper)
 
 # ATen-level dispatch handler (__torch_dispatch__).
+ShardTensor.register_dispatch_handler(aten.linalg_cross.default, _linalg_cross_dispatch)
+ShardTensor.register_dispatch_handler(aten.cross.default, _cross_dispatch)
 ShardTensor.register_dispatch_handler(aten.unbind.int, _unbind_dispatch)

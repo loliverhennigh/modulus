@@ -35,18 +35,7 @@ from physicsnemo.distributed import DistributedManager
 from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor, scatter_tensor
 from physicsnemo.mesh.mesh import Mesh
 
-_ACTIVE_MESH_TENSOR_MODE = "dense"
-_ACTIVE_MESH_DEVICE_MESH = None
-# Opt-in shard matrix (keeps default CI path unchanged):
-# PHYSICSNEMO_MESH_SHARD_TESTS=1 pytest ...
-_ENABLE_SHARD_MESH_TEST_MODES = os.getenv(
-    "PHYSICSNEMO_MESH_SHARD_TESTS", "0"
-).strip().lower() in ("1", "true", "yes", "on")
-_MESH_TENSOR_MODES = (
-    ["dense", "shard_replicate", "shard_sharded"]
-    if _ENABLE_SHARD_MESH_TEST_MODES
-    else ["dense"]
-)
+_SHARD_MESH_TENSOR_MODES = ("shard_replicate", "shard_sharded")
 
 
 def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
@@ -66,21 +55,25 @@ def _assert_equal(a: torch.Tensor, b: torch.Tensor) -> None:
     assert torch.equal(_to_dense_tensor(a), _to_dense_tensor(b))
 
 
-def _is_shard_mode() -> bool:
-    """Return whether the active mesh tensor mode uses ShardTensor."""
-    return _ACTIVE_MESH_TENSOR_MODE != "dense"
+def _assert_shard_tensor(tensor: torch.Tensor) -> None:
+    assert ShardTensor is not None
+    assert isinstance(tensor, ShardTensor)
 
 
-def _placement_for_mode() -> Replicate | Shard:
-    """Return the placement for point/cell-sized tensors in the active mode."""
-    if _ACTIVE_MESH_TENSOR_MODE == "shard_sharded":
+def _placement_for_mode(mesh_tensor_mode: str) -> Replicate | Shard:
+    if mesh_tensor_mode == "shard_sharded":
         return Shard(0)
     return Replicate()
 
 
-def _to_mode_tensor(tensor: torch.Tensor, placement: Replicate | Shard) -> torch.Tensor:
-    """Wrap a tensor as a ShardTensor when the active test mode requires it."""
-    if not _is_shard_mode():
+def _to_mode_tensor(
+    tensor: torch.Tensor,
+    placement: Replicate | Shard,
+    *,
+    mesh_tensor_mode: str,
+    mesh_shard_device_mesh,
+) -> torch.Tensor:
+    if mesh_tensor_mode == "dense":
         return tensor
     if tensor.device.type != "cpu":
         pytest.skip(
@@ -91,7 +84,7 @@ def _to_mode_tensor(tensor: torch.Tensor, placement: Replicate | Shard) -> torch
     )
     return ShardTensor.from_local(
         tensor,
-        _ACTIVE_MESH_DEVICE_MESH,
+        mesh_shard_device_mesh,
         [placement],
         sharding_shapes=sharding_shapes,
     )
@@ -104,15 +97,36 @@ def _convert_leaf_for_mode(
     n_cells: int,
     point_placement: Replicate | Shard,
     cell_placement: Replicate | Shard,
+    mesh_tensor_mode: str,
+    mesh_shard_device_mesh,
 ) -> torch.Tensor:
-    """Wrap one mesh data leaf according to its leading dimension."""
     if value.ndim == 0:
-        return _to_mode_tensor(value, Replicate())
+        return _to_mode_tensor(
+            value,
+            Replicate(),
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
     if value.shape[0] == n_points:
-        return _to_mode_tensor(value, point_placement)
+        return _to_mode_tensor(
+            value,
+            point_placement,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
     if value.shape[0] == n_cells:
-        return _to_mode_tensor(value, cell_placement)
-    return _to_mode_tensor(value, Replicate())
+        return _to_mode_tensor(
+            value,
+            cell_placement,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+    return _to_mode_tensor(
+        value,
+        Replicate(),
+        mesh_tensor_mode=mesh_tensor_mode,
+        mesh_shard_device_mesh=mesh_shard_device_mesh,
+    )
 
 
 def _convert_data_for_mode(
@@ -122,9 +136,10 @@ def _convert_data_for_mode(
     n_cells: int,
     point_placement: Replicate | Shard,
     cell_placement: Replicate | Shard,
+    mesh_tensor_mode: str,
+    mesh_shard_device_mesh,
 ) -> TensorDict | dict[str, object] | None:
-    """Wrap all tensor leaves in mesh data, including nested TensorDict leaves."""
-    if data is None or not _is_shard_mode():
+    if data is None or mesh_tensor_mode == "dense":
         return data
 
     def convert_value(value: torch.Tensor) -> torch.Tensor:
@@ -136,6 +151,8 @@ def _convert_data_for_mode(
             n_cells=n_cells,
             point_placement=point_placement,
             cell_placement=cell_placement,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
         )
 
     data_td = data if isinstance(data, TensorDict) else TensorDict(data, batch_size=[])
@@ -149,18 +166,24 @@ def make_mesh(
     point_data: TensorDict | dict[str, object] | None = None,
     cell_data: TensorDict | dict[str, object] | None = None,
     global_data: TensorDict | dict[str, object] | None = None,
+    mesh_tensor_mode: str = "dense",
+    mesh_shard_device_mesh=None,
 ) -> Mesh:
-    """Construct Mesh in dense or sharded tensor mode.
+    point_placement = _placement_for_mode(mesh_tensor_mode)
+    cell_placement = _placement_for_mode(mesh_tensor_mode)
 
-    In sharded modes, points/cells and matching point/cell data fields are wrapped
-    as ShardTensors to emulate distributed execution while keeping these unit tests
-    single-process.
-    """
-    point_placement = _placement_for_mode()
-    cell_placement = _placement_for_mode()
-
-    mesh_points = _to_mode_tensor(points, point_placement)
-    mesh_cells = _to_mode_tensor(cells, cell_placement)
+    mesh_points = _to_mode_tensor(
+        points,
+        point_placement,
+        mesh_tensor_mode=mesh_tensor_mode,
+        mesh_shard_device_mesh=mesh_shard_device_mesh,
+    )
+    mesh_cells = _to_mode_tensor(
+        cells,
+        cell_placement,
+        mesh_tensor_mode=mesh_tensor_mode,
+        mesh_shard_device_mesh=mesh_shard_device_mesh,
+    )
 
     point_data = _convert_data_for_mode(
         point_data,
@@ -168,6 +191,8 @@ def make_mesh(
         n_cells=cells.shape[0],
         point_placement=point_placement,
         cell_placement=cell_placement,
+        mesh_tensor_mode=mesh_tensor_mode,
+        mesh_shard_device_mesh=mesh_shard_device_mesh,
     )
     cell_data = _convert_data_for_mode(
         cell_data,
@@ -175,6 +200,8 @@ def make_mesh(
         n_cells=cells.shape[0],
         point_placement=point_placement,
         cell_placement=cell_placement,
+        mesh_tensor_mode=mesh_tensor_mode,
+        mesh_shard_device_mesh=mesh_shard_device_mesh,
     )
     global_data = _convert_data_for_mode(
         global_data,
@@ -182,6 +209,8 @@ def make_mesh(
         n_cells=cells.shape[0],
         point_placement=Replicate(),
         cell_placement=Replicate(),
+        mesh_tensor_mode=mesh_tensor_mode,
+        mesh_shard_device_mesh=mesh_shard_device_mesh,
     )
 
     return Mesh(
@@ -191,21 +220,6 @@ def make_mesh(
         cell_data=cell_data,
         global_data=global_data,
     )
-
-
-def _to_mesh_field_value(value: torch.Tensor, *, n_items: int) -> torch.Tensor:
-    """Wrap an expected field value to match the active tensor mode."""
-    if not _is_shard_mode() or not isinstance(value, torch.Tensor):
-        return value
-    if value.ndim > 0 and value.shape[0] == n_items:
-        return _to_mode_tensor(value, _placement_for_mode())
-    return _to_mode_tensor(value, Replicate())
-
-
-@pytest.fixture(params=_MESH_TENSOR_MODES)
-def mesh_tensor_mode(request) -> str:
-    """Parametrize dense and opt-in ShardTensor mesh test modes."""
-    return request.param
 
 
 @pytest.fixture(scope="module")
@@ -233,30 +247,13 @@ def _single_rank_dist_group():
 
 
 @pytest.fixture
-def mesh_shard_device_mesh(request, mesh_tensor_mode: str):
-    """Create a single-rank CPU mesh only for ShardTensor test modes."""
-    if mesh_tensor_mode == "dense":
-        return None
-
+def mesh_shard_device_mesh(request):
+    """Create a single-rank CPU mesh for ShardTensor tests."""
     if not ST_AVAILABLE or ShardTensor is None:
         pytest.skip("ShardTensor runtime is unavailable in this environment")
 
     request.getfixturevalue("_single_rank_dist_group")
     return init_device_mesh("cpu", (1,))
-
-
-@pytest.fixture(autouse=True)
-def _activate_mesh_mode(mesh_tensor_mode, mesh_shard_device_mesh):
-    global _ACTIVE_MESH_TENSOR_MODE, _ACTIVE_MESH_DEVICE_MESH
-    prev_mode = _ACTIVE_MESH_TENSOR_MODE
-    prev_mesh = _ACTIVE_MESH_DEVICE_MESH
-    _ACTIVE_MESH_TENSOR_MODE = mesh_tensor_mode
-    _ACTIVE_MESH_DEVICE_MESH = mesh_shard_device_mesh
-    try:
-        yield
-    finally:
-        _ACTIVE_MESH_TENSOR_MODE = prev_mode
-        _ACTIVE_MESH_DEVICE_MESH = prev_mesh
 
 
 ### Helper Functions ###
@@ -496,11 +493,119 @@ class TestCellDataToPointData:
         assert result._cache.get(("point", "centroids"), None) is None
 
 
+@pytest.mark.parametrize("mesh_tensor_mode", _SHARD_MESH_TENSOR_MODES)
+class TestShardTensorDataConversion:
+    """Explicit ShardTensor coverage for mesh data conversion."""
+
+    def test_cell_data_to_point_data_simple_triangle(
+        self, mesh_tensor_mode, mesh_shard_device_mesh
+    ):
+        points = torch.tensor(
+            [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0],
+            ]
+        )
+        cells = torch.tensor(
+            [
+                [0, 1, 2],
+                [1, 3, 2],
+            ]
+        )
+
+        mesh = make_mesh(
+            points=points,
+            cells=cells,
+            cell_data={"temperature": torch.tensor([100.0, 200.0])},
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        result = mesh.cell_data_to_point_data()
+
+        _assert_shard_tensor(result.point_data["temperature"])
+        _assert_allclose(
+            result.point_data["temperature"],
+            torch.tensor([100.0, 150.0, 150.0, 200.0]),
+        )
+
+    def test_point_data_to_cell_data_simple_triangle(
+        self, mesh_tensor_mode, mesh_shard_device_mesh
+    ):
+        points = torch.tensor(
+            [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0],
+            ]
+        )
+        cells = torch.tensor(
+            [
+                [0, 1, 2],
+                [1, 3, 2],
+            ]
+        )
+
+        mesh = make_mesh(
+            points=points,
+            cells=cells,
+            point_data={"temperature": torch.tensor([100.0, 200.0, 300.0, 400.0])},
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        result = mesh.point_data_to_cell_data()
+
+        _assert_shard_tensor(result.cell_data["temperature"])
+        _assert_allclose(result.cell_data["temperature"], torch.tensor([200.0, 300.0]))
+
+    def test_cell_data_to_point_data_nested_tensordict(
+        self, mesh_tensor_mode, mesh_shard_device_mesh
+    ):
+        points = torch.tensor(
+            [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0],
+            ]
+        )
+        cells = torch.tensor(
+            [
+                [0, 1, 2],
+                [1, 3, 2],
+            ]
+        )
+        cell_data = TensorDict(
+            {
+                "flow": TensorDict(
+                    {"temperature": torch.tensor([100.0, 200.0])},
+                    batch_size=[2],
+                )
+            },
+            batch_size=[2],
+        )
+
+        mesh = make_mesh(
+            points=points,
+            cells=cells,
+            cell_data=cell_data,
+            mesh_tensor_mode=mesh_tensor_mode,
+            mesh_shard_device_mesh=mesh_shard_device_mesh,
+        )
+        result = mesh.cell_data_to_point_data()
+
+        _assert_shard_tensor(result.point_data["flow", "temperature"])
+        _assert_allclose(
+            result.point_data["flow", "temperature"],
+            torch.tensor([100.0, 150.0, 150.0, 200.0]),
+        )
+
+
 @pytest.mark.multigpu_static
-def test_cell_data_to_point_data_multirank_sharded(distributed_mesh, mesh_tensor_mode):
+def test_cell_data_to_point_data_multirank_sharded(distributed_mesh):
     """Test cell-to-point conversion with cell data sharded across ranks."""
-    if mesh_tensor_mode != "dense":
-        pytest.skip("Multi-rank test manages its own ShardTensor inputs")
     if not ST_AVAILABLE or ShardTensor is None or scatter_tensor is None:
         pytest.skip("ShardTensor runtime is unavailable in this environment")
 
@@ -788,9 +893,7 @@ class TestDataConversionParametrized:
 
         # Add scalar cell data
         cell_values = torch.arange(mesh.n_cells, dtype=torch.float32, device=device)
-        mesh.cell_data["value"] = _to_mesh_field_value(
-            cell_values, n_items=mesh.n_cells
-        )
+        mesh.cell_data["value"] = cell_values
 
         result = mesh.cell_data_to_point_data()
 
@@ -822,9 +925,7 @@ class TestDataConversionParametrized:
 
         # Add scalar point data
         point_values = torch.arange(mesh.n_points, dtype=torch.float32, device=device)
-        mesh.point_data["value"] = _to_mesh_field_value(
-            point_values, n_items=mesh.n_points
-        )
+        mesh.point_data["value"] = point_values
 
         result = mesh.point_data_to_cell_data()
 
@@ -855,7 +956,7 @@ class TestDataConversionParametrized:
 
         # Add vector cell data
         vectors = torch.randn(mesh.n_cells, n_spatial_dims, device=device)
-        mesh.cell_data["velocity"] = _to_mesh_field_value(vectors, n_items=mesh.n_cells)
+        mesh.cell_data["velocity"] = vectors
 
         result = mesh.cell_data_to_point_data()
 
@@ -882,9 +983,7 @@ class TestDataConversionParametrized:
 
         # Add vector point data
         vectors = torch.randn(mesh.n_points, n_spatial_dims, device=device)
-        mesh.point_data["velocity"] = _to_mesh_field_value(
-            vectors, n_items=mesh.n_points
-        )
+        mesh.point_data["velocity"] = vectors
 
         result = mesh.point_data_to_cell_data()
 
@@ -941,9 +1040,7 @@ class TestDataConversionParametrized:
         cell_values = (
             torch.arange(mesh.n_cells, dtype=torch.float32, device=device) * 10.0
         )
-        mesh.cell_data["value"] = _to_mesh_field_value(
-            cell_values, n_items=mesh.n_cells
-        )
+        mesh.cell_data["value"] = cell_values
 
         # Round trip: cell → point → cell
         intermediate = mesh.cell_data_to_point_data()

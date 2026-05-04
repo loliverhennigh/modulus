@@ -23,8 +23,17 @@ All functions and fixtures defined here are automatically available to all test 
 without explicit imports.
 """
 
+import os
+import sys
+import tempfile
+from collections.abc import Generator
+
 import pytest
 import torch
+import torch.distributed as dist
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+
+from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
 
 ### Pytest Hooks ###
 
@@ -287,6 +296,40 @@ def device(request):
     the pytest_collection_modifyitems hook.
     """
     return request.param
+
+
+@pytest.fixture(scope="module")
+def mesh_single_rank_dist_group() -> Generator[None, None, None]:
+    """Initialize a single-rank process group for local ShardTensor mesh tests."""
+    if dist.is_initialized():
+        yield
+        return
+
+    os.environ.setdefault(
+        "GLOO_SOCKET_IFNAME", "lo0" if sys.platform == "darwin" else "lo"
+    )
+    with tempfile.TemporaryDirectory(prefix="mesh_shard_pg_") as tmpdir:
+        dist.init_process_group(
+            backend="gloo",
+            init_method=f"file://{tmpdir}/rendezvous",
+            rank=0,
+            world_size=1,
+        )
+        try:
+            yield
+        finally:
+            if dist.is_initialized():
+                dist.destroy_process_group()
+
+
+@pytest.fixture(scope="module")
+def mesh_shard_device_mesh(request: pytest.FixtureRequest) -> DeviceMesh:
+    """Create a single-rank CPU device mesh for ShardTensor mesh unit tests."""
+    if not ST_AVAILABLE or ShardTensor is None:
+        pytest.skip("ShardTensor runtime is unavailable in this environment")
+
+    request.getfixturevalue("mesh_single_rank_dist_group")
+    return init_device_mesh("cpu", (1,))
 
 
 @pytest.fixture(params=DIMENSION_CONFIGS_2D)

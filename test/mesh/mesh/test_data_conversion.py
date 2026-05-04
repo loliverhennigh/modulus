@@ -20,15 +20,10 @@ Tests validate data conversion across spatial dimensions, manifold dimensions,
 and compute backends, ensuring correct averaging and preservation of data types.
 """
 
-import os
-import sys
-import tempfile
-
 import pytest
 import torch
-import torch.distributed as dist
 from tensordict import TensorDict
-from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor.placement_types import Replicate, Shard
 
 from physicsnemo.distributed import DistributedManager
@@ -56,11 +51,13 @@ def _assert_equal(a: torch.Tensor, b: torch.Tensor) -> None:
 
 
 def _assert_shard_tensor(tensor: torch.Tensor) -> None:
+    """Assert that a tensor is backed by ShardTensor."""
     assert ShardTensor is not None
     assert isinstance(tensor, ShardTensor)
 
 
 def _placement_for_mode(mesh_tensor_mode: str) -> Replicate | Shard:
+    """Return the point/cell placement used for a mesh tensor test mode."""
     if mesh_tensor_mode == "shard_sharded":
         return Shard(0)
     return Replicate()
@@ -71,8 +68,9 @@ def _to_mode_tensor(
     placement: Replicate | Shard,
     *,
     mesh_tensor_mode: str,
-    mesh_shard_device_mesh,
+    mesh_shard_device_mesh: DeviceMesh | None,
 ) -> torch.Tensor:
+    """Convert a dense tensor to the representation for the active test mode."""
     if mesh_tensor_mode == "dense":
         return tensor
     if tensor.device.type != "cpu":
@@ -98,8 +96,9 @@ def _convert_leaf_for_mode(
     point_placement: Replicate | Shard,
     cell_placement: Replicate | Shard,
     mesh_tensor_mode: str,
-    mesh_shard_device_mesh,
+    mesh_shard_device_mesh: DeviceMesh | None,
 ) -> torch.Tensor:
+    """Convert a TensorDict leaf according to whether it is point or cell data."""
     if value.ndim == 0:
         return _to_mode_tensor(
             value,
@@ -137,12 +136,14 @@ def _convert_data_for_mode(
     point_placement: Replicate | Shard,
     cell_placement: Replicate | Shard,
     mesh_tensor_mode: str,
-    mesh_shard_device_mesh,
+    mesh_shard_device_mesh: DeviceMesh | None,
 ) -> TensorDict | dict[str, object] | None:
+    """Convert a possibly nested data dictionary to the active tensor test mode."""
     if data is None or mesh_tensor_mode == "dense":
         return data
 
-    def convert_value(value: torch.Tensor) -> torch.Tensor:
+    def convert_value(value: object) -> object:
+        """Convert tensor leaves while preserving non-tensor TensorDict entries."""
         if not isinstance(value, torch.Tensor):
             return value
         return _convert_leaf_for_mode(
@@ -167,8 +168,9 @@ def make_mesh(
     cell_data: TensorDict | dict[str, object] | None = None,
     global_data: TensorDict | dict[str, object] | None = None,
     mesh_tensor_mode: str = "dense",
-    mesh_shard_device_mesh=None,
+    mesh_shard_device_mesh: DeviceMesh | None = None,
 ) -> Mesh:
+    """Create a mesh with tensors converted for the requested test mode."""
     point_placement = _placement_for_mode(mesh_tensor_mode)
     cell_placement = _placement_for_mode(mesh_tensor_mode)
 
@@ -220,41 +222,6 @@ def make_mesh(
         cell_data=cell_data,
         global_data=global_data,
     )
-
-
-@pytest.fixture(scope="module")
-def _single_rank_dist_group():
-    """Initialize a single-rank process group for local ShardTensor tests."""
-    if dist.is_initialized():
-        yield
-        return
-
-    os.environ.setdefault(
-        "GLOO_SOCKET_IFNAME", "lo0" if sys.platform == "darwin" else "lo"
-    )
-    with tempfile.TemporaryDirectory(prefix="mesh_shard_pg_") as tmpdir:
-        dist.init_process_group(
-            backend="gloo",
-            init_method=f"file://{tmpdir}/rendezvous",
-            rank=0,
-            world_size=1,
-        )
-        try:
-            yield
-        finally:
-            if dist.is_initialized():
-                dist.destroy_process_group()
-
-
-@pytest.fixture
-def mesh_shard_device_mesh(request):
-    """Create a single-rank CPU mesh for ShardTensor tests."""
-    if not ST_AVAILABLE or ShardTensor is None:
-        pytest.skip("ShardTensor runtime is unavailable in this environment")
-
-    request.getfixturevalue("_single_rank_dist_group")
-    return init_device_mesh("cpu", (1,))
-
 
 ### Helper Functions ###
 
@@ -498,8 +465,9 @@ class TestShardTensorDataConversion:
     """Explicit ShardTensor coverage for mesh data conversion."""
 
     def test_cell_data_to_point_data_simple_triangle(
-        self, mesh_tensor_mode, mesh_shard_device_mesh
-    ):
+        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+    ) -> None:
+        """Convert sharded cell data to point data on a two-triangle mesh."""
         points = torch.tensor(
             [
                 [0.0, 0.0],
@@ -531,8 +499,9 @@ class TestShardTensorDataConversion:
         )
 
     def test_point_data_to_cell_data_simple_triangle(
-        self, mesh_tensor_mode, mesh_shard_device_mesh
-    ):
+        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+    ) -> None:
+        """Convert sharded point data to cell data on a two-triangle mesh."""
         points = torch.tensor(
             [
                 [0.0, 0.0],
@@ -561,8 +530,9 @@ class TestShardTensorDataConversion:
         _assert_allclose(result.cell_data["temperature"], torch.tensor([200.0, 300.0]))
 
     def test_cell_data_to_point_data_nested_tensordict(
-        self, mesh_tensor_mode, mesh_shard_device_mesh
-    ):
+        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+    ) -> None:
+        """Convert nested TensorDict cell data while preserving ShardTensor leaves."""
         points = torch.tensor(
             [
                 [0.0, 0.0],
@@ -604,7 +574,9 @@ class TestShardTensorDataConversion:
 
 
 @pytest.mark.multigpu_static
-def test_cell_data_to_point_data_multirank_sharded(distributed_mesh):
+def test_cell_data_to_point_data_multirank_sharded(
+    distributed_mesh: DeviceMesh,
+) -> None:
     """Test cell-to-point conversion with cell data sharded across ranks."""
     if not ST_AVAILABLE or ShardTensor is None or scatter_tensor is None:
         pytest.skip("ShardTensor runtime is unavailable in this environment")

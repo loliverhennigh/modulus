@@ -20,21 +20,16 @@ Validates cell_centroids, cell_areas, cell_normals, and point_normals by compari
 against PyVista's compute_cell_sizes and compute_normals methods.
 """
 
-import os
-import sys
-import tempfile
-
 import pytest
 
 pytest.importorskip("pyvista")
 
 import numpy as np
 import torch
-import torch.distributed as dist
-from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor.placement_types import Replicate, Shard
 
-from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
+from physicsnemo.domain_parallel import ShardTensor
 from physicsnemo.mesh.io.io_pyvista import to_pyvista
 from physicsnemo.mesh.mesh import Mesh
 from physicsnemo.mesh.primitives.pyvista_datasets import bunny
@@ -45,41 +40,6 @@ from physicsnemo.mesh.primitives.volumes import sphere_volume
 ATOL = 1e-4
 RTOL = 1e-4
 _SHARD_MESH_TENSOR_MODES = ("shard_replicate", "shard_sharded")
-
-
-@pytest.fixture(scope="module")
-def _single_rank_dist_group():
-    """Initialize a single-rank process group for local ShardTensor tests."""
-    if dist.is_initialized():
-        yield
-        return
-
-    os.environ.setdefault(
-        "GLOO_SOCKET_IFNAME", "lo0" if sys.platform == "darwin" else "lo"
-    )
-    with tempfile.TemporaryDirectory(prefix="mesh_shard_pg_") as tmpdir:
-        dist.init_process_group(
-            backend="gloo",
-            init_method=f"file://{tmpdir}/rendezvous",
-            rank=0,
-            world_size=1,
-        )
-        try:
-            yield
-        finally:
-            if dist.is_initialized():
-                dist.destroy_process_group()
-
-
-@pytest.fixture
-def mesh_shard_device_mesh(request):
-    """Create a single-rank CPU mesh for ShardTensor tests."""
-    if not ST_AVAILABLE or ShardTensor is None:
-        pytest.skip("ShardTensor runtime is unavailable in this environment")
-
-    request.getfixturevalue("_single_rank_dist_group")
-    return init_device_mesh("cpu", (1,))
-
 
 ### Helper Functions ###
 
@@ -97,6 +57,7 @@ def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
 
 
 def _assert_shard_tensor(tensor: torch.Tensor) -> None:
+    """Assert that a tensor is backed by ShardTensor."""
     assert ShardTensor is not None
     assert isinstance(tensor, ShardTensor)
 
@@ -105,7 +66,7 @@ def _to_mode_tensor(
     tensor: torch.Tensor,
     *,
     mesh_tensor_mode: str,
-    mesh_shard_device_mesh,
+    mesh_shard_device_mesh: DeviceMesh,
     placement: Replicate | Shard,
 ) -> torch.Tensor:
     """Wrap a tensor as a ShardTensor when the active mode requires it."""
@@ -124,7 +85,9 @@ def _to_mode_tensor(
     )
 
 
-def _mesh_to_mode(mesh: Mesh, *, mesh_tensor_mode: str, mesh_shard_device_mesh) -> Mesh:
+def _mesh_to_mode(
+    mesh: Mesh, *, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+) -> Mesh:
     """Convert a dense fixture mesh to the active tensor mode."""
     if mesh_tensor_mode == "dense":
         return mesh
@@ -345,7 +308,10 @@ class TestPointNormals:
 class TestShardTensorGeometryProperties:
     """Explicit ShardTensor coverage for mesh geometry properties."""
 
-    def test_cell_centroids_bunny(self, mesh_tensor_mode, mesh_shard_device_mesh):
+    def test_cell_centroids_bunny(
+        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+    ) -> None:
+        """Compare ShardTensor cell centroids against PyVista on the bunny mesh."""
         dense_mesh = bunny.load()
         mesh = _mesh_to_mode(
             dense_mesh,
@@ -360,7 +326,10 @@ class TestShardTensorGeometryProperties:
         _assert_shard_tensor(mesh_centroids)
         _assert_allclose(mesh_centroids, pv_centroids, atol=ATOL, rtol=RTOL)
 
-    def test_cell_areas_sphere_volume(self, mesh_tensor_mode, mesh_shard_device_mesh):
+    def test_cell_areas_sphere_volume(
+        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+    ) -> None:
+        """Compare ShardTensor tetrahedral cell volumes against PyVista."""
         dense_mesh = sphere_volume.load()
         mesh = _mesh_to_mode(
             dense_mesh,
@@ -376,7 +345,10 @@ class TestShardTensorGeometryProperties:
         _assert_shard_tensor(mesh_volumes)
         _assert_allclose(mesh_volumes, pv_volumes, atol=ATOL, rtol=RTOL)
 
-    def test_cell_normals_bunny(self, mesh_tensor_mode, mesh_shard_device_mesh):
+    def test_cell_normals_bunny(
+        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+    ) -> None:
+        """Compare ShardTensor cell normals against PyVista on the bunny mesh."""
         dense_mesh = bunny.load()
         mesh = _mesh_to_mode(
             dense_mesh,
@@ -392,7 +364,10 @@ class TestShardTensorGeometryProperties:
         _assert_shard_tensor(mesh_normals)
         assert_normals_equal(mesh_normals, pv_normals)
 
-    def test_point_normals_bunny(self, mesh_tensor_mode, mesh_shard_device_mesh):
+    def test_point_normals_bunny(
+        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
+    ) -> None:
+        """Compare ShardTensor point normals against PyVista on the bunny mesh."""
         dense_mesh = bunny.load()
         mesh = _mesh_to_mode(
             dense_mesh,

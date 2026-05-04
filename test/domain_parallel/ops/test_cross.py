@@ -21,6 +21,7 @@ import math
 import pytest
 import torch
 import torch.distributed as dist
+from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor.placement_types import Shard
 
 from physicsnemo.distributed import DistributedManager
@@ -28,7 +29,9 @@ from physicsnemo.domain_parallel import ShardTensor, scatter_tensor
 
 
 @pytest.mark.multigpu_static
-def test_torch_cross_default_dim_uses_global_shape(distributed_mesh):
+def test_torch_cross_default_dim_uses_global_shape(
+    distributed_mesh: DeviceMesh,
+) -> None:
     """``torch.cross(dim=None)`` should follow global, not local, shape."""
     dm = DistributedManager()
     local_leading_dim = 3
@@ -65,7 +68,7 @@ def test_torch_cross_default_dim_uses_global_shape(distributed_mesh):
 
 
 @pytest.mark.multigpu_static
-def test_aten_cross_ops(distributed_mesh):
+def test_aten_cross_ops(distributed_mesh: DeviceMesh) -> None:
     """ATen cross ops should use ShardTensor handlers, not DTensor fallback."""
     dm = DistributedManager()
     local_leading_dim = 3
@@ -107,7 +110,9 @@ def test_aten_cross_ops(distributed_mesh):
 
 
 @pytest.mark.multigpu_static
-def test_linalg_cross_rejects_sharded_cross_dim(distributed_mesh):
+def test_linalg_cross_rejects_sharded_cross_dim(
+    distributed_mesh: DeviceMesh,
+) -> None:
     """Cross products cannot be computed when the vector dimension is sharded."""
     dm = DistributedManager()
     if dm.world_size != 2:
@@ -141,7 +146,7 @@ def test_linalg_cross_rejects_sharded_cross_dim(distributed_mesh):
 
 
 @pytest.mark.multigpu_static
-def test_cross_rejects_out_of_range_dim(distributed_mesh):
+def test_cross_rejects_out_of_range_dim(distributed_mesh: DeviceMesh) -> None:
     """Explicit cross-product dimensions should match PyTorch range checks."""
     dm = DistributedManager()
     full_shape = (3, dm.world_size * 2, 5)
@@ -178,7 +183,7 @@ def test_cross_rejects_out_of_range_dim(distributed_mesh):
 
 
 @pytest.mark.multigpu_static
-def test_linalg_cross_rejects_none_dim(distributed_mesh):
+def test_linalg_cross_rejects_none_dim(distributed_mesh: DeviceMesh) -> None:
     """``torch.linalg.cross`` should reject ``dim=None`` like dense PyTorch."""
     dm = DistributedManager()
     full_shape = (3, dm.world_size * 2, 5)

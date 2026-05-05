@@ -77,7 +77,7 @@ only a single implementation exists. This ensures the operation participates in
 validation and benchmarking through input generators and `compare_forward` (and
 `compare_backward` where needed).
 
-Small pure-PyTorch tensor helpers may remain plain functions when all of the
+Small pure-PyTorch tensor helpers can remain plain functions when all of the
 following are true:
 
 - The implementation is a thin composition of PyTorch tensor operations.

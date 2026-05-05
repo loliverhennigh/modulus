@@ -35,6 +35,11 @@ from .geometry import signed_distance_field
 from .interpolation import interpolation
 from .natten import na1d, na2d, na3d
 from .neighbors import knn, radius_search
+from .particle_in_cell import (
+    deposit_current_charge_conserving,
+    gather_fields_to_particles,
+    particle_push_boris,
+)
 from .regularization_parameterization import drop_path, weight_fact
 
 __all__ = [
@@ -56,6 +61,9 @@ __all__ = [
     "na2d",
     "na3d",
     "polar_and_dipole_basis",
+    "deposit_current_charge_conserving",
+    "gather_fields_to_particles",
+    "particle_push_boris",
     "radius_search",
     "real",
     "rfft",

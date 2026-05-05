@@ -256,9 +256,7 @@ def _natten_wrapper(
             f"No implementation named '{implementation}' for neighborhood attention"
         )
     natten_kwargs = {
-        _k: _v
-        for _k, _v in kwargs.items()
-        if _k not in ("dilation", "implementation")
+        _k: _v for _k, _v in kwargs.items() if _k not in ("dilation", "implementation")
     }
 
     if all(type(_t) is torch.Tensor for _t in (q, k, v)):

@@ -87,10 +87,14 @@ class NeighborhoodAttention1D(_NeighborhoodAttention):
         dilation: int = 1,
         **kwargs: Any,
     ) -> torch.Tensor:
-        return _natten.functional.na1d(q, k, v, kernel_size, dilation=dilation, **kwargs)
+        """Run the 1D NATTEN backend implementation."""
+        return _natten.functional.na1d(
+            q, k, v, kernel_size, dilation=dilation, **kwargs
+        )
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        """Yield labeled forward benchmark cases for 1D neighborhood attention."""
         for label, shape, kernel_size, dilation in cls._BENCHMARK_CASES:
             yield (
                 label,
@@ -100,6 +104,7 @@ class NeighborhoodAttention1D(_NeighborhoodAttention):
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        """Yield differentiable benchmark cases for 1D neighborhood attention."""
         for label, shape, kernel_size, dilation in cls._BENCHMARK_CASES:
             yield (
                 label,
@@ -109,6 +114,7 @@ class NeighborhoodAttention1D(_NeighborhoodAttention):
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare 1D neighborhood-attention outputs against a reference."""
         torch.testing.assert_close(output, reference)
 
 
@@ -135,10 +141,14 @@ class NeighborhoodAttention2D(_NeighborhoodAttention):
         dilation: int = 1,
         **kwargs: Any,
     ) -> torch.Tensor:
-        return _natten.functional.na2d(q, k, v, kernel_size, dilation=dilation, **kwargs)
+        """Run the 2D NATTEN backend implementation."""
+        return _natten.functional.na2d(
+            q, k, v, kernel_size, dilation=dilation, **kwargs
+        )
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        """Yield labeled forward benchmark cases for 2D neighborhood attention."""
         for label, shape, kernel_size, dilation in cls._BENCHMARK_CASES:
             yield (
                 label,
@@ -148,6 +158,7 @@ class NeighborhoodAttention2D(_NeighborhoodAttention):
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        """Yield differentiable benchmark cases for 2D neighborhood attention."""
         for label, shape, kernel_size, dilation in cls._BENCHMARK_CASES:
             yield (
                 label,
@@ -157,6 +168,7 @@ class NeighborhoodAttention2D(_NeighborhoodAttention):
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare 2D neighborhood-attention outputs against a reference."""
         torch.testing.assert_close(output, reference)
 
 
@@ -183,10 +195,14 @@ class NeighborhoodAttention3D(_NeighborhoodAttention):
         dilation: int = 1,
         **kwargs: Any,
     ) -> torch.Tensor:
-        return _natten.functional.na3d(q, k, v, kernel_size, dilation=dilation, **kwargs)
+        """Run the 3D NATTEN backend implementation."""
+        return _natten.functional.na3d(
+            q, k, v, kernel_size, dilation=dilation, **kwargs
+        )
 
     @classmethod
     def make_inputs_forward(cls, device: torch.device | str = "cpu"):
+        """Yield labeled forward benchmark cases for 3D neighborhood attention."""
         for label, shape, kernel_size, dilation in cls._BENCHMARK_CASES:
             yield (
                 label,
@@ -196,6 +212,7 @@ class NeighborhoodAttention3D(_NeighborhoodAttention):
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
+        """Yield differentiable benchmark cases for 3D neighborhood attention."""
         for label, shape, kernel_size, dilation in cls._BENCHMARK_CASES:
             yield (
                 label,
@@ -205,6 +222,7 @@ class NeighborhoodAttention3D(_NeighborhoodAttention):
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
+        """Compare 3D neighborhood-attention outputs against a reference."""
         torch.testing.assert_close(output, reference)
 
 

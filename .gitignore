@@ -172,6 +172,7 @@ output/
 
 # Hydra
 outputs/
+outputs_finite_volume_euler/
 multirun/
 .hydra/
 

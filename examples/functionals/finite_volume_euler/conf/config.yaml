@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+hydra:
+  job:
+    chdir: True
+  run:
+    dir: ./outputs_finite_volume_euler
+
+solver:
+  device: cpu
+  implementation: torch
+  gamma: 1.4
+  cfl: 0.35
+  inflow_mach: 3.0
+  inflow_density: 1.4
+  inflow_pressure: 1.0
+  density_floor: 1.0e-6
+  pressure_floor: 1.0e-6
+  log_every: 10
+
+cases:
+  - name: forward_step_2d
+    dimension: 2
+    length: 3.0
+    height: 1.0
+    step_x: 0.6
+    step_height: 0.2
+    nx: 100
+    ny: 40
+    steps: 80
+    plot_every: 4
+    make_animation: true
+    density_vmin: 0.6
+    density_vmax: 6.5
+
+  - name: forward_step_3d
+    dimension: 3
+    length: 3.0
+    height: 1.0
+    depth: 0.25
+    step_x: 0.6
+    step_height: 0.2
+    nx: 50
+    ny: 20
+    nz: 4
+    steps: 40
+    plot_every: 4
+    make_animation: true
+    density_vmin: 0.6
+    density_vmax: 6.5

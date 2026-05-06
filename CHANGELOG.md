@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `uniform_grid_gradient`, `rectilinear_grid_gradient`,
   `spectral_grid_gradient`, `meshless_fd_derivatives`, `mesh_lsq_gradient`,
   and `mesh_green_gauss_gradient`.
+- Added a functionals example for mesh-based finite-volume Euler forward-step
+  solves with 2D triangular and 3D tetrahedral cases.
 - Adds `physicsnemo.sym` module for symbolic PDE residual computation
   (`PhysicsInformer`). Users define PDEs via SymPy and select a gradient method
   (`autodiff`, `finite_difference`, `spectral`, `meshless_finite_difference`,

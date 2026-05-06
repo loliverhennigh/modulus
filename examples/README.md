@@ -50,6 +50,12 @@ The several examples inside PhysicsNeMo can be classified based on their domains
 |[Fine-tuning of DoMINO NIM](./cfd/external_aerodynamics/domino_nim_finetuning/)|DoMINO|NO|
 |[Transolver for External Aerodynamics on Irregular Meshes](./cfd/external_aerodynamics/transolver/)|Transolver|NO|
 
+### Functionals
+
+|Use case|Functional area|Transient|
+| --- | --- |  --- |
+|[Finite-Volume Euler Forward Step](./functionals/finite_volume_euler/)|Mesh finite-volume solver|YES|
+
 
 ### Weather
 

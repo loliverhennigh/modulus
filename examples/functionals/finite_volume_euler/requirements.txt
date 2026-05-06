@@ -1,0 +1,6 @@
+hydra-core>=1.3.0
+imageio
+imageio-ffmpeg
+matplotlib
+pillow
+torch

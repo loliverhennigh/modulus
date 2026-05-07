@@ -26,6 +26,7 @@ Validates that the ``na1d``, ``na2d``, and ``na3d`` wrappers:
 """
 
 import importlib.util
+from dataclasses import replace
 
 import pytest
 import torch
@@ -157,6 +158,8 @@ def test_natten_version_mismatch_error_message(device, monkeypatch):
     from physicsnemo.nn.functional.attention.neighborhood_attention import na1d
 
     monkeypatch.setattr(natten_functionals, "get_installed_version", lambda _: "0.21.4")
+    impls = NeighborhoodAttention1D._get_impls()
+    monkeypatch.setitem(impls, "natten", replace(impls["natten"], available=False))
 
     q = torch.randn(1, 8, 1, 4, device=device)
     with pytest.raises(ImportError, match="natten>=0.21.5 is required"):

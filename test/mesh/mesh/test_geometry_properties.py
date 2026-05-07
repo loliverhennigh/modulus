@@ -44,22 +44,13 @@ _SHARD_MESH_TENSOR_MODES = ("shard_replicate", "shard_sharded")
 ### Helper Functions ###
 
 
-def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    """Materialize ShardTensor values for robust assertions."""
-    if ShardTensor is not None and isinstance(tensor, ShardTensor):
-        return tensor.full_tensor()
-    return tensor
-
-
 def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
     """Assert equality after materializing any distributed tensor inputs."""
-    assert torch.allclose(_to_dense_tensor(a), _to_dense_tensor(b), **kwargs)
-
-
-def _assert_shard_tensor(tensor: torch.Tensor) -> None:
-    """Assert that a tensor is backed by ShardTensor."""
-    assert ShardTensor is not None
-    assert isinstance(tensor, ShardTensor)
+    if ShardTensor is not None and isinstance(a, ShardTensor):
+        a = a.full_tensor()
+    if ShardTensor is not None and isinstance(b, ShardTensor):
+        b = b.full_tensor()
+    assert torch.allclose(a, b, **kwargs)
 
 
 def _to_mode_tensor(
@@ -137,7 +128,8 @@ def assert_normals_equal(
     rtol : float
         Relative tolerance for comparison.
     """
-    mesh_normals = _to_dense_tensor(mesh_normals)
+    if ShardTensor is not None and isinstance(mesh_normals, ShardTensor):
+        mesh_normals = mesh_normals.full_tensor()
     pv_tensor = torch.from_numpy(pv_normals).float()
 
     ### Identify isolated vertices (zero-length normals in both)
@@ -323,7 +315,8 @@ class TestShardTensorGeometryProperties:
         mesh_centroids = mesh.cell_centroids
         pv_centroids = torch.from_numpy(pv_mesh.cell_centers().points).float()
 
-        _assert_shard_tensor(mesh_centroids)
+        assert ShardTensor is not None
+        assert isinstance(mesh_centroids, ShardTensor)
         _assert_allclose(mesh_centroids, pv_centroids, atol=ATOL, rtol=RTOL)
 
     def test_cell_areas_sphere_volume(
@@ -342,7 +335,8 @@ class TestShardTensorGeometryProperties:
         pv_sized = pv_mesh.compute_cell_sizes(area=False, volume=True)
         pv_volumes = torch.from_numpy(pv_sized.cell_data["Volume"]).float()
 
-        _assert_shard_tensor(mesh_volumes)
+        assert ShardTensor is not None
+        assert isinstance(mesh_volumes, ShardTensor)
         _assert_allclose(mesh_volumes, pv_volumes, atol=ATOL, rtol=RTOL)
 
     def test_cell_normals_bunny(
@@ -361,7 +355,8 @@ class TestShardTensorGeometryProperties:
         pv_normed = pv_mesh.compute_normals(cell_normals=True, point_normals=False)
         pv_normals = pv_normed.cell_data["Normals"]
 
-        _assert_shard_tensor(mesh_normals)
+        assert ShardTensor is not None
+        assert isinstance(mesh_normals, ShardTensor)
         assert_normals_equal(mesh_normals, pv_normals)
 
     def test_point_normals_bunny(
@@ -380,5 +375,6 @@ class TestShardTensorGeometryProperties:
         pv_normed = pv_mesh.compute_normals(cell_normals=False, point_normals=True)
         pv_normals = pv_normed.point_data["Normals"]
 
-        _assert_shard_tensor(mesh_normals)
+        assert ShardTensor is not None
+        assert isinstance(mesh_normals, ShardTensor)
         assert_normals_equal(mesh_normals, pv_normals)

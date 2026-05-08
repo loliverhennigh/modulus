@@ -40,7 +40,7 @@ from physicsnemo.experimental.models.globe.utilities.tensordict_utils import (
     split_by_leaf_rank,
 )
 from physicsnemo.nn import Mlp, Pade
-from physicsnemo.nn.functional import (
+from physicsnemo.nn.functional.equivariant_ops import (
     legendre_polynomials,
     polar_and_dipole_basis,
     smooth_log,
@@ -825,7 +825,7 @@ class BarnesHutKernel(Kernel):
         TensorDict[str, Float[torch.Tensor, "n_targets ..."]]
             Kernel output fields at target points.
         """
-        from physicsnemo.experimental.models.globe.cluster_tree import (  # noqa: F401
+        from physicsnemo.experimental.models.globe.cluster_tree import (
             ClusterTree,
             DualInteractionPlan,
             SourceAggregates,

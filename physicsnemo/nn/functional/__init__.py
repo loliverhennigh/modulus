@@ -23,7 +23,7 @@ from .derivatives import (
     spectral_grid_gradient,
     uniform_grid_gradient,
 )
-from .equivariant import (
+from .equivariant_ops import (
     legendre_polynomials,
     polar_and_dipole_basis,
     smooth_log,

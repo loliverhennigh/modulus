@@ -40,7 +40,7 @@ from physicsnemo.experimental.models.globe.utilities.tensordict_utils import (
     split_by_leaf_rank,
 )
 from physicsnemo.nn import Mlp, Pade
-from physicsnemo.nn.functional.equivariant.ops import (
+from physicsnemo.nn.functional import (
     legendre_polynomials,
     polar_and_dipole_basis,
     smooth_log,

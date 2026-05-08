@@ -61,7 +61,11 @@ class _NeighborhoodAttention(FunctionSpec):
                 _natten.functional
             except ImportError as missing_exc:
                 raise missing_exc from exc
-            raise
+            raise ImportError(
+                f"No available NATTEN implementation found for {cls.__name__}. "
+                f"Expected {cls._NATTEN_REQUIREMENT}; verify that the installed "
+                "natten package exposes the required functional backend."
+            ) from exc
 
 
 class NeighborhoodAttention1D(_NeighborhoodAttention):

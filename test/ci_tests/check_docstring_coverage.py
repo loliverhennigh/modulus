@@ -148,15 +148,7 @@ def _read_baseline(baseline_path: Path) -> list[str]:
 def _run_interrogate(files: list[str], repo_root: Path) -> list[str]:
     """Run interrogate on *files* and return the MISSED items."""
     result = subprocess.run(  # noqa: S603 — command is hardcoded, not user input
-        [
-            sys.executable,
-            "-m",
-            "interrogate",
-            "-vv",
-            "--fail-under=0",
-            "--no-color",
-            "--ignore-overloaded-functions",
-        ]
+        [sys.executable, "-m", "interrogate", "-vv", "--fail-under=0", "--no-color"]
         + INTERROGATE_ARGS
         + ["--"]
         + files,

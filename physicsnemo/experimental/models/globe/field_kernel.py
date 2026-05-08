@@ -825,7 +825,11 @@ class BarnesHutKernel(Kernel):
         TensorDict[str, Float[torch.Tensor, "n_targets ..."]]
             Kernel output fields at target points.
         """
-        from physicsnemo.experimental.models.globe.cluster_tree import ClusterTree
+        from physicsnemo.experimental.models.globe.cluster_tree import (  # noqa: F401
+            ClusterTree,
+            DualInteractionPlan,
+            SourceAggregates,
+        )
         from physicsnemo.mesh.spatial._ragged import _ragged_arange
 
         n_sources = source_points.shape[0]

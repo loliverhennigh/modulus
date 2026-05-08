@@ -22,15 +22,11 @@ from tensordict import TensorDict
 
 
 @overload
-def smooth_log(x: Float[torch.Tensor, "..."]) -> Float[torch.Tensor, "..."]:
-    """Apply smooth log elementwise to a tensor."""
-    ...
+def smooth_log(x: Float[torch.Tensor, "..."]) -> Float[torch.Tensor, "..."]: ...
 
 
 @overload
-def smooth_log(x: TensorDict) -> TensorDict:
-    """Apply smooth log elementwise to a TensorDict."""
-    ...
+def smooth_log(x: TensorDict) -> TensorDict: ...
 
 
 def smooth_log(
@@ -63,15 +59,11 @@ def smooth_log(
 @overload
 def legendre_polynomials(
     x: Float[torch.Tensor, "..."], n: int
-) -> list[Float[torch.Tensor, "..."]]:
-    """Compute Legendre polynomials for a tensor input."""
-    ...
+) -> list[Float[torch.Tensor, "..."]]: ...
 
 
 @overload
-def legendre_polynomials(x: TensorDict, n: int) -> list[TensorDict]:
-    """Compute Legendre polynomials for a TensorDict input."""
-    ...
+def legendre_polynomials(x: TensorDict, n: int) -> list[TensorDict]: ...
 
 
 def legendre_polynomials(

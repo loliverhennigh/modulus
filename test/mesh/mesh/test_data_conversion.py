@@ -31,10 +31,28 @@ from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor, scatter_tenso
 from physicsnemo.mesh.mesh import Mesh
 
 _SHARD_MESH_TENSOR_MODES = ("shard_replicate", "shard_sharded")
+_ACTIVE_MESH_TENSOR_MODE_FACTORY = None
+
+
+class MeshTensorModeMixin:
+    """Run existing mesh data-conversion tests over all mesh tensor modes."""
+
+    @pytest.fixture(autouse=True)
+    def bind_mesh_tensor_mode(self, mesh_tensor_mode_factory) -> None:
+        """Bind the active mesh tensor-mode factory for helper constructors."""
+        global _ACTIVE_MESH_TENSOR_MODE_FACTORY
+        previous = _ACTIVE_MESH_TENSOR_MODE_FACTORY
+        _ACTIVE_MESH_TENSOR_MODE_FACTORY = mesh_tensor_mode_factory
+        try:
+            yield
+        finally:
+            _ACTIVE_MESH_TENSOR_MODE_FACTORY = previous
 
 
 def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
     """Materialize ShardTensor values for robust assertions."""
+    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is not None:
+        return _ACTIVE_MESH_TENSOR_MODE_FACTORY.to_dense_tensor(tensor)
     if ShardTensor is not None and isinstance(tensor, ShardTensor):
         return tensor.full_tensor()
     return tensor
@@ -171,6 +189,19 @@ def make_mesh(
     mesh_shard_device_mesh: DeviceMesh | None = None,
 ) -> Mesh:
     """Create a mesh with tensors converted for the requested test mode."""
+    if (
+        _ACTIVE_MESH_TENSOR_MODE_FACTORY is not None
+        and mesh_tensor_mode == "dense"
+        and mesh_shard_device_mesh is None
+    ):
+        return _ACTIVE_MESH_TENSOR_MODE_FACTORY.make_mesh(
+            points=points,
+            cells=cells,
+            point_data=point_data,
+            cell_data=cell_data,
+            global_data=global_data,
+        )
+
     point_placement = _placement_for_mode(mesh_tensor_mode)
     cell_placement = _placement_for_mode(mesh_tensor_mode)
 
@@ -221,6 +252,23 @@ def make_mesh(
         point_data=point_data,
         cell_data=cell_data,
         global_data=global_data,
+    )
+
+
+def _convert_new_data_tensor_for_active_mode(
+    value: torch.Tensor, mesh: Mesh
+) -> torch.Tensor:
+    """Convert post-construction mesh data assignments to the active test mode."""
+    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is None:
+        return value
+
+    placement = _ACTIVE_MESH_TENSOR_MODE_FACTORY.placement_for_mode()
+    return _ACTIVE_MESH_TENSOR_MODE_FACTORY.convert_leaf_for_mode(
+        value,
+        n_points=mesh.n_points,
+        n_cells=mesh.n_cells,
+        point_placement=placement,
+        cell_placement=placement,
     )
 
 
@@ -296,7 +344,7 @@ def assert_on_device(tensor: torch.Tensor, expected_device: str) -> None:
 ### Test Fixtures ###
 
 
-class TestCellDataToPointData:
+class TestCellDataToPointData(MeshTensorModeMixin):
     """Tests for cell_data_to_point_data method."""
 
     def test_simple_triangle_mesh(self):
@@ -461,119 +509,6 @@ class TestCellDataToPointData:
         assert result._cache.get(("point", "centroids"), None) is None
 
 
-@pytest.mark.parametrize("mesh_tensor_mode", _SHARD_MESH_TENSOR_MODES)
-class TestShardTensorDataConversion:
-    """Explicit ShardTensor coverage for mesh data conversion."""
-
-    def test_cell_data_to_point_data_simple_triangle(
-        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
-    ) -> None:
-        """Convert sharded cell data to point data on a two-triangle mesh."""
-        points = torch.tensor(
-            [
-                [0.0, 0.0],
-                [1.0, 0.0],
-                [0.0, 1.0],
-                [1.0, 1.0],
-            ]
-        )
-        cells = torch.tensor(
-            [
-                [0, 1, 2],
-                [1, 3, 2],
-            ]
-        )
-
-        mesh = make_mesh(
-            points=points,
-            cells=cells,
-            cell_data={"temperature": torch.tensor([100.0, 200.0])},
-            mesh_tensor_mode=mesh_tensor_mode,
-            mesh_shard_device_mesh=mesh_shard_device_mesh,
-        )
-        result = mesh.cell_data_to_point_data()
-
-        _assert_shard_tensor(result.point_data["temperature"])
-        _assert_allclose(
-            result.point_data["temperature"],
-            torch.tensor([100.0, 150.0, 150.0, 200.0]),
-        )
-
-    def test_point_data_to_cell_data_simple_triangle(
-        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
-    ) -> None:
-        """Convert sharded point data to cell data on a two-triangle mesh."""
-        points = torch.tensor(
-            [
-                [0.0, 0.0],
-                [1.0, 0.0],
-                [0.0, 1.0],
-                [1.0, 1.0],
-            ]
-        )
-        cells = torch.tensor(
-            [
-                [0, 1, 2],
-                [1, 3, 2],
-            ]
-        )
-
-        mesh = make_mesh(
-            points=points,
-            cells=cells,
-            point_data={"temperature": torch.tensor([100.0, 200.0, 300.0, 400.0])},
-            mesh_tensor_mode=mesh_tensor_mode,
-            mesh_shard_device_mesh=mesh_shard_device_mesh,
-        )
-        result = mesh.point_data_to_cell_data()
-
-        _assert_shard_tensor(result.cell_data["temperature"])
-        _assert_allclose(result.cell_data["temperature"], torch.tensor([200.0, 300.0]))
-
-    def test_cell_data_to_point_data_nested_tensordict(
-        self, mesh_tensor_mode: str, mesh_shard_device_mesh: DeviceMesh
-    ) -> None:
-        """Convert nested TensorDict cell data while preserving ShardTensor leaves."""
-        points = torch.tensor(
-            [
-                [0.0, 0.0],
-                [1.0, 0.0],
-                [0.0, 1.0],
-                [1.0, 1.0],
-            ]
-        )
-        cells = torch.tensor(
-            [
-                [0, 1, 2],
-                [1, 3, 2],
-            ]
-        )
-        cell_data = TensorDict(
-            {
-                "flow": TensorDict(
-                    {"temperature": torch.tensor([100.0, 200.0])},
-                    batch_size=[2],
-                )
-            },
-            batch_size=[2],
-        )
-
-        mesh = make_mesh(
-            points=points,
-            cells=cells,
-            cell_data=cell_data,
-            mesh_tensor_mode=mesh_tensor_mode,
-            mesh_shard_device_mesh=mesh_shard_device_mesh,
-        )
-        result = mesh.cell_data_to_point_data()
-
-        _assert_shard_tensor(result.point_data["flow", "temperature"])
-        _assert_allclose(
-            result.point_data["flow", "temperature"],
-            torch.tensor([100.0, 150.0, 150.0, 200.0]),
-        )
-
-
 @pytest.mark.multigpu_static
 def test_cell_data_to_point_data_multirank_sharded(
     distributed_mesh: DeviceMesh,
@@ -643,7 +578,7 @@ def test_cell_data_to_point_data_multirank_sharded(
     )
 
 
-class TestPointDataToCellData:
+class TestPointDataToCellData(MeshTensorModeMixin):
     """Tests for point_data_to_cell_data method."""
 
     def test_simple_triangle_mesh(self):
@@ -789,7 +724,7 @@ class TestPointDataToCellData:
         _assert_allclose(result.cell_data["value"][0], expected)
 
 
-class TestRoundTripConversion:
+class TestRoundTripConversion(MeshTensorModeMixin):
     """Test round-trip conversion between cell and point data."""
 
     def test_cell_to_point_to_cell(self):
@@ -845,7 +780,7 @@ class TestRoundTripConversion:
 ### Parametrized Tests for Exhaustive Dimensional Coverage ###
 
 
-class TestDataConversionParametrized:
+class TestDataConversionParametrized(MeshTensorModeMixin):
     """Parametrized tests for data conversion across all dimensions and backends."""
 
     @pytest.mark.parametrize(
@@ -866,6 +801,7 @@ class TestDataConversionParametrized:
 
         # Add scalar cell data
         cell_values = torch.arange(mesh.n_cells, dtype=torch.float32, device=device)
+        cell_values = _convert_new_data_tensor_for_active_mode(cell_values, mesh)
         mesh.cell_data["value"] = cell_values
 
         result = mesh.cell_data_to_point_data()
@@ -898,6 +834,7 @@ class TestDataConversionParametrized:
 
         # Add scalar point data
         point_values = torch.arange(mesh.n_points, dtype=torch.float32, device=device)
+        point_values = _convert_new_data_tensor_for_active_mode(point_values, mesh)
         mesh.point_data["value"] = point_values
 
         result = mesh.point_data_to_cell_data()
@@ -929,6 +866,7 @@ class TestDataConversionParametrized:
 
         # Add vector cell data
         vectors = torch.randn(mesh.n_cells, n_spatial_dims, device=device)
+        vectors = _convert_new_data_tensor_for_active_mode(vectors, mesh)
         mesh.cell_data["velocity"] = vectors
 
         result = mesh.cell_data_to_point_data()
@@ -956,6 +894,7 @@ class TestDataConversionParametrized:
 
         # Add vector point data
         vectors = torch.randn(mesh.n_points, n_spatial_dims, device=device)
+        vectors = _convert_new_data_tensor_for_active_mode(vectors, mesh)
         mesh.point_data["velocity"] = vectors
 
         result = mesh.point_data_to_cell_data()
@@ -1013,6 +952,7 @@ class TestDataConversionParametrized:
         cell_values = (
             torch.arange(mesh.n_cells, dtype=torch.float32, device=device) * 10.0
         )
+        cell_values = _convert_new_data_tensor_for_active_mode(cell_values, mesh)
         mesh.cell_data["value"] = cell_values
 
         # Round trip: cell → point → cell

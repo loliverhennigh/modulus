@@ -881,33 +881,29 @@ class Mesh:
         ### Get cell normals (triggers computation if not cached)
         cell_normals = self.cell_normals  # (n_cells, n_spatial_dims)
 
-        ### Initialize accumulated normals for each point
-        accumulated_normals = torch.zeros(
-            (self.n_points, self.n_spatial_dims),
-            dtype=self.points.dtype,
-            device=self.points.device,
-        )
-
         n_vertices_per_cell = self.cells.shape[1]
-        point_indices = self.cells.flatten()
+        point_indices = self.cells.reshape(-1)
 
         # Repeat cell normals for each vertex in the cell
         cell_normals_repeated = cell_normals.unsqueeze(1).expand(
             -1, n_vertices_per_cell, -1
         )
-        cell_normals_flat = cell_normals_repeated.reshape(-1, self.n_spatial_dims)
+        cell_normals_flat = cell_normals_repeated.clone().reshape(
+            -1, self.n_spatial_dims
+        )
 
         ### Compute weights based on scheme
         if weighting == "unweighted":
-            weights = torch.ones(
-                self.n_cells * n_vertices_per_cell,
-                dtype=self.points.dtype,
-                device=self.points.device,
-            )
+            weights = None
 
         elif weighting == "area":
             cell_areas = self.cell_areas
-            weights = cell_areas.unsqueeze(1).expand(-1, n_vertices_per_cell).flatten()
+            weights = (
+                cell_areas.unsqueeze(1)
+                .expand(-1, n_vertices_per_cell)
+                .clone()
+                .reshape(-1)
+            )
 
         elif weighting in ("angle", "angle_area"):
             # Compute interior angles at each vertex of each cell
@@ -917,30 +913,30 @@ class Mesh:
             vertex_angles = compute_vertex_angles(
                 self
             )  # (n_cells, n_vertices_per_cell)
-            weights = vertex_angles.flatten()
+            weights = vertex_angles.reshape(-1)
 
             if weighting == "angle_area":
                 # Multiply by cell area
                 cell_areas = self.cell_areas
                 area_weights = (
-                    cell_areas.unsqueeze(1).expand(-1, n_vertices_per_cell).flatten()
+                    cell_areas.unsqueeze(1)
+                    .expand(-1, n_vertices_per_cell)
+                    .clone()
+                    .reshape(-1)
                 )
                 weights = weights * area_weights
 
         ### Apply weights and accumulate
-        normals_to_accumulate = cell_normals_flat * weights.unsqueeze(-1)
-
-        point_indices_expanded = point_indices.unsqueeze(-1).expand(
-            -1, self.n_spatial_dims
+        return F.normalize(
+            scatter_aggregate(
+                src_data=cell_normals_flat,
+                src_to_dst_mapping=point_indices,
+                n_dst=self.n_points,
+                weights=weights,
+                aggregation="sum",
+            ),
+            dim=-1,
         )
-        accumulated_normals.scatter_add_(
-            dim=0,
-            index=point_indices_expanded,
-            src=normals_to_accumulate,
-        )
-
-        ### Normalize to get unit normals
-        return F.normalize(accumulated_normals, dim=-1)
 
     @property
     def gaussian_curvature_vertices(self) -> torch.Tensor:

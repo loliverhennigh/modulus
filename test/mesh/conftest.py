@@ -27,13 +27,189 @@ import os
 import sys
 import tempfile
 from collections.abc import Generator
+from dataclasses import dataclass
 
 import pytest
 import torch
 import torch.distributed as dist
+from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+from torch.distributed.tensor.placement_types import Replicate, Shard
 
 from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
+from physicsnemo.mesh.mesh import Mesh
+
+### Mesh Tensor Modes ###
+
+MESH_TENSOR_MODES = ("dense", "shard_replicate", "shard_sharded")
+SHARD_MESH_TENSOR_MODES = ("shard_replicate", "shard_sharded")
+
+
+@dataclass(frozen=True)
+class MeshTensorModeFactory:
+    """Create meshes and assertions for dense or ShardTensor mesh test modes."""
+
+    mesh_tensor_mode: str
+    mesh_shard_device_mesh: DeviceMesh | None
+
+    def to_dense_tensor(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Materialize ShardTensor inputs for dense reference comparisons."""
+        if ShardTensor is not None and isinstance(tensor, ShardTensor):
+            return tensor.full_tensor()
+        return tensor
+
+    def assert_allclose(
+        self, a: torch.Tensor, b: torch.Tensor, **kwargs: object
+    ) -> None:
+        """Assert approximate equality after materializing distributed tensors."""
+        assert torch.allclose(
+            self.to_dense_tensor(a), self.to_dense_tensor(b), **kwargs
+        )
+
+    def assert_equal(self, a: torch.Tensor, b: torch.Tensor) -> None:
+        """Assert exact equality after materializing distributed tensors."""
+        assert torch.equal(self.to_dense_tensor(a), self.to_dense_tensor(b))
+
+    def assert_shard_tensor(self, tensor: torch.Tensor) -> None:
+        """Assert that a tensor is backed by ShardTensor in sharded modes."""
+        if self.mesh_tensor_mode == "dense":
+            return
+        assert ShardTensor is not None
+        assert isinstance(tensor, ShardTensor)
+
+    def placement_for_mode(self) -> Replicate | Shard:
+        """Return the point/cell placement for the active mesh tensor mode."""
+        if self.mesh_tensor_mode == "shard_sharded":
+            return Shard(0)
+        return Replicate()
+
+    def to_mode_tensor(
+        self,
+        tensor: torch.Tensor,
+        placement: Replicate | Shard | None = None,
+    ) -> torch.Tensor:
+        """Convert a dense tensor to the active mesh tensor mode."""
+        if self.mesh_tensor_mode == "dense":
+            return tensor
+        if ShardTensor is None:
+            pytest.skip("ShardTensor runtime is unavailable in this environment")
+        if self.mesh_shard_device_mesh is None:
+            raise ValueError("mesh_shard_device_mesh is required for ShardTensor tests")
+        if tensor.device.type != "cpu":
+            pytest.skip("ShardTensor mesh test mode currently runs on CPU tensors")
+
+        placement = placement or self.placement_for_mode()
+        sharding_shapes = (
+            {0: [tuple(tensor.shape)]} if isinstance(placement, Shard) else "infer"
+        )
+        return ShardTensor.from_local(
+            tensor,
+            self.mesh_shard_device_mesh,
+            [placement],
+            sharding_shapes=sharding_shapes,
+        )
+
+    def convert_leaf_for_mode(
+        self,
+        value: torch.Tensor,
+        *,
+        n_points: int,
+        n_cells: int,
+        point_placement: Replicate | Shard,
+        cell_placement: Replicate | Shard,
+    ) -> torch.Tensor:
+        """Convert a TensorDict leaf according to whether it is point or cell data."""
+        if value.ndim == 0:
+            placement = Replicate()
+        elif value.shape[0] == n_points:
+            placement = point_placement
+        elif value.shape[0] == n_cells:
+            placement = cell_placement
+        else:
+            placement = Replicate()
+        return self.to_mode_tensor(value, placement)
+
+    def convert_data_for_mode(
+        self,
+        data: TensorDict | dict[str, object] | None,
+        *,
+        n_points: int,
+        n_cells: int,
+        point_placement: Replicate | Shard,
+        cell_placement: Replicate | Shard,
+    ) -> TensorDict | dict[str, object] | None:
+        """Convert a possibly nested data dictionary to the active tensor mode."""
+        if data is None or self.mesh_tensor_mode == "dense":
+            return data
+
+        def convert_value(value: object) -> object:
+            """Convert tensor leaves while preserving non-tensor entries."""
+            if not isinstance(value, torch.Tensor):
+                return value
+            return self.convert_leaf_for_mode(
+                value,
+                n_points=n_points,
+                n_cells=n_cells,
+                point_placement=point_placement,
+                cell_placement=cell_placement,
+            )
+
+        data_td = (
+            data if isinstance(data, TensorDict) else TensorDict(data, batch_size=[])
+        )
+        return data_td.apply(convert_value)
+
+    def make_mesh(
+        self,
+        *,
+        points: torch.Tensor,
+        cells: torch.Tensor,
+        point_data: TensorDict | dict[str, object] | None = None,
+        cell_data: TensorDict | dict[str, object] | None = None,
+        global_data: TensorDict | dict[str, object] | None = None,
+    ) -> Mesh:
+        """Create a mesh with tensors converted for the active test mode."""
+        point_placement = self.placement_for_mode()
+        cell_placement = self.placement_for_mode()
+
+        return Mesh(
+            points=self.to_mode_tensor(points, point_placement),
+            cells=self.to_mode_tensor(cells, cell_placement),
+            point_data=self.convert_data_for_mode(
+                point_data,
+                n_points=points.shape[0],
+                n_cells=cells.shape[0],
+                point_placement=point_placement,
+                cell_placement=cell_placement,
+            ),
+            cell_data=self.convert_data_for_mode(
+                cell_data,
+                n_points=points.shape[0],
+                n_cells=cells.shape[0],
+                point_placement=point_placement,
+                cell_placement=cell_placement,
+            ),
+            global_data=self.convert_data_for_mode(
+                global_data,
+                n_points=points.shape[0],
+                n_cells=cells.shape[0],
+                point_placement=Replicate(),
+                cell_placement=Replicate(),
+            ),
+        )
+
+    def mesh_to_mode(self, mesh: Mesh) -> Mesh:
+        """Convert a dense fixture mesh to the active test mode."""
+        if self.mesh_tensor_mode == "dense":
+            return mesh
+        return self.make_mesh(
+            points=mesh.points,
+            cells=mesh.cells,
+            point_data=mesh.point_data,
+            cell_data=mesh.cell_data,
+            global_data=mesh.global_data,
+        )
+
 
 ### Pytest Hooks ###
 
@@ -330,6 +506,28 @@ def mesh_shard_device_mesh(request: pytest.FixtureRequest) -> DeviceMesh:
 
     request.getfixturevalue("mesh_single_rank_dist_group")
     return init_device_mesh("cpu", (1,))
+
+
+@pytest.fixture(params=MESH_TENSOR_MODES)
+def mesh_tensor_mode(request: pytest.FixtureRequest) -> str:
+    """Parametrize eligible mesh tests over dense and ShardTensor modes."""
+    return request.param
+
+
+@pytest.fixture
+def mesh_tensor_mode_factory(
+    request: pytest.FixtureRequest, mesh_tensor_mode: str
+) -> MeshTensorModeFactory:
+    """Create a bound mesh tensor-mode factory for the active test parameter."""
+    mesh_shard_device_mesh = (
+        request.getfixturevalue("mesh_shard_device_mesh")
+        if mesh_tensor_mode != "dense"
+        else None
+    )
+    return MeshTensorModeFactory(
+        mesh_tensor_mode=mesh_tensor_mode,
+        mesh_shard_device_mesh=mesh_shard_device_mesh,
+    )
 
 
 @pytest.fixture(params=DIMENSION_CONFIGS_2D)

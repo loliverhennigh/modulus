@@ -35,6 +35,47 @@ from physicsnemo.mesh import Mesh
 
 ### Helper Functions ###
 
+_ACTIVE_MESH_TENSOR_MODE_FACTORY = None
+
+
+class MeshTensorModeMixin:
+    """Run point-normal tests over dense and ShardTensor mesh modes."""
+
+    @pytest.fixture(autouse=True)
+    def bind_mesh_tensor_mode(self, mesh_tensor_mode_factory) -> None:
+        """Bind the active mesh tensor-mode factory for helper constructors."""
+        global _ACTIVE_MESH_TENSOR_MODE_FACTORY
+        previous = _ACTIVE_MESH_TENSOR_MODE_FACTORY
+        _ACTIVE_MESH_TENSOR_MODE_FACTORY = mesh_tensor_mode_factory
+        try:
+            yield
+        finally:
+            _ACTIVE_MESH_TENSOR_MODE_FACTORY = previous
+
+
+def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Materialize ShardTensor values for dense reference comparisons."""
+    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is not None:
+        return _ACTIVE_MESH_TENSOR_MODE_FACTORY.to_dense_tensor(tensor)
+    return tensor
+
+
+def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
+    """Assert approximate equality after materializing distributed tensors."""
+    assert torch.allclose(_to_dense_tensor(a), _to_dense_tensor(b), **kwargs)
+
+
+def _assert_equal(a: torch.Tensor, b: torch.Tensor) -> None:
+    """Assert exact equality after materializing distributed tensors."""
+    assert torch.equal(_to_dense_tensor(a), _to_dense_tensor(b))
+
+
+def make_mesh(points: torch.Tensor, cells: torch.Tensor) -> Mesh:
+    """Create a mesh in the active tensor mode."""
+    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is None:
+        return Mesh(points=points, cells=cells)
+    return _ACTIVE_MESH_TENSOR_MODE_FACTORY.make_mesh(points=points, cells=cells)
+
 
 def create_triangle_surface_3d() -> Mesh:
     """Create a simple triangular surface mesh in 3D.
@@ -51,7 +92,7 @@ def create_triangle_surface_3d() -> Mesh:
         dtype=torch.float32,
     )
     cells = torch.tensor([[0, 1, 2], [0, 2, 3]], dtype=torch.long)
-    return Mesh(points=points, cells=cells)
+    return make_mesh(points=points, cells=cells)
 
 
 def create_edge_mesh_2d() -> Mesh:
@@ -60,7 +101,7 @@ def create_edge_mesh_2d() -> Mesh:
         [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]], dtype=torch.float32
     )
     cells = torch.tensor([[0, 1], [1, 2], [2, 3]], dtype=torch.long)
-    return Mesh(points=points, cells=cells)
+    return make_mesh(points=points, cells=cells)
 
 
 def create_cube_corner_mesh() -> Mesh:
@@ -86,7 +127,7 @@ def create_cube_corner_mesh() -> Mesh:
         ],
         dtype=torch.long,
     )
-    return Mesh(points=points, cells=cells)
+    return make_mesh(points=points, cells=cells)
 
 
 def create_pyramid_mesh() -> Mesh:
@@ -114,13 +155,13 @@ def create_pyramid_mesh() -> Mesh:
         ],
         dtype=torch.long,
     )
-    return Mesh(points=points, cells=cells)
+    return make_mesh(points=points, cells=cells)
 
 
 ### Test Classes ###
 
 
-class TestPointNormalsWeightingSchemes:
+class TestPointNormalsWeightingSchemes(MeshTensorModeMixin):
     """Tests for different weighting schemes."""
 
     def test_unweighted_produces_unit_normals(self):
@@ -132,7 +173,7 @@ class TestPointNormalsWeightingSchemes:
         # All normals should be unit vectors (or zero for isolated points)
         norms = normals.norm(dim=-1)
         # For connected points, norm should be ~1
-        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-6)
+        _assert_allclose(norms, torch.ones_like(norms), atol=1e-6)
 
     def test_area_weighted_produces_unit_normals(self):
         """Test that area-weighted scheme produces unit normals."""
@@ -141,7 +182,7 @@ class TestPointNormalsWeightingSchemes:
         normals = mesh.compute_point_normals(weighting="area")
 
         norms = normals.norm(dim=-1)
-        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-6)
+        _assert_allclose(norms, torch.ones_like(norms), atol=1e-6)
 
     def test_angle_weighted_produces_unit_normals(self):
         """Test that angle-weighted scheme produces unit normals."""
@@ -150,7 +191,7 @@ class TestPointNormalsWeightingSchemes:
         normals = mesh.compute_point_normals(weighting="angle")
 
         norms = normals.norm(dim=-1)
-        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-6)
+        _assert_allclose(norms, torch.ones_like(norms), atol=1e-6)
 
     def test_angle_area_weighted_produces_unit_normals(self):
         """Test that angle_area-weighted scheme produces unit normals."""
@@ -159,7 +200,7 @@ class TestPointNormalsWeightingSchemes:
         normals = mesh.compute_point_normals(weighting="angle_area")
 
         norms = normals.norm(dim=-1)
-        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-6)
+        _assert_allclose(norms, torch.ones_like(norms), atol=1e-6)
 
     def test_flat_surface_all_weightings_agree(self):
         """Test that all weightings agree for flat surface (normals should be same)."""
@@ -180,7 +221,7 @@ class TestPointNormalsWeightingSchemes:
         ]:
             for i in range(mesh.n_points):
                 # Allow for sign flip
-                assert torch.allclose(normals[i].abs(), expected.abs(), atol=1e-5)
+                _assert_allclose(normals[i].abs(), expected.abs(), atol=1e-5)
 
     def test_point_normals_property_uses_angle_area(self):
         """Test that point_normals property uses angle_area weighting."""
@@ -189,10 +230,10 @@ class TestPointNormalsWeightingSchemes:
         property_normals = mesh.point_normals
         explicit_normals = mesh.compute_point_normals(weighting="angle_area")
 
-        assert torch.allclose(property_normals, explicit_normals, atol=1e-6)
+        _assert_allclose(property_normals, explicit_normals, atol=1e-6)
 
 
-class TestWeightingDifferences:
+class TestWeightingDifferences(MeshTensorModeMixin):
     """Tests that verify weighting schemes can produce different results."""
 
     def test_different_weightings_can_differ_for_curved_surfaces(self):
@@ -207,8 +248,8 @@ class TestWeightingDifferences:
         # For area: weighted by triangle areas (which may differ)
 
         # Both should produce valid normals
-        assert normals_unweighted[0].norm() > 0.9
-        assert normals_area[0].norm() > 0.9
+        assert _to_dense_tensor(normals_unweighted)[0].norm() > 0.9
+        assert _to_dense_tensor(normals_area)[0].norm() > 0.9
 
     def test_pyramid_apex_normal(self):
         """Test normal at pyramid apex where 4 triangles meet."""
@@ -219,11 +260,11 @@ class TestWeightingDifferences:
 
         apex_idx = 4
         # Apex normal should point somewhat upward (positive z component)
-        assert normals_unweighted[apex_idx, 2] > 0
-        assert normals_area[apex_idx, 2] > 0
+        assert _to_dense_tensor(normals_unweighted)[apex_idx, 2] > 0
+        assert _to_dense_tensor(normals_area)[apex_idx, 2] > 0
 
 
-class TestPointNormalsErrors:
+class TestPointNormalsErrors(MeshTensorModeMixin):
     """Tests for error handling in compute_point_normals."""
 
     def test_invalid_weighting_raises(self):
@@ -238,7 +279,7 @@ class TestPointNormalsErrors:
         # Create triangles in 2D (codimension 0)
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]], dtype=torch.float32)
         cells = torch.tensor([[0, 1, 2]], dtype=torch.long)
-        mesh = Mesh(points=points, cells=cells)
+        mesh = make_mesh(points=points, cells=cells)
 
         assert mesh.codimension == 0
 
@@ -283,7 +324,7 @@ class TestPointNormalsErrors:
         assert normals.shape == (mesh.n_points, mesh.n_spatial_dims)
 
 
-class TestEdgeNormals2D:
+class TestEdgeNormals2D(MeshTensorModeMixin):
     """Tests for point normals on edge meshes in 2D."""
 
     def test_straight_line_normals(self):
@@ -291,31 +332,31 @@ class TestEdgeNormals2D:
         # Horizontal line
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]], dtype=torch.float32)
         cells = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
-        mesh = Mesh(points=points, cells=cells)
+        mesh = make_mesh(points=points, cells=cells)
 
         normals = mesh.compute_point_normals(weighting="unweighted")
 
         # All normals should be perpendicular to x-axis (in +y or -y direction)
         for i in range(mesh.n_points):
-            assert torch.allclose(normals[i, 0].abs(), torch.tensor(0.0), atol=1e-6)
-            assert torch.allclose(normals[i, 1].abs(), torch.tensor(1.0), atol=1e-6)
+            _assert_allclose(normals[i, 0].abs(), torch.tensor(0.0), atol=1e-6)
+            _assert_allclose(normals[i, 1].abs(), torch.tensor(1.0), atol=1e-6)
 
     def test_corner_edge_normal(self):
         """Test normal at corner where two edges meet at 90 degrees."""
         # L-shaped path
         points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]], dtype=torch.float32)
         cells = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
-        mesh = Mesh(points=points, cells=cells)
+        mesh = make_mesh(points=points, cells=cells)
 
         normals = mesh.compute_point_normals(weighting="unweighted")
 
         # Corner point (index 1) has normal that's average of two perpendicular normals
-        corner_normal = normals[1]
+        corner_normal = _to_dense_tensor(normals)[1]
         # Should be roughly at 45 degrees
         assert corner_normal.norm() > 0.9
 
 
-class TestPointNormalsDevices:
+class TestPointNormalsDevices(MeshTensorModeMixin):
     """Tests for device handling in point normals computation."""
 
     def test_cpu_device(self):
@@ -338,7 +379,7 @@ class TestPointNormalsDevices:
         assert normals.device.type == "cuda"
 
 
-class TestPointNormalsParametrized:
+class TestPointNormalsParametrized(MeshTensorModeMixin):
     """Parametrized tests for point normals."""
 
     @pytest.mark.parametrize("weighting", ["area", "unweighted", "angle", "angle_area"])
@@ -351,7 +392,7 @@ class TestPointNormalsParametrized:
         assert normals.shape == (mesh.n_points, mesh.n_spatial_dims)
         # All should be unit normals
         norms = normals.norm(dim=-1)
-        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-6)
+        _assert_allclose(norms, torch.ones_like(norms), atol=1e-6)
 
     @pytest.mark.parametrize("weighting", ["area", "unweighted"])
     def test_non_angle_weightings_edge_mesh(self, weighting):
@@ -363,7 +404,7 @@ class TestPointNormalsParametrized:
         assert normals.shape == (mesh.n_points, mesh.n_spatial_dims)
 
 
-class TestIsolatedPoints:
+class TestIsolatedPoints(MeshTensorModeMixin):
     """Tests for handling isolated points with no adjacent cells."""
 
     def test_isolated_point_has_zero_normal(self):
@@ -379,19 +420,19 @@ class TestIsolatedPoints:
             dtype=torch.float32,
         )
         cells = torch.tensor([[0, 1, 2]], dtype=torch.long)  # Only uses points 0,1,2
-        mesh = Mesh(points=points, cells=cells)
+        mesh = make_mesh(points=points, cells=cells)
 
         normals = mesh.compute_point_normals(weighting="unweighted")
 
         # Isolated point (index 3) should have zero normal
-        assert torch.allclose(normals[3], torch.zeros(3), atol=1e-6)
+        _assert_allclose(normals[3], torch.zeros(3), atol=1e-6)
 
         # Connected points should have unit normals
         for i in range(3):
-            assert normals[i].norm() > 0.9
+            assert _to_dense_tensor(normals)[i].norm() > 0.9
 
 
-class TestCaching:
+class TestCaching(MeshTensorModeMixin):
     """Tests for caching behavior of point normals."""
 
     def test_point_normals_property_is_cached(self):
@@ -404,8 +445,8 @@ class TestCaching:
         # Check cache exists
         cached = mesh._cache.get(("point", "normals"), None)
         assert cached is not None
-        assert torch.equal(cached, normals1)
+        _assert_equal(cached, normals1)
 
         # Second access uses cache
         normals2 = mesh.point_normals
-        assert torch.equal(normals1, normals2)
+        _assert_equal(normals1, normals2)

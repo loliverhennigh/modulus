@@ -93,11 +93,10 @@ def scatter_aggregate(
     ### Fast path: unweighted sum is a single scatter_add_ with no extra work
     if weights is None and aggregation == "sum":
         aggregated_data = src_data.new_zeros((n_dst, *data_shape), dtype=dtype)
-        expanded_indices = src_to_dst_mapping.view(
+        expanded_indices = src_to_dst_mapping.reshape(
             -1, *([1] * len(data_shape))
         ).expand_as(src_data)
-        aggregated_data.scatter_add_(dim=0, index=expanded_indices, src=src_data)
-        return aggregated_data
+        return aggregated_data.scatter_add(dim=0, index=expanded_indices, src=src_data)
 
     ### Initialize weights if not provided
     if weights is None:
@@ -110,17 +109,17 @@ def scatter_aggregate(
     ### Weight the source data
     # Broadcast weights to match data shape: (n_src, *data_shape)
     weight_shape = [len(weights)] + [1] * len(data_shape)
-    weighted_data = src_data * weights.view(weight_shape)
+    weighted_data = src_data * weights.reshape(weight_shape)
 
     ### Scatter-add weighted data to destinations
     aggregated_data = src_data.new_zeros((n_dst, *data_shape), dtype=dtype)
 
     # Expand src_to_dst_mapping to match data dimensions
-    expanded_indices = src_to_dst_mapping.view(-1, *([1] * len(data_shape))).expand_as(
-        weighted_data
-    )
+    expanded_indices = src_to_dst_mapping.reshape(
+        -1, *([1] * len(data_shape))
+    ).expand_as(weighted_data)
 
-    aggregated_data.scatter_add_(
+    aggregated_data = aggregated_data.scatter_add(
         dim=0,
         index=expanded_indices,
         src=weighted_data,
@@ -130,7 +129,7 @@ def scatter_aggregate(
     if aggregation == "mean":
         ### Compute sum of weights at each destination
         weight_sums = src_data.new_zeros((n_dst,), dtype=dtype)
-        weight_sums.scatter_add_(
+        weight_sums = weight_sums.scatter_add(
             dim=0,
             index=src_to_dst_mapping,
             src=weights,
@@ -138,7 +137,7 @@ def scatter_aggregate(
 
         ### Normalize by total weight (avoid division by zero)
         weight_sums = weight_sums.clamp(min=safe_eps(weight_sums.dtype))
-        aggregated_data = aggregated_data / weight_sums.view(
+        aggregated_data = aggregated_data / weight_sums.reshape(
             -1, *([1] * len(data_shape))
         )
 

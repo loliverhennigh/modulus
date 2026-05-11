@@ -36,27 +36,10 @@ from physicsnemo.mesh.subdivision._topology import (
     generate_child_cells,
     get_subdivision_pattern,
 )
-from physicsnemo.mesh.utilities._scatter_ops import (
-    _first_shard_tensor,
-    _materialize_shard_tensor,
-    _redistribute_like_template,
-)
 from physicsnemo.mesh.utilities._topology import extract_unique_edges
 
 if TYPE_CHECKING:
     from physicsnemo.mesh.mesh import Mesh
-
-
-def _materialize_tensordict(data):
-    """Gather ShardTensor leaves before index-heavy subdivision operations."""
-    return data.apply(lambda tensor: _materialize_shard_tensor(tensor))
-
-
-def _redistribute_tensordict_like(data, template):
-    """Redistribute TensorDict leaves to match a ShardTensor template."""
-    if template is None:
-        return data
-    return data.apply(lambda tensor: _redistribute_like_template(tensor, template))
 
 
 def subdivide_linear(mesh: "Mesh") -> "Mesh":
@@ -104,29 +87,22 @@ def subdivide_linear(mesh: "Mesh") -> "Mesh":
     if mesh.n_cells == 0:
         return mesh
 
-    points_template = _first_shard_tensor(mesh.points)
-    cells_template = _first_shard_tensor(mesh.cells)
-    points = _materialize_shard_tensor(mesh.points)
-    cells = _materialize_shard_tensor(mesh.cells)
-    point_data = _materialize_tensordict(mesh.point_data)
-    cell_data = _materialize_tensordict(mesh.cell_data)
-
     ### Extract unique edges from mesh
     unique_edges, edge_inverse = extract_unique_edges(mesh)
     n_original_points = mesh.n_points
 
     ### Compute edge midpoints
     # Shape: (n_edges, n_spatial_dims)
-    edge_vertices = points[unique_edges]  # (n_edges, 2, n_spatial_dims)
+    edge_vertices = mesh.points[unique_edges]  # (n_edges, 2, n_spatial_dims)
     edge_midpoints = edge_vertices.mean(dim=1)  # Average the two endpoints
 
     ### Create new points array: original + midpoints
     # Shape: (n_original_points + n_edges, n_spatial_dims)
-    new_points = torch.cat([points, edge_midpoints], dim=0)
+    new_points = torch.cat([mesh.points, edge_midpoints], dim=0)
 
     ### Interpolate point_data to edge midpoints
     new_point_data = interpolate_point_data_to_edges(
-        point_data=point_data,
+        point_data=mesh.point_data,
         edges=unique_edges,
         n_original_points=n_original_points,
     )
@@ -137,7 +113,7 @@ def subdivide_linear(mesh: "Mesh") -> "Mesh":
 
     ### Generate child cells from parents
     child_cells, parent_indices = generate_child_cells(
-        parent_cells=cells,
+        parent_cells=mesh.cells,
         edge_inverse=edge_inverse,
         n_original_points=n_original_points,
         subdivision_pattern=subdivision_pattern,
@@ -145,23 +121,10 @@ def subdivide_linear(mesh: "Mesh") -> "Mesh":
 
     ### Propagate cell_data from parents to children
     new_cell_data = propagate_cell_data_to_children(
-        cell_data=cell_data,
+        cell_data=mesh.cell_data,
         parent_indices=parent_indices,
         n_total_children=len(child_cells),
     )
-
-    new_points = (
-        _redistribute_like_template(new_points, points_template)
-        if points_template is not None
-        else new_points
-    )
-    child_cells = (
-        _redistribute_like_template(child_cells, cells_template)
-        if cells_template is not None
-        else child_cells
-    )
-    new_point_data = _redistribute_tensordict_like(new_point_data, points_template)
-    new_cell_data = _redistribute_tensordict_like(new_cell_data, cells_template)
 
     ### Create and return subdivided mesh
     return Mesh(

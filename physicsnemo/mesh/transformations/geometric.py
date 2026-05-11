@@ -34,12 +34,6 @@ import torch.nn.functional as F
 from jaxtyping import Float
 from tensordict import TensorDict
 
-from physicsnemo.mesh.utilities._scatter_ops import (
-    _first_shard_tensor,
-    _materialize_shard_tensor,
-    _redistribute_like_template,
-)
-
 if TYPE_CHECKING:
     from physicsnemo.mesh.mesh import Mesh
 
@@ -478,11 +472,7 @@ def transform(
                 f"Got matrix.shape={matrix.shape}, mesh.n_spatial_dims={mesh.n_spatial_dims}"
             )
 
-    points_template = _first_shard_tensor(mesh.points)
-    points = _materialize_shard_tensor(mesh.points)
-    new_points = points @ matrix.T
-    if points_template is not None:
-        new_points = _redistribute_like_template(new_points, points_template)
+    new_points = mesh.points @ matrix.T
     device = mesh.points.device
     new_cache = TensorDict(
         {
@@ -494,7 +484,7 @@ def transform(
     )
 
     ### Opt-in: areas and normals (only for square invertible matrices)
-    if points_template is None and matrix.shape[0] == matrix.shape[1]:
+    if matrix.shape[0] == matrix.shape[1]:
         det = matrix.det()
 
         if assume_invertible is not None:
@@ -535,10 +525,7 @@ def transform(
                     )
 
     ### Opt-in: centroids
-    if (
-        points_template is None
-        and (v := mesh._cache.get(("cell", "centroids"), None)) is not None
-    ):
+    if (v := mesh._cache.get(("cell", "centroids"), None)) is not None:
         new_cache["cell", "centroids"] = v @ matrix.T
 
     ### Transform user data if requested
@@ -605,11 +592,7 @@ def translate(
                 f"offset must have shape ({mesh.n_spatial_dims},), got {offset.shape}"
             )
 
-    points_template = _first_shard_tensor(mesh.points)
-    points = _materialize_shard_tensor(mesh.points)
-    new_points = points + offset
-    if points_template is not None:
-        new_points = _redistribute_like_template(new_points, points_template)
+    new_points = mesh.points + offset
     device = mesh.points.device
     new_cache = TensorDict(
         {
@@ -621,17 +604,13 @@ def translate(
     )
 
     ### Areas and normals are unchanged by translation
-    if points_template is None:
-        for category in ("cell", "point"):
-            for key in ("areas", "normals"):
-                if (v := mesh._cache.get((category, key), None)) is not None:
-                    new_cache[category, key] = v
+    for category in ("cell", "point"):
+        for key in ("areas", "normals"):
+            if (v := mesh._cache.get((category, key), None)) is not None:
+                new_cache[category, key] = v
 
     ### Centroids are translated
-    if (
-        points_template is None
-        and (v := mesh._cache.get(("cell", "centroids"), None)) is not None
-    ):
+    if (v := mesh._cache.get(("cell", "centroids"), None)) is not None:
         new_cache["cell", "centroids"] = v + offset
 
     from physicsnemo.mesh.mesh import Mesh

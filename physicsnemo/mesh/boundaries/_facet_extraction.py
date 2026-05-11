@@ -34,7 +34,6 @@ from jaxtyping import Float, Int
 from tensordict import TensorDict
 
 from physicsnemo.mesh.utilities._index_tuple_ops import unique_index_tuples
-from physicsnemo.mesh.utilities._scatter_ops import _materialize_shard_tensor
 from physicsnemo.mesh.utilities._tolerances import safe_eps
 
 if TYPE_CHECKING:
@@ -75,11 +74,6 @@ def _generate_combination_indices(n: int, k: int) -> Int[torch.Tensor, "n_choose
     # this is fast enough and avoids reinventing the wheel
     combos = list(combinations(range(n), k))
     return torch.tensor(combos, dtype=torch.int64)
-
-
-def _materialize_topology_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    """Gather sharded topology tensors before index-heavy topology operations."""
-    return _materialize_shard_tensor(tensor)
 
 
 def categorize_facets_by_count(
@@ -249,7 +243,6 @@ def extract_candidate_facets(
     >>> facets, parents = extract_candidate_facets(cells, manifold_codimension=2)
     >>> assert facets.shape == (3, 1)  # three vertices
     """
-    cells = _materialize_topology_tensor(cells)
     n_cells, n_vertices_per_cell = cells.shape
     n_vertices_per_subsimplex = n_vertices_per_cell - manifold_codimension
 
@@ -333,7 +326,6 @@ def _aggregate_tensor_data(
 
     ### Gather parent cell data for each candidate facet
     # Shape: (n_candidate_facets, *data_shape)
-    parent_data = _materialize_topology_tensor(parent_data)
     candidate_data = parent_data[parent_cell_indices]
 
     ### Use unified scatter aggregation utility

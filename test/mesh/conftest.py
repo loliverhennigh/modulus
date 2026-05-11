@@ -38,6 +38,7 @@ from torch.distributed.tensor.placement_types import Replicate, Shard
 
 from physicsnemo.domain_parallel import ST_AVAILABLE, ShardTensor
 from physicsnemo.mesh.mesh import Mesh
+from test.mesh.tensor_mode_testing import set_active_mesh_tensor_mode_factory
 
 ### Mesh Tensor Modes ###
 
@@ -89,6 +90,8 @@ class MeshTensorModeFactory:
         placement: Replicate | Shard | None = None,
     ) -> torch.Tensor:
         """Convert a dense tensor to the active mesh tensor mode."""
+        if ShardTensor is not None and isinstance(tensor, ShardTensor):
+            return tensor
         if self.mesh_tensor_mode == "dense":
             return tensor
         if ShardTensor is None:
@@ -159,43 +162,102 @@ class MeshTensorModeFactory:
         )
         return data_td.apply(convert_value)
 
+    def convert_mesh_inputs_for_mode(
+        self,
+        *,
+        points: torch.Tensor,
+        cells: torch.Tensor | None = None,
+        point_data: TensorDict | dict[str, object] | None = None,
+        cell_data: TensorDict | dict[str, object] | None = None,
+        global_data: TensorDict | dict[str, object] | None = None,
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor | None,
+        TensorDict | dict[str, object] | None,
+        TensorDict | dict[str, object] | None,
+        TensorDict | dict[str, object] | None,
+    ]:
+        """Convert Mesh constructor inputs to the active tensor mode."""
+        if self.mesh_tensor_mode == "dense":
+            return points, cells, point_data, cell_data, global_data
+
+        if not isinstance(points, torch.Tensor):
+            return points, cells, point_data, cell_data, global_data
+
+        n_points = points.shape[0] if points.ndim > 0 else 0
+        n_cells = (
+            cells.shape[0] if isinstance(cells, torch.Tensor) and cells.ndim > 0 else 0
+        )
+        point_placement = self.placement_for_mode()
+        cell_placement = self.placement_for_mode()
+        mesh_points = self.to_mode_tensor(points, point_placement)
+        mesh_cells = (
+            None if cells is None else self.to_mode_tensor(cells, cell_placement)
+        )
+
+        return (
+            mesh_points,
+            mesh_cells,
+            self.convert_data_for_mode(
+                point_data,
+                n_points=n_points,
+                n_cells=n_cells,
+                point_placement=point_placement,
+                cell_placement=cell_placement,
+            ),
+            self.convert_data_for_mode(
+                cell_data,
+                n_points=n_points,
+                n_cells=n_cells,
+                point_placement=point_placement,
+                cell_placement=cell_placement,
+            ),
+            self.convert_data_for_mode(
+                global_data,
+                n_points=n_points,
+                n_cells=n_cells,
+                point_placement=Replicate(),
+                cell_placement=Replicate(),
+            ),
+        )
+
+    def convert_mesh_data_value(self, value: torch.Tensor, mesh: Mesh) -> torch.Tensor:
+        """Convert a tensor assigned to mesh data after Mesh construction."""
+        placement = self.placement_for_mode()
+        return self.convert_leaf_for_mode(
+            value,
+            n_points=mesh.n_points,
+            n_cells=mesh.n_cells,
+            point_placement=placement,
+            cell_placement=placement,
+        )
+
     def make_mesh(
         self,
         *,
         points: torch.Tensor,
-        cells: torch.Tensor,
+        cells: torch.Tensor | None = None,
         point_data: TensorDict | dict[str, object] | None = None,
         cell_data: TensorDict | dict[str, object] | None = None,
         global_data: TensorDict | dict[str, object] | None = None,
     ) -> Mesh:
         """Create a mesh with tensors converted for the active test mode."""
-        point_placement = self.placement_for_mode()
-        cell_placement = self.placement_for_mode()
+        points, cells, point_data, cell_data, global_data = (
+            self.convert_mesh_inputs_for_mode(
+                points=points,
+                cells=cells,
+                point_data=point_data,
+                cell_data=cell_data,
+                global_data=global_data,
+            )
+        )
 
         return Mesh(
-            points=self.to_mode_tensor(points, point_placement),
-            cells=self.to_mode_tensor(cells, cell_placement),
-            point_data=self.convert_data_for_mode(
-                point_data,
-                n_points=points.shape[0],
-                n_cells=cells.shape[0],
-                point_placement=point_placement,
-                cell_placement=cell_placement,
-            ),
-            cell_data=self.convert_data_for_mode(
-                cell_data,
-                n_points=points.shape[0],
-                n_cells=cells.shape[0],
-                point_placement=point_placement,
-                cell_placement=cell_placement,
-            ),
-            global_data=self.convert_data_for_mode(
-                global_data,
-                n_points=points.shape[0],
-                n_cells=cells.shape[0],
-                point_placement=Replicate(),
-                cell_placement=Replicate(),
-            ),
+            points=points,
+            cells=cells,
+            point_data=point_data,
+            cell_data=cell_data,
+            global_data=global_data,
         )
 
     def mesh_to_mode(self, mesh: Mesh) -> Mesh:
@@ -212,6 +274,52 @@ class MeshTensorModeFactory:
 
 
 ### Pytest Hooks ###
+
+
+_MESH_INIT_ARGS = ("points", "cells", "point_data", "cell_data", "global_data")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register mesh tensor-mode test markers."""
+    config.addinivalue_line(
+        "markers",
+        "mesh_dense_only: run this mesh test only in the dense tensor mode",
+    )
+
+
+def _convert_mesh_init_call(
+    factory: MeshTensorModeFactory,
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+) -> tuple[tuple[object, ...], dict[str, object]]:
+    """Convert Mesh.__init__ args for the active tensor mode."""
+    if not args and "points" not in kwargs:
+        return args, kwargs
+
+    args_list = list(args)
+    values = {}
+    for index, name in enumerate(_MESH_INIT_ARGS):
+        if index < len(args_list):
+            values[name] = args_list[index]
+        else:
+            values[name] = kwargs.get(name)
+
+    converted = factory.convert_mesh_inputs_for_mode(
+        points=values["points"],
+        cells=values["cells"],
+        point_data=values["point_data"],
+        cell_data=values["cell_data"],
+        global_data=values["global_data"],
+    )
+
+    new_kwargs = dict(kwargs)
+    for index, (name, value) in enumerate(zip(_MESH_INIT_ARGS, converted)):
+        if index < len(args_list):
+            args_list[index] = value
+        else:
+            new_kwargs[name] = value
+
+    return tuple(args_list), new_kwargs
 
 
 def pytest_collection_modifyitems(config, items):
@@ -528,6 +636,41 @@ def mesh_tensor_mode_factory(
         mesh_tensor_mode=mesh_tensor_mode,
         mesh_shard_device_mesh=mesh_shard_device_mesh,
     )
+
+
+@pytest.fixture(autouse=True)
+def mesh_tensor_mode_context(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    mesh_tensor_mode_factory: MeshTensorModeFactory,
+) -> Generator[None, None, None]:
+    """Bind every mesh test to the active dense or ShardTensor mode."""
+    if (
+        request.node.get_closest_marker("mesh_dense_only")
+        and mesh_tensor_mode_factory.mesh_tensor_mode != "dense"
+    ):
+        pytest.skip("Test is marked dense-only")
+
+    previous_factory = set_active_mesh_tensor_mode_factory(mesh_tensor_mode_factory)
+    original_init = Mesh.__init__
+
+    if mesh_tensor_mode_factory.mesh_tensor_mode != "dense":
+
+        def mesh_init_for_active_mode(self, *args, **kwargs):
+            """Initialize Mesh after converting constructor tensors to test mode."""
+            converted_args, converted_kwargs = _convert_mesh_init_call(
+                mesh_tensor_mode_factory,
+                args,
+                kwargs,
+            )
+            original_init(self, *converted_args, **converted_kwargs)
+
+        monkeypatch.setattr(Mesh, "__init__", mesh_init_for_active_mode)
+
+    try:
+        yield
+    finally:
+        set_active_mesh_tensor_mode_factory(previous_factory)
 
 
 @pytest.fixture(params=DIMENSION_CONFIGS_2D)

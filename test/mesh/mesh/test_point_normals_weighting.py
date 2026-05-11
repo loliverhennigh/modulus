@@ -32,49 +32,29 @@ import pytest
 import torch
 
 from physicsnemo.mesh import Mesh
+from test.mesh.tensor_mode_testing import (
+    assert_allclose_for_active_mode,
+    assert_equal_for_active_mode,
+    make_mesh_for_active_mode,
+    to_dense_tensor_for_active_mode,
+)
 
 ### Helper Functions ###
-
-_ACTIVE_MESH_TENSOR_MODE_FACTORY = None
-
-
-class MeshTensorModeMixin:
-    """Run point-normal tests over dense and ShardTensor mesh modes."""
-
-    @pytest.fixture(autouse=True)
-    def bind_mesh_tensor_mode(self, mesh_tensor_mode_factory) -> None:
-        """Bind the active mesh tensor-mode factory for helper constructors."""
-        global _ACTIVE_MESH_TENSOR_MODE_FACTORY
-        previous = _ACTIVE_MESH_TENSOR_MODE_FACTORY
-        _ACTIVE_MESH_TENSOR_MODE_FACTORY = mesh_tensor_mode_factory
-        try:
-            yield
-        finally:
-            _ACTIVE_MESH_TENSOR_MODE_FACTORY = previous
-
-
-def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    """Materialize ShardTensor values for dense reference comparisons."""
-    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is not None:
-        return _ACTIVE_MESH_TENSOR_MODE_FACTORY.to_dense_tensor(tensor)
-    return tensor
 
 
 def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
     """Assert approximate equality after materializing distributed tensors."""
-    assert torch.allclose(_to_dense_tensor(a), _to_dense_tensor(b), **kwargs)
+    assert_allclose_for_active_mode(a, b, **kwargs)
 
 
 def _assert_equal(a: torch.Tensor, b: torch.Tensor) -> None:
     """Assert exact equality after materializing distributed tensors."""
-    assert torch.equal(_to_dense_tensor(a), _to_dense_tensor(b))
+    assert_equal_for_active_mode(a, b)
 
 
 def make_mesh(points: torch.Tensor, cells: torch.Tensor) -> Mesh:
     """Create a mesh in the active tensor mode."""
-    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is None:
-        return Mesh(points=points, cells=cells)
-    return _ACTIVE_MESH_TENSOR_MODE_FACTORY.make_mesh(points=points, cells=cells)
+    return make_mesh_for_active_mode(points=points, cells=cells)
 
 
 def create_triangle_surface_3d() -> Mesh:
@@ -161,7 +141,7 @@ def create_pyramid_mesh() -> Mesh:
 ### Test Classes ###
 
 
-class TestPointNormalsWeightingSchemes(MeshTensorModeMixin):
+class TestPointNormalsWeightingSchemes:
     """Tests for different weighting schemes."""
 
     def test_unweighted_produces_unit_normals(self):
@@ -233,7 +213,7 @@ class TestPointNormalsWeightingSchemes(MeshTensorModeMixin):
         _assert_allclose(property_normals, explicit_normals, atol=1e-6)
 
 
-class TestWeightingDifferences(MeshTensorModeMixin):
+class TestWeightingDifferences:
     """Tests that verify weighting schemes can produce different results."""
 
     def test_different_weightings_can_differ_for_curved_surfaces(self):
@@ -248,8 +228,8 @@ class TestWeightingDifferences(MeshTensorModeMixin):
         # For area: weighted by triangle areas (which may differ)
 
         # Both should produce valid normals
-        assert _to_dense_tensor(normals_unweighted)[0].norm() > 0.9
-        assert _to_dense_tensor(normals_area)[0].norm() > 0.9
+        assert to_dense_tensor_for_active_mode(normals_unweighted)[0].norm() > 0.9
+        assert to_dense_tensor_for_active_mode(normals_area)[0].norm() > 0.9
 
     def test_pyramid_apex_normal(self):
         """Test normal at pyramid apex where 4 triangles meet."""
@@ -260,11 +240,11 @@ class TestWeightingDifferences(MeshTensorModeMixin):
 
         apex_idx = 4
         # Apex normal should point somewhat upward (positive z component)
-        assert _to_dense_tensor(normals_unweighted)[apex_idx, 2] > 0
-        assert _to_dense_tensor(normals_area)[apex_idx, 2] > 0
+        assert to_dense_tensor_for_active_mode(normals_unweighted)[apex_idx, 2] > 0
+        assert to_dense_tensor_for_active_mode(normals_area)[apex_idx, 2] > 0
 
 
-class TestPointNormalsErrors(MeshTensorModeMixin):
+class TestPointNormalsErrors:
     """Tests for error handling in compute_point_normals."""
 
     def test_invalid_weighting_raises(self):
@@ -324,7 +304,7 @@ class TestPointNormalsErrors(MeshTensorModeMixin):
         assert normals.shape == (mesh.n_points, mesh.n_spatial_dims)
 
 
-class TestEdgeNormals2D(MeshTensorModeMixin):
+class TestEdgeNormals2D:
     """Tests for point normals on edge meshes in 2D."""
 
     def test_straight_line_normals(self):
@@ -351,12 +331,12 @@ class TestEdgeNormals2D(MeshTensorModeMixin):
         normals = mesh.compute_point_normals(weighting="unweighted")
 
         # Corner point (index 1) has normal that's average of two perpendicular normals
-        corner_normal = _to_dense_tensor(normals)[1]
+        corner_normal = to_dense_tensor_for_active_mode(normals)[1]
         # Should be roughly at 45 degrees
         assert corner_normal.norm() > 0.9
 
 
-class TestPointNormalsDevices(MeshTensorModeMixin):
+class TestPointNormalsDevices:
     """Tests for device handling in point normals computation."""
 
     def test_cpu_device(self):
@@ -379,7 +359,7 @@ class TestPointNormalsDevices(MeshTensorModeMixin):
         assert normals.device.type == "cuda"
 
 
-class TestPointNormalsParametrized(MeshTensorModeMixin):
+class TestPointNormalsParametrized:
     """Parametrized tests for point normals."""
 
     @pytest.mark.parametrize("weighting", ["area", "unweighted", "angle", "angle_area"])
@@ -404,7 +384,7 @@ class TestPointNormalsParametrized(MeshTensorModeMixin):
         assert normals.shape == (mesh.n_points, mesh.n_spatial_dims)
 
 
-class TestIsolatedPoints(MeshTensorModeMixin):
+class TestIsolatedPoints:
     """Tests for handling isolated points with no adjacent cells."""
 
     def test_isolated_point_has_zero_normal(self):
@@ -429,10 +409,10 @@ class TestIsolatedPoints(MeshTensorModeMixin):
 
         # Connected points should have unit normals
         for i in range(3):
-            assert _to_dense_tensor(normals)[i].norm() > 0.9
+            assert to_dense_tensor_for_active_mode(normals)[i].norm() > 0.9
 
 
-class TestCaching(MeshTensorModeMixin):
+class TestCaching:
     """Tests for caching behavior of point normals."""
 
     def test_point_normals_property_is_cached(self):

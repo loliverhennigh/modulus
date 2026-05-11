@@ -30,36 +30,22 @@ import torch
 from physicsnemo.mesh.io.io_pyvista import to_pyvista
 from physicsnemo.mesh.primitives.pyvista_datasets import bunny
 from physicsnemo.mesh.primitives.volumes import sphere_volume
+from test.mesh.tensor_mode_testing import (
+    mesh_to_active_mode,
+    to_dense_tensor_for_active_mode,
+)
 
 ### Constants ###
 
 ATOL = 1e-4
 RTOL = 1e-4
-_ACTIVE_MESH_TENSOR_MODE_FACTORY = None
 
 ### Helper Functions ###
 
 
-class MeshTensorModeMixin:
-    """Run existing mesh geometry tests over all mesh tensor modes."""
-
-    @pytest.fixture(autouse=True)
-    def bind_mesh_tensor_mode(self, mesh_tensor_mode_factory) -> None:
-        """Bind the active mesh tensor-mode factory for helper constructors."""
-        global _ACTIVE_MESH_TENSOR_MODE_FACTORY
-        previous = _ACTIVE_MESH_TENSOR_MODE_FACTORY
-        _ACTIVE_MESH_TENSOR_MODE_FACTORY = mesh_tensor_mode_factory
-        try:
-            yield
-        finally:
-            _ACTIVE_MESH_TENSOR_MODE_FACTORY = previous
-
-
 def _to_dense_tensor(tensor: torch.Tensor) -> torch.Tensor:
     """Materialize any distributed tensor inputs."""
-    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is not None:
-        return _ACTIVE_MESH_TENSOR_MODE_FACTORY.to_dense_tensor(tensor)
-    return tensor
+    return to_dense_tensor_for_active_mode(tensor)
 
 
 def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
@@ -69,9 +55,7 @@ def _assert_allclose(a: torch.Tensor, b: torch.Tensor, **kwargs) -> None:
 
 def _mesh_to_mode(mesh):
     """Convert a dense fixture mesh to the active tensor mode."""
-    if _ACTIVE_MESH_TENSOR_MODE_FACTORY is None:
-        return mesh
-    return _ACTIVE_MESH_TENSOR_MODE_FACTORY.mesh_to_mode(mesh)
+    return mesh_to_active_mode(mesh)
 
 
 def assert_normals_equal(
@@ -141,7 +125,7 @@ def assert_normals_equal(
 ### Test Classes ###
 
 
-class TestCellCentroids(MeshTensorModeMixin):
+class TestCellCentroids:
     """Tests for Mesh.cell_centroids property."""
 
     def test_2d_manifold_bunny(self):
@@ -175,7 +159,7 @@ class TestCellCentroids(MeshTensorModeMixin):
         _assert_allclose(mesh_centroids, pv_tensor, atol=ATOL, rtol=RTOL)
 
 
-class TestCellAreas(MeshTensorModeMixin):
+class TestCellAreas:
     """Tests for Mesh.cell_areas property."""
 
     def test_2d_manifold_bunny(self):
@@ -214,7 +198,7 @@ class TestCellAreas(MeshTensorModeMixin):
         _assert_allclose(mesh_volumes, pv_tensor, atol=ATOL, rtol=RTOL)
 
 
-class TestCellNormals(MeshTensorModeMixin):
+class TestCellNormals:
     """Tests for Mesh.cell_normals property."""
 
     def test_2d_manifold_bunny(self):
@@ -236,7 +220,7 @@ class TestCellNormals(MeshTensorModeMixin):
         assert_normals_equal(mesh_normals, pv_normals)
 
 
-class TestPointNormals(MeshTensorModeMixin):
+class TestPointNormals:
     """Tests for Mesh.point_normals property and compute_point_normals method.
 
     Mesh supports four weighting schemes for point normals:

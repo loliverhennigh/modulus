@@ -30,6 +30,12 @@ from typing import TYPE_CHECKING
 import torch
 from jaxtyping import Float
 
+from physicsnemo.mesh.utilities._scatter_ops import (
+    _first_shard_tensor,
+    _materialize_shard_tensor,
+    _redistribute_like_template,
+)
+
 if TYPE_CHECKING:
     from physicsnemo.mesh.mesh import Mesh
 
@@ -115,16 +121,20 @@ def compute_point_gradient_lsq(
         mesh_lsq_gradient,
     )
 
+    shard_template = _first_shard_tensor(point_values, mesh.points)
     gradients = mesh_lsq_gradient(
-        points=mesh.points,
-        values=point_values,
+        points=_materialize_shard_tensor(mesh.points),
+        values=_materialize_shard_tensor(point_values),
         neighbor_offsets=adjacency.offsets,
         neighbor_indices=adjacency.indices,
         weight_power=weight_power,
         min_neighbors=min_neighbors,
         implementation="torch",
     )
-    return _to_mesh_gradient_layout(gradients, point_values)
+    gradients = _to_mesh_gradient_layout(gradients, point_values)
+    if shard_template is not None:
+        gradients = _redistribute_like_template(gradients, shard_template)
+    return gradients
 
 
 def compute_cell_gradient_lsq(

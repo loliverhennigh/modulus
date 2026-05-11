@@ -41,7 +41,10 @@ from physicsnemo.mesh.transformations.geometric import (
     translate,
 )
 from physicsnemo.mesh.utilities._padding import _pad_by_tiling_last, _pad_with_value
-from physicsnemo.mesh.utilities._scatter_ops import scatter_aggregate
+from physicsnemo.mesh.utilities._scatter_ops import (
+    _materialize_shard_tensor,
+    scatter_aggregate,
+)
 from physicsnemo.mesh.utilities.mesh_repr import format_mesh_repr
 from physicsnemo.mesh.visualization.draw_mesh import draw_mesh
 
@@ -881,33 +884,23 @@ class Mesh:
         ### Get cell normals (triggers computation if not cached)
         cell_normals = self.cell_normals  # (n_cells, n_spatial_dims)
 
-        ### Initialize accumulated normals for each point
-        accumulated_normals = torch.zeros(
-            (self.n_points, self.n_spatial_dims),
-            dtype=self.points.dtype,
-            device=self.points.device,
-        )
-
         n_vertices_per_cell = self.cells.shape[1]
         point_indices = self.cells.flatten()
 
-        # Repeat cell normals for each vertex in the cell
-        cell_normals_repeated = cell_normals.unsqueeze(1).expand(
-            -1, n_vertices_per_cell, -1
+        # Repeat cell normals for each vertex in the cell. Materialize first
+        # because ShardTensor currently lowers reshape through a strided view.
+        dense_cell_normals = _materialize_shard_tensor(cell_normals)
+        cell_normals_flat = dense_cell_normals.repeat_interleave(
+            n_vertices_per_cell, dim=0
         )
-        cell_normals_flat = cell_normals_repeated.reshape(-1, self.n_spatial_dims)
 
         ### Compute weights based on scheme
         if weighting == "unweighted":
-            weights = torch.ones(
-                self.n_cells * n_vertices_per_cell,
-                dtype=self.points.dtype,
-                device=self.points.device,
-            )
+            weights = None
 
         elif weighting == "area":
-            cell_areas = self.cell_areas
-            weights = cell_areas.unsqueeze(1).expand(-1, n_vertices_per_cell).flatten()
+            cell_areas = _materialize_shard_tensor(self.cell_areas)
+            weights = cell_areas.repeat_interleave(n_vertices_per_cell)
 
         elif weighting in ("angle", "angle_area"):
             # Compute interior angles at each vertex of each cell
@@ -917,26 +910,23 @@ class Mesh:
             vertex_angles = compute_vertex_angles(
                 self
             )  # (n_cells, n_vertices_per_cell)
+            vertex_angles = _materialize_shard_tensor(vertex_angles)
             weights = vertex_angles.flatten()
 
             if weighting == "angle_area":
                 # Multiply by cell area
                 cell_areas = self.cell_areas
-                area_weights = (
-                    cell_areas.unsqueeze(1).expand(-1, n_vertices_per_cell).flatten()
-                )
+                cell_areas = _materialize_shard_tensor(cell_areas)
+                area_weights = cell_areas.repeat_interleave(n_vertices_per_cell)
                 weights = weights * area_weights
 
         ### Apply weights and accumulate
-        normals_to_accumulate = cell_normals_flat * weights.unsqueeze(-1)
-
-        point_indices_expanded = point_indices.unsqueeze(-1).expand(
-            -1, self.n_spatial_dims
-        )
-        accumulated_normals.scatter_add_(
-            dim=0,
-            index=point_indices_expanded,
-            src=normals_to_accumulate,
+        accumulated_normals = scatter_aggregate(
+            src_data=cell_normals_flat,
+            src_to_dst_mapping=point_indices,
+            n_dst=self.n_points,
+            weights=weights,
+            aggregation="sum",
         )
 
         ### Normalize to get unit normals

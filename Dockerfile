@@ -26,7 +26,9 @@ FROM ${BASE_CONTAINER} AS builder
 ARG TARGETPLATFORM
 
 # Install uv (use system Python for installs; set so --system is default)
-COPY --from=ghcr.io/astral-sh/uv:0.10.3 /uv /uvx /bin/
+# Pinned to 0.11.14 (latest stable as of May 2026) which bundles
+# rustls-webpki >= 0.103.13 (fixes GHSA-82j2-j2ch-gfr8).
+COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
 ENV UV_SYSTEM_PYTHON=1
 # Base image Python is PEP 668 externally-managed; allow system installs in container
 ENV UV_BREAK_SYSTEM_PACKAGES=1
@@ -239,7 +241,7 @@ RUN uv pip install "tensorly>=0.8.1" "tensorly-torch>=0.4.0" "torchinfo>=1.8" "w
 
 # Other CI-only specs (moto, scikit-image, etc.)
 RUN uv pip install "moto[s3]>=5.0.28"
-RUN uv pip install "numpy-stl" "scikit-image>=0.24.0" "sparse-dot-mkl" "shapely"
+RUN uv pip install "numpy-stl" "scikit-image>=0.24.0" "shapely"
 RUN uv pip install "multi-storage-client[boto3]>=0.33.0"
 
 # E2Grid install

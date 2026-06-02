@@ -57,10 +57,19 @@ env:
   PYTHON_VERSION: "3.12"
   UV_VERSION: "0.11.7"
   CONTAINER_ID: "cuda12.8.1-cudnn-devel-ubuntu24.04"
-  EXTRAS_TAG: "cu12"
+  # All feature extras + cu12 backend + matching natten wheel index.  This
+  # powers the @requires_module / pytest.importorskip tests that would
+  # otherwise be skipped due to missing optional dependencies.  Modules
+  # with no extras home (moto, scikit-image, pyg_lib, earth2grid, ...) are
+  # installed by the `Install CI-only test dependencies` step inside the
+  # setup-uv-env composite action.
+  EXTRAS_TAG: "cu12,natten-cu12,utils-extras,mesh-extras,nn-extras,model-extras,datapipes-extras,uq-extras,gnns,sym,transformer-engine-cu12"
 
   # ---- Cache key prefixes (shared with nightly) --------------------------
-  UV_CACHE_KEY_PREFIX:   "uv-cache-nightly-cuda12.8.1-cudnn-devel-ubuntu24.04-py3.12-uv0.11.7"
+  # The `-fullextras` suffix is bumped relative to the previous prefix so
+  # the first run under the expanded EXTRAS_TAG rebuilds the wheel cache
+  # from scratch instead of layering on top of a stale narrower cache.
+  UV_CACHE_KEY_PREFIX:   "uv-cache-nightly-cuda12.8.1-cudnn-devel-ubuntu24.04-py3.12-uv0.11.7-fullextras"
   TESTMON_CACHE_KEY_PREFIX:  "testmon-nightly"
   COVERAGE_CACHE_KEY_PREFIX: "coverage-nightly"
   JIT_CACHE_KEY_PREFIX: "jit-cache-cuda12.8.1-cudnn-devel-ubuntu24.04-py3.12"
@@ -85,6 +94,11 @@ jobs:
     runs-on: linux-amd64-gpu-h100-latest-1
     container:
       image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      # /dev/shm defaults to 64 MiB in docker, which DALI's multiprocess
+      # worker pool exhausts via SemLock allocations and trips ENOSPC
+      # ("No space left on device") in datapipes tests.  2 GiB is plenty
+      # for the test suite and matches the PyTorch container default.
+      options: --shm-size=2g
 
     steps:
     - uses: actions/checkout@v5
@@ -103,11 +117,10 @@ jobs:
         extras: ${{ env.EXTRAS_TAG }}
 
     # Restore the nightly testmon DB so testmon can skip unchanged tests.
-    # Exact-match uses the same lockhash the nightly saved under.
-    # For lock-changed PRs the exact key will miss; the prefix fallback
-    # gives the most recent nightly DB, which is still useful (testmon
-    # handles stale DBs gracefully by re-running tests whose dependency
-    # hashes differ).
+    # Pulls from the mutable -latest slot the nightly publishes via
+    # replace-cache.  Fail-open: a miss only costs full-suite runtime,
+    # never correctness, and testmon handles stale DBs gracefully by
+    # re-running tests whose dependency hashes differ.
     - name: Restore testmon database from nightly cache
       uses: actions/cache/restore@v5
       with:
@@ -115,9 +128,7 @@ jobs:
           .testmondata
           .testmondata-shm
           .testmondata-wal
-        key: ${{ env.TESTMON_CACHE_KEY_PREFIX }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
-        restore-keys: |
-          ${{ env.TESTMON_CACHE_KEY_PREFIX }}-
+        key: ${{ env.TESTMON_CACHE_KEY_PREFIX }}-latest
 
     - name: Restore JIT compilation cache from nightly
       uses: actions/cache/restore@v5
@@ -144,6 +155,11 @@ jobs:
     runs-on: linux-amd64-gpu-h100-latest-1
     container:
       image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      # /dev/shm defaults to 64 MiB in docker, which DALI's multiprocess
+      # worker pool exhausts via SemLock allocations and trips ENOSPC
+      # ("No space left on device") in datapipes tests.  2 GiB is plenty
+      # for the test suite and matches the PyTorch container default.
+      options: --shm-size=2g
 
     steps:
     - uses: actions/checkout@v5
@@ -168,18 +184,14 @@ jobs:
           .testmondata
           .testmondata-shm
           .testmondata-wal
-        key: ${{ env.TESTMON_CACHE_KEY_PREFIX }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
-        restore-keys: |
-          ${{ env.TESTMON_CACHE_KEY_PREFIX }}-
+        key: ${{ env.TESTMON_CACHE_KEY_PREFIX }}-latest
 
     - name: Restore nightly coverage baseline from cache
       id: cache-coverage-restore
       uses: actions/cache/restore@v5
       with:
         path: .coverage*
-        key: ${{ env.COVERAGE_CACHE_KEY_PREFIX }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
-        restore-keys: |
-          ${{ env.COVERAGE_CACHE_KEY_PREFIX }}-
+        key: ${{ env.COVERAGE_CACHE_KEY_PREFIX }}-latest
 
     - name: Restore JIT compilation cache from nightly
       uses: actions/cache/restore@v5

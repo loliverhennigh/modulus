@@ -40,6 +40,7 @@ from physicsnemo.nn.functional.fourier_spectral import (
     ViewAsComplex,
 )
 from physicsnemo.nn.functional.geometry import (
+    FarthestPointSampling,
     MeshPoissonDiskSample,
     MeshToVoxelFraction,
     SignedDistanceField,
@@ -71,6 +72,7 @@ FUNCTIONAL_SPECS: tuple[type[FunctionSpec], ...] = (
     SpectralGridGradient,
     MeshlessFDDerivatives,
     # Geometry.
+    FarthestPointSampling,
     MeshPoissonDiskSample,
     MeshToVoxelFraction,
     SignedDistanceField,

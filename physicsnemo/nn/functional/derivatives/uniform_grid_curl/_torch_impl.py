@@ -20,8 +20,58 @@ from collections.abc import Sequence
 
 import torch
 
-from ..uniform_grid_gradient._torch_impl import uniform_grid_gradient_torch_multi
 from .utils import validate_vector_field
+
+_SUPPORTED_ORDERS = (2, 4)
+
+
+def _normalize_spacing(
+    spacing: float | Sequence[float], ndim: int
+) -> tuple[float, ...]:
+    if isinstance(spacing, (float, int)):
+        return tuple(float(spacing) for _ in range(ndim))
+    spacing_tuple = tuple(float(x) for x in spacing)
+    if len(spacing_tuple) != ndim:
+        raise ValueError(
+            f"spacing must have {ndim} entries for a {ndim}D field, got {len(spacing_tuple)}"
+        )
+    return spacing_tuple
+
+
+def _validate_order(order: int) -> int:
+    if not isinstance(order, int):
+        raise TypeError(f"order must be an integer, got {type(order)}")
+    if order not in _SUPPORTED_ORDERS:
+        raise ValueError(
+            "uniform_grid_curl supports central orders "
+            f"{list(_SUPPORTED_ORDERS)}, got order={order}"
+        )
+    return order
+
+
+def _central_derivative_order2(
+    field: torch.Tensor, axis: int, dx: float
+) -> torch.Tensor:
+    return (
+        torch.roll(field, shifts=-1, dims=axis) - torch.roll(field, shifts=1, dims=axis)
+    ) / (2.0 * dx)
+
+
+def _central_derivative_order4(
+    field: torch.Tensor, axis: int, dx: float
+) -> torch.Tensor:
+    return (
+        -torch.roll(field, shifts=-2, dims=axis)
+        + 8.0 * torch.roll(field, shifts=-1, dims=axis)
+        - 8.0 * torch.roll(field, shifts=1, dims=axis)
+        + torch.roll(field, shifts=2, dims=axis)
+    ) / (12.0 * dx)
+
+
+_DERIVATIVE_DISPATCH = {
+    2: _central_derivative_order2,
+    4: _central_derivative_order4,
+}
 
 
 def uniform_grid_curl_torch(
@@ -31,21 +81,19 @@ def uniform_grid_curl_torch(
 ) -> torch.Tensor:
     """Compute periodic uniform-grid curl with PyTorch tensor ops."""
     grid_ndim = validate_vector_field(vector_field)
-    jacobian_rows = [
-        uniform_grid_gradient_torch_multi(
-            field=vector_field[component],
-            spacing=spacing,
-            order=order,
-            derivative_orders=1,
-            include_mixed=False,
-        )
-        for component in range(grid_ndim)
-    ]
+    spacing_tuple = _normalize_spacing(spacing, grid_ndim)
+    for dx in spacing_tuple:
+        if dx <= 0.0:
+            raise ValueError("all spacing entries must be strictly positive")
+    derivative_fn = _DERIVATIVE_DISPATCH[_validate_order(order)]
+
+    def derivative(component: int, axis: int) -> torch.Tensor:
+        return derivative_fn(vector_field[component], axis, spacing_tuple[axis])
 
     if grid_ndim == 2:
-        return jacobian_rows[1][0] - jacobian_rows[0][1]
+        return derivative(1, 0) - derivative(0, 1)
 
-    curl_x = jacobian_rows[2][1] - jacobian_rows[1][2]
-    curl_y = jacobian_rows[0][2] - jacobian_rows[2][0]
-    curl_z = jacobian_rows[1][0] - jacobian_rows[0][1]
+    curl_x = derivative(2, 1) - derivative(1, 2)
+    curl_y = derivative(0, 2) - derivative(2, 0)
+    curl_z = derivative(1, 0) - derivative(0, 1)
     return torch.stack((curl_x, curl_y, curl_z), dim=0)

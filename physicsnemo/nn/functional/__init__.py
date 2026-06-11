@@ -20,7 +20,10 @@ from .derivatives import (
     meshless_fd_derivatives,
     rectilinear_grid_gradient,
     spectral_grid_gradient,
+    uniform_grid_curl,
+    uniform_grid_divergence,
     uniform_grid_gradient,
+    uniform_grid_laplacian,
 )
 from .equivariant_ops import (
     legendre_polynomials,
@@ -61,6 +64,9 @@ __all__ = [
     "irfft2",
     "drop_path",
     "farthest_point_sampling",
+    "uniform_grid_curl",
+    "uniform_grid_divergence",
+    "uniform_grid_laplacian",
     "grid_to_point_interpolation",
     "imag",
     "interpolation",

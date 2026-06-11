@@ -32,3 +32,24 @@ Derivative Functionals
    :width: 100%
 
 .. autofunction:: physicsnemo.nn.functional.meshless_fd_derivatives
+
+Uniform Grid Vector Calculus
+----------------------------
+
+.. autofunction:: physicsnemo.nn.functional.uniform_grid_divergence
+
+.. figure:: /img/nn/functional/derivatives/uniform_grid_divergence.png
+   :alt: Uniform grid divergence example
+   :width: 100%
+
+.. autofunction:: physicsnemo.nn.functional.uniform_grid_curl
+
+.. figure:: /img/nn/functional/derivatives/uniform_grid_curl.png
+   :alt: Uniform grid curl example
+   :width: 100%
+
+.. autofunction:: physicsnemo.nn.functional.uniform_grid_laplacian
+
+.. figure:: /img/nn/functional/derivatives/uniform_grid_laplacian.png
+   :alt: Uniform grid Laplacian example
+   :width: 100%

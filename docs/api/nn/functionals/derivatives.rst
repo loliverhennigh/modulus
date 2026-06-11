@@ -13,6 +13,24 @@ Derivative Functionals
    :alt: Rectilinear grid gradient example
    :width: 100%
 
+.. autofunction:: physicsnemo.nn.functional.rectilinear_grid_divergence
+
+.. figure:: /img/nn/functional/derivatives/rectilinear_grid_divergence.png
+   :alt: Rectilinear grid divergence example
+   :width: 100%
+
+.. autofunction:: physicsnemo.nn.functional.rectilinear_grid_curl
+
+.. figure:: /img/nn/functional/derivatives/rectilinear_grid_curl.png
+   :alt: Rectilinear grid curl example
+   :width: 100%
+
+.. autofunction:: physicsnemo.nn.functional.rectilinear_grid_laplacian
+
+.. figure:: /img/nn/functional/derivatives/rectilinear_grid_laplacian.png
+   :alt: Rectilinear grid Laplacian example
+   :width: 100%
+
 .. autofunction:: physicsnemo.nn.functional.mesh_lsq_gradient
 
 .. figure:: /img/nn/functional/derivatives/mesh_lsq_gradient.png

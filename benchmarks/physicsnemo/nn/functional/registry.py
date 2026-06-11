@@ -21,7 +21,10 @@ from physicsnemo.nn.functional.derivatives import (
     MeshGreenGaussGradient,
     MeshlessFDDerivatives,
     MeshLSQGradient,
+    RectilinearGridCurl,
+    RectilinearGridDivergence,
     RectilinearGridGradient,
+    RectilinearGridLaplacian,
     SpectralGridGradient,
     UniformGridGradient,
 )
@@ -60,6 +63,9 @@ FUNCTIONAL_SPECS: tuple[type[FunctionSpec], ...] = (
     RadiusSearch,
     # Derivatives.
     UniformGridGradient,
+    RectilinearGridDivergence,
+    RectilinearGridCurl,
+    RectilinearGridLaplacian,
     RectilinearGridGradient,
     MeshLSQGradient,
     MeshGreenGaussGradient,

@@ -60,5 +60,7 @@ from physicsnemo.mesh.calculus.integration import (
     integrate_point_data,
 )
 from physicsnemo.mesh.calculus.laplacian import (
+    compute_laplacian_cells_lsq,
     compute_laplacian_points_dec,
+    compute_laplacian_points_lsq,
 )

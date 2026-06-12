@@ -2981,6 +2981,7 @@ class Mesh:
         field: str | tuple[str, ...] | Float[torch.Tensor, "n n_spatial_dims"],
         method: Literal["lsq", "dec"] = "lsq",
         data_source: Literal["points", "cells"] = "points",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> Float[torch.Tensor, " n"]:
         r"""Divergence of a vector point or cell field, returned as a tensor.
 
@@ -2997,6 +2998,10 @@ class Mesh:
             point data (the DEC operators act on vertex forms).
         data_source : {"points", "cells"}, optional
             Whether ``field`` lives at vertices (default) or at cell centers.
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by the underlying functional. Defaults
+            to ``"torch"`` for backwards-compatible numerical precision. Pass
+            ``"warp"`` to use the accelerated custom kernels.
 
         Returns
         -------
@@ -3014,11 +3019,17 @@ class Mesh:
         values = _resolve_field(self, field, data_source)
         match method, data_source:
             case ("lsq", "points"):
-                return compute_divergence_points_lsq(self, values)
+                return compute_divergence_points_lsq(
+                    self, values, implementation=implementation
+                )
             case ("lsq", "cells"):
-                return compute_divergence_cells_lsq(self, values)
+                return compute_divergence_cells_lsq(
+                    self, values, implementation=implementation
+                )
             case ("dec", "points"):
-                return compute_divergence_points_dec(self, values)
+                return compute_divergence_points_dec(
+                    self, values, implementation=implementation
+                )
             case ("dec", "cells"):
                 raise NotImplementedError(
                     "DEC divergence is not available for cell data (the DEC "
@@ -3034,6 +3045,7 @@ class Mesh:
         self,
         field: str | tuple[str, ...] | Float[torch.Tensor, "n 3"],
         data_source: Literal["points", "cells"] = "points",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> Float[torch.Tensor, "n 3"]:
         r"""Curl of a 3D vector point or cell field (LSQ), returned as a tensor.
 
@@ -3048,6 +3060,10 @@ class Mesh:
             Vector field, by data key or by value.
         data_source : {"points", "cells"}, optional
             Whether ``field`` lives at vertices (default) or at cell centers.
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by the underlying functional. Defaults
+            to ``"torch"`` for backwards-compatible numerical precision. Pass
+            ``"warp"`` to use the accelerated custom kernels.
 
         Returns
         -------
@@ -3064,9 +3080,13 @@ class Mesh:
         values = _resolve_field(self, field, data_source)
         match data_source:
             case "points":
-                return compute_curl_points_lsq(self, values)
+                return compute_curl_points_lsq(
+                    self, values, implementation=implementation
+                )
             case "cells":
-                return compute_curl_cells_lsq(self, values)
+                return compute_curl_cells_lsq(
+                    self, values, implementation=implementation
+                )
             case _:
                 raise ValueError(
                     f"Invalid {data_source=!r}. Must be 'points' or 'cells'."
@@ -3075,28 +3095,32 @@ class Mesh:
     def laplacian(
         self,
         field: str | tuple[str, ...] | Float[torch.Tensor, "n ..."],
+        method: Literal["cotan", "lsq", "dec"] = "cotan",
         data_source: Literal["points", "cells"] = "points",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> Float[torch.Tensor, "n ..."]:
-        r"""Laplace-Beltrami operator on a point field (DEC), returned as a tensor.
+        r"""Laplacian of a point or cell field, returned as a tensor.
 
-        Uses the intrinsic cotangent Laplacian
-        (:func:`physicsnemo.mesh.calculus.compute_laplacian_points_dec`). Accepts a
-        field key (looked up in ``point_data``) or a raw point tensor, mirroring
-        :meth:`integrate`.
+        By default, uses the intrinsic cotangent Laplace-Beltrami operator
+        (:func:`physicsnemo.mesh.calculus.compute_laplacian_points_dec`) on
+        point data. Passing ``method="lsq"`` computes an extrinsic double-LSQ
+        Laplacian on point or cell data.
 
         Parameters
         ----------
         field : str, tuple[str, ...], or torch.Tensor
-            Point field, by ``point_data`` key or by value.
+            Field, by data key or by value.
+        method : {"cotan", "lsq", "dec"}, optional
+            Discretization. ``"cotan"`` is the default intrinsic
+            Laplace-Beltrami operator. ``"dec"`` is accepted as an alias for
+            ``"cotan"``. ``"lsq"`` computes an extrinsic double-LSQ operator.
         data_source : {"points", "cells"}, optional
-            Only ``"points"`` is supported: the cotangent Laplace-Beltrami
-            operator is defined on vertex functions, and there is no DEC
-            Laplacian for cell-centered data. The kwarg exists for signature
-            consistency with :meth:`gradient` / :meth:`divergence` / :meth:`curl`;
-            passing ``"cells"`` raises. (For a cell-centered Laplacian, compose
-            ``mesh.divergence(mesh.gradient(f, gradient_type="extrinsic",
-            data_source="cells"), data_source="cells")`` explicitly -- a double-LSQ
-            discretization with different accuracy properties.)
+            Whether ``field`` lives at vertices (default) or at cell centers.
+            Cotangent/DEC Laplacian is only defined for point data.
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by the underlying functional. Defaults
+            to ``"torch"`` for backwards-compatible numerical precision. Pass
+            ``"warp"`` to use the accelerated custom kernels.
 
         Returns
         -------
@@ -3104,23 +3128,42 @@ class Mesh:
             Laplace-Beltrami of the field, same shape as the input field.
         """
         from physicsnemo.mesh.calculus.integration import _resolve_field
-        from physicsnemo.mesh.calculus.laplacian import compute_laplacian_points_dec
+        from physicsnemo.mesh.calculus.laplacian import (
+            compute_laplacian_cells_lsq,
+            compute_laplacian_points_dec,
+            compute_laplacian_points_lsq,
+        )
 
-        match data_source:
-            case "points":
+        if method == "dec":
+            method = "cotan"
+
+        match method, data_source:
+            case ("cotan", "points"):
                 values = _resolve_field(self, field, "points")
-                return compute_laplacian_points_dec(self, values)
-            case "cells":
+                return compute_laplacian_points_dec(
+                    self, values, implementation=implementation
+                )
+            case ("cotan", "cells"):
                 raise NotImplementedError(
-                    "Mesh.laplacian only supports point data: the cotangent "
+                    "Cotangent Laplacian only supports point data: the cotangent "
                     "Laplace-Beltrami operator is defined on vertex functions, and "
-                    "there is no DEC Laplacian for cell-centered data. For a "
-                    "cell-centered Laplacian, compose divergence(gradient(...)) with "
-                    "data_source='cells' explicitly."
+                    "there is no DEC Laplacian for cell-centered data. Use "
+                    "method='lsq' for an extrinsic double-LSQ cell Laplacian."
+                )
+            case ("lsq", "points"):
+                values = _resolve_field(self, field, "points")
+                return compute_laplacian_points_lsq(
+                    self, values, implementation=implementation
+                )
+            case ("lsq", "cells"):
+                values = _resolve_field(self, field, "cells")
+                return compute_laplacian_cells_lsq(
+                    self, values, implementation=implementation
                 )
             case _:
                 raise ValueError(
-                    f"Invalid {data_source=!r}. Must be 'points' or 'cells'."
+                    f"Invalid {method=!r} (must be 'cotan', 'dec', or 'lsq') "
+                    f"or {data_source=!r} (must be 'points' or 'cells')."
                 )
 
     def validate(

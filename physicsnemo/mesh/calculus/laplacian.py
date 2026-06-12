@@ -39,8 +39,6 @@ from typing import TYPE_CHECKING
 import torch
 from jaxtyping import Float, Int
 
-from physicsnemo.mesh.utilities._tolerances import safe_eps
-
 if TYPE_CHECKING:
     from physicsnemo.mesh.mesh import Mesh
 
@@ -134,6 +132,7 @@ def _apply_cotan_laplacian_operator(
 def compute_laplacian_points_dec(
     mesh: "Mesh",
     point_values: Float[torch.Tensor, "n_points ..."],
+    implementation: str | None = "torch",
 ) -> Float[torch.Tensor, "n_points ..."]:
     r"""Compute Laplace-Beltrami at vertices using DEC cotangent formula.
 
@@ -167,27 +166,68 @@ def compute_laplacian_points_dec(
         compute_cotan_weights_fem,
         get_or_compute_dual_volumes_0,
     )
+    from physicsnemo.nn.functional.derivatives.mesh_cotan_laplacian import (
+        mesh_cotan_laplacian,
+    )
 
     ### Get cotangent weights and edges via FEM stiffness matrix (works for any dimension)
     cotan_weights, sorted_edges = compute_cotan_weights_fem(mesh)
-
-    ### Apply cotangent Laplacian operator using shared utility
-    laplacian = _apply_cotan_laplacian_operator(
-        n_points=mesh.n_points,
-        edges=sorted_edges,
-        cotan_weights=cotan_weights,
-        data=point_values,
-    )
 
     ### Normalize by Voronoi areas
     # Standard cotangent Laplacian: Δf_i = (1/A_voronoi_i) × accumulated_sum
     dual_volumes_0 = get_or_compute_dual_volumes_0(mesh)
 
-    if point_values.ndim == 1:
-        laplacian = laplacian / dual_volumes_0.clamp(min=safe_eps(dual_volumes_0.dtype))
-    else:
-        laplacian = laplacian / dual_volumes_0.view(
-            -1, *([1] * (point_values.ndim - 1))
-        ).clamp(min=safe_eps(dual_volumes_0.dtype))
+    return mesh_cotan_laplacian(
+        edges=sorted_edges,
+        cotan_weights=cotan_weights,
+        dual_volumes=dual_volumes_0,
+        values=point_values,
+        implementation=implementation,
+    )
 
-    return laplacian
+
+def compute_laplacian_points_lsq(
+    mesh: "Mesh",
+    point_values: Float[torch.Tensor, " n_points"],
+    weight_power: float = 2.0,
+    min_neighbors: int = 0,
+    implementation: str | None = "torch",
+) -> Float[torch.Tensor, " n_points"]:
+    r"""Compute an extrinsic double-LSQ Laplacian at vertices."""
+    from physicsnemo.nn.functional.derivatives.mesh_lsq_laplacian import (
+        mesh_lsq_laplacian,
+    )
+
+    adjacency = mesh.get_point_to_points_adjacency()
+    return mesh_lsq_laplacian(
+        points=mesh.points,
+        values=point_values,
+        neighbor_offsets=adjacency.offsets,
+        neighbor_indices=adjacency.indices,
+        weight_power=weight_power,
+        min_neighbors=min_neighbors,
+        implementation=implementation,
+    )
+
+
+def compute_laplacian_cells_lsq(
+    mesh: "Mesh",
+    cell_values: Float[torch.Tensor, " n_cells"],
+    weight_power: float = 2.0,
+    implementation: str | None = "torch",
+) -> Float[torch.Tensor, " n_cells"]:
+    r"""Compute an extrinsic double-LSQ Laplacian at cell centers."""
+    from physicsnemo.nn.functional.derivatives.mesh_lsq_laplacian import (
+        mesh_lsq_laplacian,
+    )
+
+    adjacency = mesh.get_cell_to_cells_adjacency(adjacency_codimension=1)
+    return mesh_lsq_laplacian(
+        points=mesh.cell_centroids,
+        values=cell_values,
+        neighbor_offsets=adjacency.offsets,
+        neighbor_indices=adjacency.indices,
+        weight_power=weight_power,
+        min_neighbors=0,
+        implementation=implementation,
+    )

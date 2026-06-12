@@ -40,6 +40,9 @@ if TYPE_CHECKING:
 def compute_curl_points_lsq(
     mesh: "Mesh",
     vector_field: Float[torch.Tensor, "n_points 3"],
+    weight_power: float = 2.0,
+    min_neighbors: int = 0,
+    implementation: str | None = "torch",
 ) -> Float[torch.Tensor, "n_points 3"]:
     r"""Compute curl at vertices using LSQ gradient method.
 
@@ -78,19 +81,25 @@ def compute_curl_points_lsq(
             f"Curl is only defined for 3D vector fields, got {mesh.n_spatial_dims=}"
         )
 
-    from physicsnemo.mesh.calculus._lsq_reconstruction import compute_point_gradient_lsq
+    from physicsnemo.nn.functional.derivatives.mesh_lsq_curl import mesh_lsq_curl
 
-    ### Compute full Jacobian in one batched LSQ solve
-    # vector_field: (n_points, 3) -> jacobian: (n_points, 3, 3)
-    # jacobian[i, j, k] = ∂v_j/∂x_k
-    jacobian = compute_point_gradient_lsq(mesh, vector_field)
-
-    return _curl_from_jacobian(jacobian)
+    adjacency = mesh.get_point_to_points_adjacency()
+    return mesh_lsq_curl(
+        points=mesh.points,
+        vector_field=vector_field,
+        neighbor_offsets=adjacency.offsets,
+        neighbor_indices=adjacency.indices,
+        weight_power=weight_power,
+        min_neighbors=min_neighbors,
+        implementation=implementation,
+    )
 
 
 def compute_curl_cells_lsq(
     mesh: "Mesh",
     vector_field: Float[torch.Tensor, "n_cells 3"],
+    weight_power: float = 2.0,
+    implementation: str | None = "torch",
 ) -> Float[torch.Tensor, "n_cells 3"]:
     r"""Compute curl at cell centers using LSQ gradient method.
 
@@ -120,12 +129,18 @@ def compute_curl_cells_lsq(
             f"Curl is only defined for 3D vector fields, got {mesh.n_spatial_dims=}"
         )
 
-    from physicsnemo.mesh.calculus._lsq_reconstruction import compute_cell_gradient_lsq
+    from physicsnemo.nn.functional.derivatives.mesh_lsq_curl import mesh_lsq_curl
 
-    # vector_field: (n_cells, 3) -> jacobian: (n_cells, 3, 3)
-    jacobian = compute_cell_gradient_lsq(mesh, vector_field)
-
-    return _curl_from_jacobian(jacobian)
+    adjacency = mesh.get_cell_to_cells_adjacency(adjacency_codimension=1)
+    return mesh_lsq_curl(
+        points=mesh.cell_centroids,
+        vector_field=vector_field,
+        neighbor_offsets=adjacency.offsets,
+        neighbor_indices=adjacency.indices,
+        weight_power=weight_power,
+        min_neighbors=0,
+        implementation=implementation,
+    )
 
 
 def _curl_from_jacobian(

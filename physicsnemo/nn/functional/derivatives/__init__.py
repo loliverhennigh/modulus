@@ -14,8 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .mesh_cotan_divergence import MeshCotanDivergence, mesh_cotan_divergence
+from .mesh_cotan_laplacian import MeshCotanLaplacian, mesh_cotan_laplacian
 from .mesh_green_gauss_gradient import MeshGreenGaussGradient, mesh_green_gauss_gradient
+from .mesh_lsq_curl import MeshLSQCurl, mesh_lsq_curl
+from .mesh_lsq_divergence import MeshLSQDivergence, mesh_lsq_divergence
 from .mesh_lsq_gradient import MeshLSQGradient, mesh_lsq_gradient
+from .mesh_lsq_laplacian import MeshLSQLaplacian, mesh_lsq_laplacian
 from .meshless_finite_difference import (
     MeshlessFDDerivatives,
     meshless_fd_derivatives,
@@ -28,15 +33,25 @@ from .spectral_grid_gradient import SpectralGridGradient, spectral_grid_gradient
 from .uniform_grid_gradient import UniformGridGradient, uniform_grid_gradient
 
 __all__ = [
+    "MeshCotanDivergence",
+    "MeshCotanLaplacian",
     "MeshGreenGaussGradient",
+    "MeshLSQCurl",
+    "MeshLSQDivergence",
     "MeshlessFDDerivatives",
     "MeshLSQGradient",
+    "MeshLSQLaplacian",
     "RectilinearGridGradient",
     "SpectralGridGradient",
     "UniformGridGradient",
+    "mesh_cotan_divergence",
+    "mesh_cotan_laplacian",
     "mesh_green_gauss_gradient",
+    "mesh_lsq_curl",
+    "mesh_lsq_divergence",
     "meshless_fd_derivatives",
     "mesh_lsq_gradient",
+    "mesh_lsq_laplacian",
     "rectilinear_grid_gradient",
     "spectral_grid_gradient",
     "uniform_grid_gradient",

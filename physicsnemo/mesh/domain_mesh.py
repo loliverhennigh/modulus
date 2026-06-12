@@ -715,6 +715,7 @@ class DomainMesh:
         keys: str | tuple[str, ...] | list[str | tuple[str, ...]] | None = None,
         method: Literal["lsq", "dec"] = "lsq",
         gradient_type: Literal["intrinsic", "extrinsic", "both"] = "intrinsic",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> "DomainMesh":
         r"""Compute gradients of point_data fields on all meshes.
 
@@ -728,6 +729,8 @@ class DomainMesh:
             Discretization method.
         gradient_type : {"intrinsic", "extrinsic", "both"}, optional
             Type of gradient to compute.
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by LSQ gradient functionals.
 
         Returns
         -------
@@ -736,7 +739,10 @@ class DomainMesh:
         """
         return self.apply_to_meshes(
             lambda m: m.compute_point_derivatives(
-                keys=keys, method=method, gradient_type=gradient_type
+                keys=keys,
+                method=method,
+                gradient_type=gradient_type,
+                implementation=implementation,
             )
         )
 
@@ -745,6 +751,7 @@ class DomainMesh:
         keys: str | tuple[str, ...] | list[str | tuple[str, ...]] | None = None,
         method: Literal["lsq", "dec"] = "lsq",
         gradient_type: Literal["intrinsic", "extrinsic", "both"] = "intrinsic",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> "DomainMesh":
         r"""Compute gradients of cell_data fields on all meshes.
 
@@ -758,6 +765,8 @@ class DomainMesh:
             Discretization method.
         gradient_type : {"intrinsic", "extrinsic", "both"}, optional
             Type of gradient to compute.
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by LSQ gradient functionals.
 
         Returns
         -------
@@ -766,7 +775,10 @@ class DomainMesh:
         """
         return self.apply_to_meshes(
             lambda m: m.compute_cell_derivatives(
-                keys=keys, method=method, gradient_type=gradient_type
+                keys=keys,
+                method=method,
+                gradient_type=gradient_type,
+                implementation=implementation,
             )
         )
 

@@ -2684,6 +2684,7 @@ class Mesh:
         keys: str | tuple[str, ...] | list[str | tuple[str, ...]] | None = None,
         method: Literal["lsq", "dec"] = "lsq",
         gradient_type: Literal["intrinsic", "extrinsic", "both"] = "intrinsic",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> "Mesh":
         """Compute gradients of point_data fields.
 
@@ -2709,6 +2710,10 @@ class Mesh:
             - "intrinsic": Project onto manifold tangent space (default)
             - "extrinsic": Full ambient space gradient
             - "both": Compute and store both
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by LSQ gradient functionals. Defaults
+            to ``"torch"`` for backwards-compatible numerical precision. Pass
+            ``"warp"`` to use the accelerated ambient LSQ gradient kernels.
 
         Returns
         -------
@@ -2734,6 +2739,7 @@ class Mesh:
             keys=keys,
             method=method,
             gradient_type=gradient_type,
+            implementation=implementation,
         )
 
     def compute_cell_derivatives(
@@ -2741,6 +2747,7 @@ class Mesh:
         keys: str | tuple[str, ...] | list[str | tuple[str, ...]] | None = None,
         method: Literal["lsq", "dec"] = "lsq",
         gradient_type: Literal["intrinsic", "extrinsic", "both"] = "intrinsic",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> "Mesh":
         """Compute gradients of cell_data fields.
 
@@ -2760,6 +2767,10 @@ class Mesh:
             primal DEC complex.
         gradient_type : {"intrinsic", "extrinsic", "both"}, optional
             Type of gradient to compute.
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by LSQ gradient functionals. Defaults
+            to ``"torch"`` for backwards-compatible numerical precision. Pass
+            ``"warp"`` to use the accelerated ambient LSQ gradient kernels.
 
         Returns
         -------
@@ -2787,6 +2798,7 @@ class Mesh:
             keys=keys,
             method=method,
             gradient_type=gradient_type,
+            implementation=implementation,
         )
 
     def integrate(
@@ -2907,6 +2919,7 @@ class Mesh:
         method: Literal["lsq", "dec"] = "lsq",
         gradient_type: Literal["intrinsic", "extrinsic"] = "intrinsic",
         data_source: Literal["points", "cells"] = "points",
+        implementation: Literal["warp", "torch"] | None = "torch",
     ) -> Float[torch.Tensor, "n n_spatial_dims ..."]:
         r"""Gradient of a point or cell field, returned as a tensor.
 
@@ -2931,6 +2944,12 @@ class Mesh:
             full ambient-space gradient (``"extrinsic"``).
         data_source : {"points", "cells"}, optional
             Whether ``field`` lives at vertices (default) or at cell centers.
+        implementation : {"warp", "torch"} or None, optional
+            Backend implementation used by LSQ gradient functionals. Defaults
+            to ``"torch"`` for backwards-compatible numerical precision. Pass
+            ``"warp"`` to use the accelerated ambient LSQ gradient kernels.
+            Intrinsic tangent-space LSQ gradients use their existing Torch
+            implementation.
 
         Returns
         -------
@@ -2955,10 +2974,17 @@ class Mesh:
         match method, data_source:
             case ("lsq", "points"):
                 return compute_gradient_points_lsq(
-                    self, values, intrinsic=(gradient_type == "intrinsic")
+                    self,
+                    values,
+                    intrinsic=(gradient_type == "intrinsic"),
+                    implementation=implementation,
                 )
             case ("lsq", "cells"):
-                grad = compute_gradient_cells_lsq(self, values)
+                grad = compute_gradient_cells_lsq(
+                    self,
+                    values,
+                    implementation=implementation,
+                )
             case ("dec", "points"):
                 grad = compute_gradient_points_dec(self, values)
             case ("dec", "cells"):

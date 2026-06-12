@@ -50,6 +50,7 @@ def compute_point_gradient_lsq(
     point_values: Float[torch.Tensor, "n_points ..."],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
+    implementation: str | None = "torch",
 ) -> Float[torch.Tensor, "n_points n_spatial_dims ..."]:
     r"""Compute gradient at vertices using weighted least-squares reconstruction.
 
@@ -80,6 +81,9 @@ def compute_point_gradient_lsq(
         points are processed: ``lstsq`` naturally returns the minimum-norm
         solution for under-determined systems (fewer neighbors than spatial
         dims) and zero for isolated points with no neighbors.
+    implementation : {"warp", "torch"} or None, optional
+        Backend implementation used by the underlying LSQ gradient functional.
+        Defaults to ``"torch"`` for backwards-compatible numerical precision.
 
     Returns
     -------
@@ -110,7 +114,7 @@ def compute_point_gradient_lsq(
     ### Get point-to-point adjacency
     adjacency = mesh.get_point_to_points_adjacency()
 
-    ### Delegate LSQ solve to the functional API using the torch backend.
+    ### Delegate LSQ solve to the functional API.
     from physicsnemo.nn.functional.derivatives.mesh_lsq_gradient import (
         mesh_lsq_gradient,
     )
@@ -122,7 +126,7 @@ def compute_point_gradient_lsq(
         neighbor_indices=adjacency.indices,
         weight_power=weight_power,
         min_neighbors=min_neighbors,
-        implementation="torch",
+        implementation=implementation,
     )
     return _to_mesh_gradient_layout(gradients, point_values)
 
@@ -131,6 +135,7 @@ def compute_cell_gradient_lsq(
     mesh: "Mesh",
     cell_values: Float[torch.Tensor, "n_cells ..."],
     weight_power: float = 2.0,
+    implementation: str | None = "torch",
 ) -> Float[torch.Tensor, "n_cells n_spatial_dims ..."]:
     r"""Compute gradient at cells using weighted least-squares reconstruction.
 
@@ -144,6 +149,9 @@ def compute_cell_gradient_lsq(
         Values at cells.
     weight_power : float
         Exponent for inverse-distance weighting (default 2.0).
+    implementation : {"warp", "torch"} or None, optional
+        Backend implementation used by the underlying LSQ gradient functional.
+        Defaults to ``"torch"`` for backwards-compatible numerical precision.
 
     Returns
     -------
@@ -161,7 +169,7 @@ def compute_cell_gradient_lsq(
     ### Get cell centroids
     cell_centroids = mesh.cell_centroids  # (n_cells, n_spatial_dims)
 
-    ### Delegate LSQ solve to the functional API using the torch backend.
+    ### Delegate LSQ solve to the functional API.
     from physicsnemo.nn.functional.derivatives.mesh_lsq_gradient import (
         mesh_lsq_gradient,
     )
@@ -173,6 +181,6 @@ def compute_cell_gradient_lsq(
         neighbor_indices=adjacency.indices,
         weight_power=weight_power,
         min_neighbors=0,  # Cells may have fewer neighbors than points.
-        implementation="torch",
+        implementation=implementation,
     )
     return _to_mesh_gradient_layout(gradients, cell_values)

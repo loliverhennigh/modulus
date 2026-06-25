@@ -18,7 +18,11 @@ from __future__ import annotations
 
 import torch
 
-from physicsnemo.mesh.utilities._tolerances import safe_eps
+
+def safe_eps(dtype: torch.dtype) -> float:
+    """Return a dtype-aware safe epsilon for preventing division by zero."""
+    info = torch.finfo(dtype)
+    return min(info.tiny**0.25, info.eps)
 
 
 def validate_cotan_geometry(

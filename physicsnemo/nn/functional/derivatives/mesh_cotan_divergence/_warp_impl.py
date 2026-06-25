@@ -20,8 +20,8 @@ import torch
 import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.mesh.utilities._tolerances import safe_eps
 from physicsnemo.nn.functional.derivatives._mesh_cotan_operator_utils import (
+    safe_eps,
     validate_cotan_divergence_inputs,
 )
 

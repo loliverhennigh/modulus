@@ -19,6 +19,9 @@ import torch
 
 from physicsnemo.nn.functional import ray_mesh_intersect
 from physicsnemo.nn.functional.geometry import RayMeshIntersect
+from physicsnemo.nn.functional.geometry.ray_mesh_intersect._warp_impl import (
+    op as ray_mesh_intersect_op,
+)
 from test.conftest import requires_module
 
 
@@ -126,6 +129,148 @@ def test_ray_mesh_intersect_warp_hits_and_misses(device: str):
         rtol=0.0,
     )
     assert "warp" in RayMeshIntersect.available_implementations()
+
+
+@requires_module("warp")
+def test_ray_mesh_intersect_returns_closest_stacked_face(device: str):
+    mesh_vertices = torch.tensor(
+        [
+            [-1.0, -1.0, 0.5],
+            [1.0, -1.0, 0.5],
+            [0.0, 1.0, 0.5],
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        device=device,
+        dtype=torch.float32,
+    )
+    mesh_indices = torch.tensor(
+        [[0, 1, 2], [3, 4, 5]],
+        device=device,
+        dtype=torch.int32,
+    )
+    ray_origins = torch.tensor([[0.0, 0.0, -1.0]], device=device)
+    ray_directions = torch.tensor([[0.0, 0.0, 1.0]], device=device)
+
+    hit_mask, hit_distance, hit_points, face_ids, _ = ray_mesh_intersect(
+        mesh_vertices,
+        mesh_indices,
+        ray_origins,
+        ray_directions,
+        max_distance=10.0,
+        implementation="warp",
+    )
+
+    assert hit_mask.tolist() == [True]
+    assert face_ids.tolist() == [1]
+    torch.testing.assert_close(
+        hit_distance,
+        torch.tensor([1.0], device=device),
+        atol=1.0e-6,
+        rtol=0.0,
+    )
+    torch.testing.assert_close(
+        hit_points,
+        torch.tensor([[0.0, 0.0, 0.0]], device=device),
+        atol=1.0e-6,
+        rtol=0.0,
+    )
+
+
+@requires_module("warp")
+def test_ray_mesh_intersect_returned_warp_mesh_matches_tensor_path(device: str):
+    mesh_vertices, mesh_indices = _triangle_mesh(device)
+    ray_origins = torch.tensor(
+        [[0.0, 0.0, -1.0], [2.0, 2.0, -1.0], [0.25, -0.25, -2.0]],
+        device=device,
+        dtype=torch.float32,
+    )
+    ray_directions = torch.tensor(
+        [[0.0, 0.0, 2.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+        device=device,
+        dtype=torch.float32,
+    )
+
+    tensor_outputs = ray_mesh_intersect(
+        mesh_vertices,
+        mesh_indices,
+        ray_origins,
+        ray_directions,
+        max_distance=10.0,
+        implementation="warp",
+    )
+    *returned_outputs, warp_mesh = ray_mesh_intersect(
+        mesh_vertices,
+        mesh_indices,
+        ray_origins,
+        ray_directions,
+        max_distance=10.0,
+        return_warp_mesh=True,
+        implementation="warp",
+    )
+    reused_outputs = ray_mesh_intersect(
+        mesh_vertices,
+        mesh_indices,
+        ray_origins,
+        ray_directions,
+        max_distance=10.0,
+        warp_mesh=warp_mesh,
+        implementation="warp",
+    )
+
+    assert isinstance(warp_mesh, ray_mesh_intersect_op.wp.Mesh)
+
+    for tensor_output, returned_output, reused_output in zip(
+        tensor_outputs,
+        returned_outputs,
+        reused_outputs,
+    ):
+        torch.testing.assert_close(returned_output, tensor_output)
+        torch.testing.assert_close(reused_output, tensor_output)
+
+
+@requires_module("warp")
+def test_ray_mesh_intersect_reuses_returned_warp_mesh(device: str, monkeypatch):
+    mesh_vertices, mesh_indices = _triangle_mesh(device)
+    ray_origins = torch.tensor([[0.0, 0.0, -1.0]], device=device)
+    ray_directions = torch.tensor([[0.0, 0.0, 1.0]], device=device)
+
+    mesh_build_count = 0
+    original_build_warp_mesh = ray_mesh_intersect_op._build_warp_mesh
+
+    def counting_build_warp_mesh(*args, **kwargs):
+        nonlocal mesh_build_count
+        mesh_build_count += 1
+        return original_build_warp_mesh(*args, **kwargs)
+
+    monkeypatch.setattr(
+        ray_mesh_intersect_op,
+        "_build_warp_mesh",
+        counting_build_warp_mesh,
+    )
+
+    *_, warp_mesh = ray_mesh_intersect(
+        mesh_vertices,
+        mesh_indices,
+        ray_origins,
+        ray_directions,
+        return_warp_mesh=True,
+        implementation="warp",
+    )
+    assert mesh_build_count == 1
+
+    for _ in range(2):
+        ray_mesh_intersect(
+            mesh_vertices,
+            mesh_indices,
+            ray_origins,
+            ray_directions,
+            warp_mesh=warp_mesh,
+            implementation="warp",
+        )
+
+    assert mesh_build_count == 1
 
 
 @requires_module("warp")
@@ -256,5 +401,15 @@ def test_ray_mesh_intersect_error_handling(device: str):
             ray_origins,
             ray_directions,
             max_distance=0.0,
+            implementation="warp",
+        )
+
+    with pytest.raises(TypeError, match="wp.Mesh"):
+        ray_mesh_intersect(
+            mesh_vertices,
+            mesh_indices,
+            ray_origins,
+            ray_directions,
+            warp_mesh=object(),
             implementation="warp",
         )

@@ -19,10 +19,17 @@ from __future__ import annotations
 import math
 
 import torch
+import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
 
 from ._warp_impl import ray_mesh_intersect_warp
+
+_RAY_MESH_INTERSECT_BENCHMARK_CASES = (
+    ("small", 8, 20, 4096),
+    ("medium", 16, 40, 16384),
+    ("large", 32, 80, 65536),
+)
 
 
 def _make_uv_sphere_mesh(
@@ -121,27 +128,36 @@ class RayMeshIntersect(FunctionSpec):
         Ray directions with the same shape as ``ray_origins``.
     max_distance : float, optional
         Maximum ray distance. Default is ``1e8``.
+    warp_mesh : wp.Mesh | None, optional
+        Prepared Warp mesh returned by an earlier ``ray_mesh_intersect`` call
+        with ``return_warp_mesh=True``. If provided, the mesh tensors are not
+        used to rebuild a Warp ``Mesh``.
+    return_warp_mesh : bool, optional
+        If ``True``, append the Warp ``Mesh`` used for the query to the output
+        tuple so it can be passed back through ``warp_mesh`` on later calls.
     implementation : str, optional
         Explicit implementation name. Currently only ``"warp"`` is registered.
 
     Returns
     -------
     tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-        A tuple ``(hit_mask, hit_distance, hit_points, face_ids, hit_normals)``.
-        Missed rays have ``False`` in ``hit_mask``, infinite ``hit_distance``,
-        zero ``hit_points`` and ``hit_normals``, and ``-1`` ``face_ids``.
+        By default, a tuple ``(hit_mask, hit_distance, hit_points, face_ids,
+        hit_normals)``. If ``return_warp_mesh=True``, the returned tuple is
+        ``(hit_mask, hit_distance, hit_points, face_ids, hit_normals,
+        warp_mesh)``. Missed rays have ``False`` in ``hit_mask``, infinite
+        ``hit_distance``, zero ``hit_points`` and ``hit_normals``, and ``-1``
+        ``face_ids``.
 
     Notes
     -----
     ``hit_normals`` are the mesh query normals returned by Warp. They preserve
     the mesh winding orientation and are not flipped to face the incoming ray.
+    For repeated queries against a static mesh, call with
+    ``return_warp_mesh=True`` once and pass the returned Warp mesh back through
+    ``warp_mesh`` on later calls.
     """
 
-    _BENCHMARK_CASES = (
-        ("small", 8, 20, 4096),
-        ("medium", 16, 40, 16384),
-        ("large", 32, 80, 65536),
-    )
+    _BENCHMARK_CASES = _RAY_MESH_INTERSECT_BENCHMARK_CASES
 
     @FunctionSpec.register(
         name="warp",
@@ -155,7 +171,19 @@ class RayMeshIntersect(FunctionSpec):
         ray_origins: torch.Tensor,
         ray_directions: torch.Tensor,
         max_distance: float = 1.0e8,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        warp_mesh: wp.Mesh | None = None,
+        return_warp_mesh: bool = False,
+    ) -> (
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+        | tuple[
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            wp.Mesh,
+        ]
+    ):
         """Run the Warp backend ray/mesh intersection query."""
         return ray_mesh_intersect_warp(
             mesh_vertices=mesh_vertices,
@@ -163,6 +191,8 @@ class RayMeshIntersect(FunctionSpec):
             ray_origins=ray_origins,
             ray_directions=ray_directions,
             max_distance=max_distance,
+            warp_mesh=warp_mesh,
+            return_warp_mesh=return_warp_mesh,
         )
 
     @classmethod

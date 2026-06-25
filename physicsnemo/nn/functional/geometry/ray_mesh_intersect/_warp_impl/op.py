@@ -92,6 +92,17 @@ def _check_floating_tensor(name: str, tensor: torch.Tensor) -> None:
         raise TypeError(f"{name} must use a floating dtype")
 
 
+def _validate_mesh_vertices(mesh_vertices: torch.Tensor) -> None:
+    if mesh_vertices.ndim != 2 or mesh_vertices.shape[-1] != 3:
+        raise ValueError(
+            "mesh_vertices must have shape (num_vertices, 3), got "
+            f"{tuple(mesh_vertices.shape)}"
+        )
+    if mesh_vertices.shape[0] == 0:
+        raise ValueError("mesh_vertices must contain at least one vertex")
+    _check_floating_tensor("mesh_vertices", mesh_vertices)
+
+
 def _validate_and_flatten_mesh_indices(
     mesh_indices: torch.Tensor,
     *,
@@ -128,56 +139,73 @@ def _validate_and_flatten_mesh_indices(
     return mesh_indices
 
 
-# ----------------------------------------------------------------------------
-# Warp Custom Operator
-# ----------------------------------------------------------------------------
-@torch.library.custom_op("physicsnemo::ray_mesh_intersect_warp", mutates_args=())
-def ray_mesh_intersect_impl(
+def _normalize_mesh_tensors(
     mesh_vertices: torch.Tensor,
     mesh_indices: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    _validate_mesh_vertices(mesh_vertices)
+    if mesh_indices.device != mesh_vertices.device:
+        raise RuntimeError("mesh_vertices and mesh_indices must be on the same device")
+
+    mesh_indices = _validate_and_flatten_mesh_indices(
+        mesh_indices,
+        n_vertices=mesh_vertices.shape[0],
+    )
+    return (
+        mesh_vertices.to(dtype=torch.float32).contiguous(),
+        mesh_indices.to(device=mesh_vertices.device, dtype=torch.int32).contiguous(),
+    )
+
+
+def _build_warp_mesh(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+) -> wp.Mesh:
+    wp_device, wp_stream = FunctionSpec.warp_launch_context(mesh_vertices)
+    with wp.ScopedStream(wp_stream):
+        return wp.Mesh(
+            points=wp.from_torch(mesh_vertices, dtype=wp.vec3),
+            indices=wp.from_torch(mesh_indices, dtype=wp.int32),
+        )
+
+
+def _torch_device_name(device: torch.device) -> str:
+    if device.type == "cuda":
+        index = device.index
+        if index is None:
+            index = torch.cuda.current_device()
+        return f"cuda:{index}"
+    return device.type
+
+
+def _check_ray_inputs(
     ray_origins: torch.Tensor,
     ray_directions: torch.Tensor,
-    max_distance: float = 1.0e8,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Launch Warp ray/mesh intersection queries."""
-    if mesh_vertices.ndim != 2 or mesh_vertices.shape[-1] != 3:
-        raise ValueError(
-            "mesh_vertices must have shape (num_vertices, 3), got "
-            f"{tuple(mesh_vertices.shape)}"
-        )
-    if mesh_vertices.shape[0] == 0:
-        raise ValueError("mesh_vertices must contain at least one vertex")
-    _check_floating_tensor("mesh_vertices", mesh_vertices)
+    max_distance: float,
+) -> None:
     _check_floating_tensor("ray_origins", ray_origins)
     _check_floating_tensor("ray_directions", ray_directions)
-
     if ray_origins.ndim != 2 or ray_origins.shape[-1] != 3:
         raise ValueError("ray_origins must have shape (num_rays, 3)")
     if ray_directions.shape != ray_origins.shape:
         raise ValueError("ray_directions must have the same shape as ray_origins")
-    if max_distance <= 0.0:
-        raise ValueError("max_distance must be strictly positive")
-    if mesh_indices.device != mesh_vertices.device:
-        raise RuntimeError("mesh_vertices and mesh_indices must be on the same device")
-    if ray_origins.device != mesh_vertices.device:
-        raise RuntimeError("mesh_vertices and ray_origins must be on the same device")
     if ray_directions.device != ray_origins.device:
         raise RuntimeError("ray_origins and ray_directions must be on the same device")
+    if max_distance <= 0.0:
+        raise ValueError("max_distance must be strictly positive")
 
-    device = ray_origins.device
-    mesh_vertices_fp32 = mesh_vertices.to(dtype=torch.float32).contiguous()
-    mesh_indices_i32 = (
-        _validate_and_flatten_mesh_indices(
-            mesh_indices,
-            n_vertices=mesh_vertices.shape[0],
-        )
-        .to(device=device, dtype=torch.int32)
-        .contiguous()
-    )
+
+def _launch_ray_mesh_intersect(
+    mesh_id: int,
+    ray_origins: torch.Tensor,
+    ray_directions: torch.Tensor,
+    max_distance: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     ray_origins_fp32 = ray_origins.to(dtype=torch.float32).contiguous()
     ray_directions_fp32 = ray_directions.to(dtype=torch.float32).contiguous()
 
     num_rays = ray_origins_fp32.shape[0]
+    device = ray_origins_fp32.device
     hit_mask = torch.empty((num_rays,), device=device, dtype=torch.int32)
     hit_distance = torch.empty((num_rays,), device=device, dtype=torch.float32)
     hit_points = torch.empty((num_rays, 3), device=device, dtype=torch.float32)
@@ -189,14 +217,11 @@ def ray_mesh_intersect_impl(
 
     wp_device, wp_stream = FunctionSpec.warp_launch_context(ray_origins_fp32)
     with wp.ScopedStream(wp_stream):
-        wp_vertices = wp.from_torch(mesh_vertices_fp32, dtype=wp.vec3)
-        wp_indices = wp.from_torch(mesh_indices_i32, dtype=wp.int32)
-        mesh = wp.Mesh(points=wp_vertices, indices=wp_indices)
         wp.launch(
             _ray_mesh_intersect_kernel,
             dim=num_rays,
             inputs=[
-                mesh.id,
+                int(mesh_id),
                 wp.from_torch(ray_origins_fp32, dtype=wp.vec3),
                 wp.from_torch(ray_directions_fp32, dtype=wp.vec3),
                 float(max_distance),
@@ -215,14 +240,34 @@ def ray_mesh_intersect_impl(
     return hit_mask, hit_distance, hit_points, face_ids, hit_normals
 
 
-@ray_mesh_intersect_impl.register_fake
-def _(
-    mesh_vertices: torch.Tensor,
-    mesh_indices: torch.Tensor,
+# ----------------------------------------------------------------------------
+# Warp Custom Operator
+# ----------------------------------------------------------------------------
+@torch.library.custom_op("physicsnemo::ray_mesh_intersect_warp", mutates_args=())
+def ray_mesh_intersect_impl(
+    mesh_id: int,
     ray_origins: torch.Tensor,
     ray_directions: torch.Tensor,
     max_distance: float = 1.0e8,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Launch Warp ray/mesh intersection queries."""
+    _check_ray_inputs(ray_origins, ray_directions, max_distance)
+    return _launch_ray_mesh_intersect(
+        mesh_id,
+        ray_origins,
+        ray_directions,
+        max_distance,
+    )
+
+
+@ray_mesh_intersect_impl.register_fake
+def _(
+    mesh_id: int,
+    ray_origins: torch.Tensor,
+    ray_directions: torch.Tensor,
+    max_distance: float = 1.0e8,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    _ = mesh_id, ray_directions, max_distance
     num_rays = ray_origins.shape[0]
     device = ray_origins.device
     return (
@@ -234,36 +279,16 @@ def _(
     )
 
 
-def ray_mesh_intersect_warp(
-    mesh_vertices: torch.Tensor,
-    mesh_indices: torch.Tensor,
-    ray_origins: torch.Tensor,
-    ray_directions: torch.Tensor,
-    max_distance: float = 1.0e8,
+def _reshape_outputs(
+    outputs: tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    ],
+    *,
+    input_shape: torch.Size,
+    output_shape: torch.Size,
+    output_dtype: torch.dtype,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Normalize inputs and execute the Warp ray/mesh intersection operator."""
-    if ray_origins.shape != ray_directions.shape:
-        raise ValueError("ray_directions must have the same shape as ray_origins")
-    if ray_origins.ndim == 0 or ray_origins.shape[-1] != 3:
-        raise ValueError("ray_origins must have shape (..., 3)")
-
-    input_shape = ray_origins.shape
-    output_shape = input_shape[:-1]
-    output_dtype = ray_origins.dtype
-
-    ray_origins_flat = ray_origins.reshape(-1, 3)
-    ray_directions_flat = ray_directions.reshape(-1, 3)
-
-    hit_mask_i32, hit_distance, hit_points, face_ids_i32, hit_normals = (
-        ray_mesh_intersect_impl(
-            mesh_vertices,
-            mesh_indices,
-            ray_origins_flat,
-            ray_directions_flat,
-            max_distance,
-        )
-    )
-
+    hit_mask_i32, hit_distance, hit_points, face_ids_i32, hit_normals = outputs
     hit_mask = hit_mask_i32.reshape(output_shape).to(torch.bool)
     hit_distance = hit_distance.reshape(output_shape)
     hit_distance = torch.where(
@@ -276,6 +301,85 @@ def ray_mesh_intersect_warp(
     hit_normals = hit_normals.reshape(input_shape).to(output_dtype)
 
     return hit_mask, hit_distance, hit_points, face_ids, hit_normals
+
+
+def _attach_warp_mesh_lifetime(
+    outputs: tuple[torch.Tensor, ...],
+    warp_mesh: wp.Mesh,
+) -> None:
+    # Keep the Warp mesh alive until callers release the output tensors. This
+    # protects asynchronous CUDA launches when the mesh is not otherwise held.
+    for output in outputs:
+        output._physicsnemo_warp_mesh = warp_mesh
+
+
+def ray_mesh_intersect_warp(
+    mesh_vertices: torch.Tensor,
+    mesh_indices: torch.Tensor,
+    ray_origins: torch.Tensor,
+    ray_directions: torch.Tensor,
+    max_distance: float = 1.0e8,
+    warp_mesh: wp.Mesh | None = None,
+    return_warp_mesh: bool = False,
+) -> (
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+    | tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, wp.Mesh
+    ]
+):
+    """Normalize inputs and execute the Warp ray/mesh intersection operator."""
+    if ray_origins.shape != ray_directions.shape:
+        raise ValueError("ray_directions must have the same shape as ray_origins")
+    if ray_origins.ndim == 0 or ray_origins.shape[-1] != 3:
+        raise ValueError("ray_origins must have shape (..., 3)")
+
+    if warp_mesh is None:
+        if ray_origins.device != mesh_vertices.device:
+            raise RuntimeError(
+                "mesh_vertices and ray_origins must be on the same device"
+            )
+        mesh_vertices_fp32, mesh_indices_i32 = _normalize_mesh_tensors(
+            mesh_vertices,
+            mesh_indices,
+        )
+        warp_mesh = _build_warp_mesh(
+            mesh_vertices_fp32.clone(),
+            mesh_indices_i32.clone(),
+        )
+    elif not isinstance(warp_mesh, wp.Mesh):
+        raise TypeError("warp_mesh must be a wp.Mesh returned by ray_mesh_intersect")
+    else:
+        if str(warp_mesh.device) != _torch_device_name(ray_origins.device):
+            raise RuntimeError("warp_mesh and ray_origins must be on the same device")
+
+    input_shape = ray_origins.shape
+    output_shape = input_shape[:-1]
+    output_dtype = ray_origins.dtype
+
+    ray_origins_flat = ray_origins.reshape(-1, 3)
+    ray_directions_flat = ray_directions.reshape(-1, 3)
+
+    hit_mask_i32, hit_distance, hit_points, face_ids_i32, hit_normals = (
+        ray_mesh_intersect_impl(
+            int(warp_mesh.id),
+            ray_origins_flat,
+            ray_directions_flat,
+            max_distance,
+        )
+    )
+
+    outputs = _reshape_outputs(
+        (hit_mask_i32, hit_distance, hit_points, face_ids_i32, hit_normals),
+        input_shape=input_shape,
+        output_shape=output_shape,
+        output_dtype=output_dtype,
+    )
+
+    _attach_warp_mesh_lifetime(outputs, warp_mesh)
+
+    if return_warp_mesh:
+        return (*outputs, warp_mesh)
+    return outputs
 
 
 __all__ = ["ray_mesh_intersect_warp"]

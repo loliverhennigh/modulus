@@ -25,3 +25,4 @@ in the documentation for performance comparisons.
    nn/functionals/regularization_parameterization
    nn/functionals/interpolation
    nn/functionals/neighborhood_attention
+   nn/functionals/rendering

@@ -45,6 +45,7 @@ def mesh_lsq_laplacian_warp(
         neighbor_indices=neighbor_indices,
         min_neighbors=min_neighbors,
         function_name="mesh_lsq_laplacian",
+        validate_geometry=False,
     )
     gradient = mesh_lsq_gradient_warp(
         points=points,

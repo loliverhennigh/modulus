@@ -46,6 +46,7 @@ def mesh_lsq_curl_warp(
         min_neighbors=min_neighbors,
         function_name="mesh_lsq_curl",
         required_dims=(2, 3),
+        validate_geometry=False,
     )
     jacobian = mesh_lsq_gradient_warp(
         points=points,

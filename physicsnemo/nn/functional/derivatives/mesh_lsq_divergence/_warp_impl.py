@@ -43,6 +43,7 @@ def mesh_lsq_divergence_warp(
         neighbor_indices=neighbor_indices,
         min_neighbors=min_neighbors,
         function_name="mesh_lsq_divergence",
+        validate_geometry=False,
     )
     jacobian = mesh_lsq_gradient_warp(
         points=points,

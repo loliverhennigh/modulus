@@ -88,15 +88,17 @@ def validate_lsq_scalar_field(
     neighbor_indices: torch.Tensor,
     min_neighbors: int,
     function_name: str,
+    validate_geometry: bool = True,
 ) -> None:
     """Validate scalar-valued inputs for LSQ mesh scalar operators."""
-    validate_lsq_geometry(
-        points=points,
-        neighbor_offsets=neighbor_offsets,
-        neighbor_indices=neighbor_indices,
-        min_neighbors=min_neighbors,
-        function_name=function_name,
-    )
+    if validate_geometry:
+        validate_lsq_geometry(
+            points=points,
+            neighbor_offsets=neighbor_offsets,
+            neighbor_indices=neighbor_indices,
+            min_neighbors=min_neighbors,
+            function_name=function_name,
+        )
     if values.ndim != 1:
         raise ValueError(
             f"{function_name}: values must have shape (n_entities,), "
@@ -124,15 +126,17 @@ def validate_lsq_vector_field(
     min_neighbors: int,
     function_name: str,
     required_dims: tuple[int, ...] | None = None,
+    validate_geometry: bool = True,
 ) -> None:
     """Validate vector-valued inputs for LSQ mesh vector operators."""
-    validate_lsq_geometry(
-        points=points,
-        neighbor_offsets=neighbor_offsets,
-        neighbor_indices=neighbor_indices,
-        min_neighbors=min_neighbors,
-        function_name=function_name,
-    )
+    if validate_geometry:
+        validate_lsq_geometry(
+            points=points,
+            neighbor_offsets=neighbor_offsets,
+            neighbor_indices=neighbor_indices,
+            min_neighbors=min_neighbors,
+            function_name=function_name,
+        )
     if vector_field.ndim != 2:
         raise ValueError(
             f"{function_name}: vector_field must have shape (n_entities, dims), "

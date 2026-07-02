@@ -16,14 +16,17 @@
 
 """Geometric transformations for simplicial meshes.
 
-This module implements linear and affine transformations with intelligent
-cache handling. By default, all caches are invalidated; transformations
-explicitly opt-in to preserve/transform specific cache fields.
+This module implements linear, affine, and nonlinear point transformations
+with intelligent cache handling. By default, all caches are invalidated;
+transformations explicitly opt in to preserve or update valid cache fields.
 
 Cached fields handled:
 - areas: point_data and cell_data
 - normals: point_data and cell_data
 - centroids: cell_data only
+
+Nonlinear displacement and morphing preserve topology caches and invalidate
+all point- and cell-geometry caches.
 """
 
 from collections.abc import Sequence
@@ -816,3 +819,210 @@ def scale(
         transform_global_data=transform_global_data,
         assume_invertible=assume_invertible,
     )
+
+
+### Nonlinear Point Transformations ###
+
+
+def _resolve_point_field(
+    mesh: "Mesh",
+    value: str | tuple[str, ...] | torch.Tensor,
+    *,
+    argument_name: str,
+) -> torch.Tensor:
+    """Resolve a raw tensor or nested ``point_data`` key."""
+    if isinstance(value, torch.Tensor):
+        return value
+    if not isinstance(value, (str, tuple)):
+        raise TypeError(
+            f"{argument_name} must be a tensor or point_data key/path, got "
+            f"{type(value).__name__}"
+        )
+    try:
+        return mesh.point_data[value]
+    except KeyError:
+        available = list(mesh.point_data.keys(include_nested=True, leaves_only=True))
+        raise KeyError(
+            f"{argument_name} field {value!r} not found in point_data. "
+            f"Available keys: {available}"
+        ) from None
+
+
+def _mesh_with_morphed_points(mesh: "Mesh", points: torch.Tensor) -> "Mesh":
+    """Construct a geometry-invalidated mesh while retaining topology caches."""
+    from physicsnemo.mesh.mesh import Mesh
+
+    cache = TensorDict(
+        {
+            "cell": TensorDict({}, batch_size=[mesh.n_cells]),
+            "point": TensorDict({}, batch_size=[mesh.n_points]),
+            "topology": mesh._cache.get("topology", TensorDict({})),
+        },
+        device=points.device,
+    )
+    return Mesh(
+        points=points,
+        cells=mesh.cells,
+        point_data=mesh.point_data,
+        cell_data=mesh.cell_data,
+        global_data=mesh.global_data,
+        _cache=cache,
+    )
+
+
+def displace(
+    mesh: "Mesh",
+    displacement: str | tuple[str, ...] | torch.Tensor,
+    *,
+    amount: float | torch.Tensor = 1.0,
+    weights: str | tuple[str, ...] | torch.Tensor | None = None,
+    implementation: Literal["torch", "warp"] | None = None,
+) -> "Mesh":
+    r"""Displace every mesh point by a dense vector field.
+
+    Computes ``points + amount * weights[..., None] * displacement`` without
+    changing connectivity. ``displacement`` and ``weights`` may be raw tensors
+    or keys (including nested tuple keys) in
+    :attr:`~physicsnemo.mesh.mesh.Mesh.point_data`.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Mesh whose points are displaced. The source mesh is not modified.
+    displacement : str, tuple[str, ...], or torch.Tensor
+        Dense displacement vectors with shape
+        ``(mesh.n_points, mesh.n_spatial_dims)``, or a point-data key resolving
+        to such a tensor. The tensor and ``mesh.points`` must have the same
+        float32 or float64 dtype and device.
+    amount : float or torch.Tensor, optional
+        Scalar multiplier. A differentiable zero-dimensional tensor must match
+        ``mesh.points`` in dtype and device and must remain finite; its value
+        is not validated at runtime. Default is ``1.0``.
+    weights : str, tuple[str, ...], torch.Tensor, or None, optional
+        Optional bool or floating per-point weights with shape
+        ``(mesh.n_points,)``, or a point-data key resolving to those weights.
+        Floating weights may be signed or greater than one. Default is ``None``.
+    implementation : {"torch", "warp"} or None, optional
+        Backend override. ``None`` selects Torch for dense displacement.
+
+    Returns
+    -------
+    Mesh
+        New mesh with displaced points and unchanged connectivity and attached
+        fields.
+
+    Notes
+    -----
+    Attached fields are treated as Lagrangian data and are not pushed forward.
+    Geometry-dependent caches are invalidated and topology caches are retained.
+    The operation does not detect or repair inverted, degenerate, or
+    self-intersecting cells; call
+    :meth:`~physicsnemo.mesh.mesh.Mesh.validate` explicitly when needed.
+    """
+    displacement_t = _resolve_point_field(
+        mesh, displacement, argument_name="displacement"
+    )
+    weights_t = (
+        None
+        if weights is None
+        else _resolve_point_field(mesh, weights, argument_name="weights")
+    )
+    from physicsnemo.nn.functional.geometry.morphing import displace_points
+
+    points = displace_points(
+        mesh.points,
+        displacement_t,
+        amount=amount,
+        weights=weights_t,
+        implementation=implementation,
+    )
+    return _mesh_with_morphed_points(mesh, points)
+
+
+def morph(
+    mesh: "Mesh",
+    control_points: torch.Tensor,
+    control_displacements: torch.Tensor,
+    *,
+    radius: float | torch.Tensor,
+    amount: float | torch.Tensor = 1.0,
+    weights: str | tuple[str, ...] | torch.Tensor | None = None,
+    implementation: Literal["torch", "warp"] | None = None,
+) -> "Mesh":
+    r"""Morph a mesh from sparse, compactly-supported control displacements.
+
+    Control influence uses a Wendland-C2 compact Shepard field with a stationary
+    zero-displacement background. Each control's influence vanishes smoothly at
+    its support boundary. Where supports overlap, all active controls and the
+    background are blended together; the result is not a simple sum or average.
+    The field is zero outside the union of all supports.
+
+    With ``amount=1`` and no weights, the field at a unique control coordinate
+    is exactly that control's displacement. Duplicate controls at one coordinate
+    contribute their mean displacement. A control may be anywhere in world
+    coordinates and need not coincide with a mesh point.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Mesh whose points are morphed. The source mesh is not modified.
+    control_points : torch.Tensor
+        World-coordinate controls with shape
+        ``(n_controls, mesh.n_spatial_dims)`` and the same dtype and device as
+        ``mesh.points``.
+    control_displacements : torch.Tensor
+        Displacement vectors, not destination coordinates, with exactly the
+        same shape, dtype, and device as ``control_points``.
+    radius : float or torch.Tensor
+        Support distance in mesh coordinate units. Supply one scalar for every
+        control or a tensor with shape ``(n_controls,)`` that matches the control
+        dtype and device. Every tensor value must remain positive and finite;
+        values are not validated at runtime.
+    amount : float or torch.Tensor, optional
+        Scalar multiplier applied after control blending. A differentiable
+        zero-dimensional tensor must match ``mesh.points`` in dtype and device
+        and must remain finite; its value is not validated at runtime. Default
+        is ``1.0``.
+    weights : str, tuple[str, ...], torch.Tensor, or None, optional
+        Optional bool or floating per-mesh-point weights with shape
+        ``(mesh.n_points,)``, or a
+        :attr:`~physicsnemo.mesh.mesh.Mesh.point_data` key resolving to those
+        weights. These are query-point weights, not per-control values. Default
+        is ``None``.
+    implementation : {"torch", "warp"} or None, optional
+        Backend override. ``None`` selects Torch on CPU and Warp on CUDA when
+        Warp is available, otherwise Torch.
+
+    Returns
+    -------
+    Mesh
+        New mesh with morphed points and unchanged connectivity and attached
+        fields.
+
+    Notes
+    -----
+    Attached fields are treated as Lagrangian data and are not pushed forward.
+    Geometry-dependent caches are invalidated and topology caches are retained.
+    Parameterize learned radii to remain positive, for example as
+    ``torch.nn.functional.softplus(raw_radius) + eps``.
+    The operation does not detect or repair inverted, degenerate, or
+    self-intersecting cells; call
+    :meth:`~physicsnemo.mesh.mesh.Mesh.validate` explicitly when needed.
+    """
+    weights_t = (
+        None
+        if weights is None
+        else _resolve_point_field(mesh, weights, argument_name="weights")
+    )
+    from physicsnemo.nn.functional.geometry.morphing import morph_points
+
+    points = morph_points(
+        mesh.points,
+        control_points,
+        control_displacements,
+        radius=radius,
+        amount=amount,
+        weights=weights_t,
+        implementation=implementation,
+    )
+    return _mesh_with_morphed_points(mesh, points)

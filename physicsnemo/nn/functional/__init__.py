@@ -31,9 +31,13 @@ from .equivariant_ops import (
 )
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
 from .geometry import (
+    DisplacePoints,
+    MorphPoints,
+    displace_points,
     farthest_point_sampling,
     mesh_poisson_disk_sample,
     mesh_to_voxel_fraction,
+    morph_points,
     ray_mesh_intersect,
     signed_distance_field,
 )
@@ -57,6 +61,9 @@ from .rendering import (
 )
 
 __all__ = [
+    "DisplacePoints",
+    "MorphPoints",
+    "displace_points",
     "irfft",
     "irfft2",
     "drop_path",
@@ -74,6 +81,7 @@ __all__ = [
     "mesh_lsq_gradient",
     "mesh_poisson_disk_sample",
     "mesh_to_voxel_fraction",
+    "morph_points",
     "na1d",
     "na2d",
     "na3d",

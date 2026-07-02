@@ -36,6 +36,8 @@ from tensordict import NonTensorData, TensorDict, tensorclass
 from physicsnemo.mesh.geometry._cell_areas import compute_cell_areas
 from physicsnemo.mesh.geometry._cell_normals import compute_cell_normals
 from physicsnemo.mesh.transformations.geometric import (
+    displace,
+    morph,
     rotate,
     scale,
     transform,
@@ -2650,6 +2652,129 @@ class Mesh:
             New Mesh with translated geometry.
         """
         return translate(self, offset)
+
+    def displace(
+        self,
+        displacement: str | tuple[str, ...] | torch.Tensor,
+        *,
+        amount: float | torch.Tensor = 1.0,
+        weights: str | tuple[str, ...] | torch.Tensor | None = None,
+        implementation: Literal["torch", "warp"] | None = None,
+    ) -> "Mesh":
+        r"""Displace points by a dense vector field without changing topology.
+
+        ``displacement`` and ``weights`` may be tensors or keys in
+        :attr:`point_data`. Floating weights are not clamped, so signed and
+        amplifying falloffs are supported; boolean weights act as hard masks.
+        The operation returns a new mesh and does not modify the source.
+
+        Parameters
+        ----------
+        displacement : str, tuple[str, ...], or torch.Tensor
+            Point displacement with shape ``(n_points, n_spatial_dims)`` and the
+            same float32 or float64 dtype and device as :attr:`points`, or a
+            point-data key resolving to such a tensor.
+        amount : float or scalar torch.Tensor
+            Global displacement multiplier. Extrapolation is allowed.
+        weights : str, tuple[str, ...], torch.Tensor, or None
+            Optional bool or floating per-point weights with shape
+            ``(n_points,)``, or a point-data key resolving to those weights.
+        implementation : {"torch", "warp"} or None
+            Backend override. The default dense-displacement backend is Torch.
+
+        Returns
+        -------
+        Mesh
+            New mesh with displaced points, unchanged connectivity and fields.
+
+        Notes
+        -----
+        Attached fields are retained as Lagrangian data and are not pushed
+        forward. Geometry caches are invalidated and topology caches are
+        retained. Displacement does not automatically detect inverted,
+        degenerate, or self-intersecting cells. Use :meth:`validate` explicitly
+        if required.
+        """
+        return displace(
+            self,
+            displacement,
+            amount=amount,
+            weights=weights,
+            implementation=implementation,
+        )
+
+    def morph(
+        self,
+        control_points: torch.Tensor,
+        control_displacements: torch.Tensor,
+        *,
+        radius: float | torch.Tensor,
+        amount: float | torch.Tensor = 1.0,
+        weights: str | tuple[str, ...] | torch.Tensor | None = None,
+        implementation: Literal["torch", "warp"] | None = None,
+    ) -> "Mesh":
+        r"""Morph points from sparse compactly-supported control handles.
+
+        A Wendland-C2 compact Shepard field blends active controls with a
+        stationary zero-displacement background. Each control's influence
+        vanishes smoothly at its support boundary, and the field is zero outside
+        the union of all supports. Overlapping controls are blended rather than
+        simply summed or averaged.
+
+        With ``amount=1`` and no weights, a point exactly at a unique control
+        receives that control's displacement. Duplicate controls at the same
+        coordinate contribute their mean displacement. Controls are world-space
+        locations and need not be mesh vertices.
+
+        Parameters
+        ----------
+        control_points : torch.Tensor
+            World-coordinate controls with shape
+            ``(n_controls, n_spatial_dims)`` and the same float32 or float64
+            dtype and device as :attr:`points`.
+        control_displacements : torch.Tensor
+            Displacement vectors, not destination coordinates, with the same
+            shape, dtype, and device as ``control_points``.
+        radius : float or torch.Tensor
+            Support distance in mesh coordinate units. Supply a scalar or a
+            tensor with shape ``(n_controls,)`` that matches the control dtype
+            and device. Tensor values must remain positive and finite; they are
+            not validated at runtime.
+        amount : float or scalar torch.Tensor
+            Global morph multiplier applied after blending. Extrapolation is
+            allowed. A tensor value must remain finite; it is not validated at
+            runtime.
+        weights : str, tuple[str, ...], torch.Tensor, or None
+            Optional bool or floating per-point mask/falloff with shape
+            ``(n_points,)``, or a point-data key. Weights apply to query points,
+            not controls.
+        implementation : {"torch", "warp"} or None
+            Backend override. Auto dispatch uses Torch on CPU and Warp on CUDA
+            when Warp is available, otherwise Torch.
+
+        Returns
+        -------
+        Mesh
+            New mesh with morphed points, unchanged connectivity and fields.
+
+        Notes
+        -----
+        Attached fields are retained as Lagrangian data and are not pushed
+        forward. Geometry caches are invalidated and topology caches are
+        retained. Parameterize learned radii to remain positive, for example as
+        ``torch.nn.functional.softplus(raw_radius) + eps``. Morphing does not
+        automatically detect inverted, degenerate, or self-intersecting cells.
+        Use :meth:`validate` explicitly if required.
+        """
+        return morph(
+            self,
+            control_points,
+            control_displacements,
+            radius=radius,
+            amount=amount,
+            weights=weights,
+            implementation=implementation,
+        )
 
     def rotate(
         self,

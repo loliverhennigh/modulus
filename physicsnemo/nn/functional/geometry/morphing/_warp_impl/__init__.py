@@ -6,7 +6,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,12 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Geometric transformations for simplicial meshes.
+"""Warp backend for point displacement and compact Shepard morphing."""
 
-This module provides linear, affine, and nonlinear point transformations with
-intelligent cache handling.
-"""
+from .op import (
+    compact_shepard_field_warp_impl,
+    displace_points_warp,
+    displace_points_warp_impl,
+    morph_points_warp,
+)
 
-from .geometric import displace, morph, rotate, scale, transform, translate
-
-__all__ = ["displace", "morph", "rotate", "scale", "transform", "translate"]
+__all__ = [
+    "compact_shepard_field_warp_impl",
+    "displace_points_warp",
+    "displace_points_warp_impl",
+    "morph_points_warp",
+]

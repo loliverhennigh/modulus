@@ -35,7 +35,9 @@ from physicsnemo.nn.functional.fourier_spectral import (
     ViewAsComplex,
 )
 from physicsnemo.nn.functional.geometry import (
+    DisplacePoints,
     FarthestPointSampling,
+    MorphPoints,
     RayMeshIntersect,
     SignedDistanceField,
 )
@@ -66,6 +68,8 @@ FUNCTIONAL_SPECS: tuple[type[FunctionSpec], ...] = (
     SpectralGridGradient,
     MeshlessFDDerivatives,
     # Geometry.
+    DisplacePoints,
+    MorphPoints,
     FarthestPointSampling,
     RayMeshIntersect,
     SignedDistanceField,

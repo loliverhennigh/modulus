@@ -21,11 +21,12 @@ from collections.abc import Sequence
 import torch
 import warp as wp
 
+from physicsnemo.core.function_spec import FunctionSpec
+
 from ..uniform_grid_gradient._warp_impl.utils import (
     _launch_dim,
     _normalize_spacing,
     _to_wp_tensor,
-    _warp_launch_context,
     _wp_launch,
     _wrap_minus1,
     _wrap_minus2,
@@ -401,7 +402,7 @@ def _launch_divergence_forward(
     order: int,
     output_fp32: torch.Tensor,
 ) -> None:
-    wp_device, wp_stream = _warp_launch_context(vector_field_fp32)
+    wp_device, wp_stream = FunctionSpec.warp_launch_context(vector_field_fp32)
     _wp_launch(
         kernel=_FORWARD_KERNELS[(vector_field_fp32.ndim - 1, order)],
         dim=_launch_dim(output_fp32.shape),
@@ -422,7 +423,7 @@ def _launch_divergence_backward(
     order: int,
     grad_vector_fp32: torch.Tensor,
 ) -> None:
-    wp_device, wp_stream = _warp_launch_context(grad_output_fp32)
+    wp_device, wp_stream = FunctionSpec.warp_launch_context(grad_output_fp32)
     _wp_launch(
         kernel=_BACKWARD_KERNELS[(grad_output_fp32.ndim, order)],
         dim=_launch_dim(grad_output_fp32.shape),
@@ -528,4 +529,6 @@ def uniform_grid_divergence_warp(
     grid_ndim = vector_field.ndim - 1
     spacing_tuple = _normalize_spacing(spacing, grid_ndim)
     spacing_meta = torch.tensor(spacing_tuple, dtype=torch.float32, device="cpu")
-    return uniform_grid_divergence_impl(vector_field, spacing_meta, int(order))
+    return uniform_grid_divergence_impl(
+        vector_field, spacing_meta, _validate_order(order)
+    )

@@ -21,11 +21,12 @@ from collections.abc import Sequence
 import torch
 import warp as wp
 
+from physicsnemo.core.function_spec import FunctionSpec
+
 from ..uniform_grid_gradient._warp_impl.utils import (
     _launch_dim,
     _normalize_spacing,
     _to_wp_tensor,
-    _warp_launch_context,
     _wp_launch,
     _wrap_minus1,
     _wrap_minus2,
@@ -244,7 +245,7 @@ def _launch_laplacian(
     output_fp32: torch.Tensor,
 ) -> None:
     inv_sq = [1.0 / float(dx * dx) for dx in spacing_tuple]
-    wp_device, wp_stream = _warp_launch_context(field_fp32)
+    wp_device, wp_stream = FunctionSpec.warp_launch_context(field_fp32)
     _wp_launch(
         kernel=_LAPLACIAN_KERNELS[(field_fp32.ndim, order)],
         dim=_launch_dim(field_fp32.shape),
@@ -337,4 +338,4 @@ def uniform_grid_laplacian_warp(
     """Compute periodic uniform-grid Laplacian with a fused Warp custom op."""
     spacing_tuple = _normalize_spacing(spacing, field.ndim)
     spacing_meta = torch.tensor(spacing_tuple, dtype=torch.float32, device="cpu")
-    return uniform_grid_laplacian_impl(field, spacing_meta, int(order))
+    return uniform_grid_laplacian_impl(field, spacing_meta, _validate_order(order))

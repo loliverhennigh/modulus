@@ -188,6 +188,16 @@ def test_uniform_grid_curl_error_handling(device: str):
         )
 
 
+@requires_module("warp")
+def test_uniform_grid_curl_warp_rejects_non_integer_order(device: str):
+    with pytest.raises(TypeError, match="order must be an integer"):
+        UniformGridCurl.dispatch(
+            torch.ones((2, 8, 8), device=device),
+            order=2.5,
+            implementation="warp",
+        )
+
+
 def test_uniform_grid_curl_make_inputs_forward(device: str):
     label, args, kwargs = next(iter(UniformGridCurl.make_inputs_forward(device=device)))
     assert isinstance(label, str)

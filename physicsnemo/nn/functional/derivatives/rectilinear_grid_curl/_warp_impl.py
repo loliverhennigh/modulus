@@ -270,7 +270,7 @@ def _launch_forward(
         *[float(period_tuple[i]) for i in range(grid_ndim)],
         wp.from_torch(output_fp32, dtype=wp.float32),
     ]
-    with wp.ScopedStream(wp_stream):
+    with FunctionSpec.warp_stream_scope(wp_stream):
         wp.launch(
             kernel=_FORWARD_KERNELS[grid_ndim],
             dim=_launch_dim(output_fp32.shape[-grid_ndim:]),
@@ -294,7 +294,7 @@ def _launch_backward(
         *[float(period_tuple[i]) for i in range(grid_ndim)],
         wp.from_torch(grad_vector_fp32, dtype=wp.float32),
     ]
-    with wp.ScopedStream(wp_stream):
+    with FunctionSpec.warp_stream_scope(wp_stream):
         wp.launch(
             kernel=_BACKWARD_KERNELS[grid_ndim],
             dim=_launch_dim(grad_vector_fp32.shape[1:]),

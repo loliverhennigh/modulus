@@ -141,6 +141,55 @@ def test_mesh_missing_point_data_key_has_actionable_diagnostic():
         )
 
 
+def test_mesh_point_data_path_through_leaf_has_actionable_diagnostic():
+    mesh = _triangle_mesh()
+
+    # 'temperature' is a leaf tensor; descending into it must produce the same
+    # actionable KeyError diagnostic as a missing key, not an internal
+    # tensordict ValueError.
+    with pytest.raises(KeyError, match="displacement field.*Available keys"):
+        mesh.displace(("temperature", "x"), implementation="torch")
+    with pytest.raises(KeyError, match="weights field.*Available keys"):
+        mesh.morph(
+            torch.tensor([[0.0, 0.0]]),
+            torch.tensor([[0.0, 1.0]]),
+            radius=1.0,
+            weights=("temperature", "x"),
+            implementation="torch",
+        )
+
+
+def test_mesh_displace_rejects_weights_resolving_to_tensordict():
+    mesh = _triangle_mesh()
+    mesh.point_data["motion"] = TensorDict(
+        {"weight": torch.tensor([0.5, 1.0, 0.0]), "mask": torch.ones(3)},
+        batch_size=[mesh.n_points],
+        device=mesh.points.device,
+    )
+    displacement = torch.zeros_like(mesh.points)
+
+    # A key resolving to a nested TensorDict must be rejected at the API
+    # boundary; today it flows through _resolve_point_field and silently
+    # produces a Mesh whose points attribute is a TensorDict, not a tensor.
+    with pytest.raises(TypeError, match="must resolve to a torch.Tensor"):
+        mesh.displace(displacement, weights="motion", implementation="torch")
+
+
+def test_mesh_morph_rejects_non_tensor_control_points():
+    mesh = _triangle_mesh()
+
+    # DomainMesh.morph raises a descriptive TypeError for this identical
+    # mistake; Mesh.morph must not die with AttributeError deep inside input
+    # normalization.
+    with pytest.raises(TypeError, match="control_points"):
+        mesh.morph(
+            "handles",
+            torch.tensor([[0.0, 1.0]]),
+            radius=0.5,
+            implementation="torch",
+        )
+
+
 def _domain_with_coincident_points() -> DomainMesh:
     interior = _triangle_mesh()
     wall = Mesh(
@@ -182,6 +231,23 @@ def test_domain_morph_shared_controls_and_common_weight_key(weights):
     )
     assert torch.equal(output.global_data["reynolds"], domain.global_data["reynolds"])
     torch.testing.assert_close(domain.interior.points, _triangle_mesh().points)
+
+
+def test_domain_morph_clones_domain_global_data():
+    domain = _domain_with_coincident_points()
+    output = domain.morph(
+        torch.tensor([[0.0, 0.0]]),
+        torch.tensor([[0.0, 0.5]]),
+        radius=2.0,
+        implementation="torch",
+    )
+
+    # Every other DomainMesh operation delegates to apply_to_meshes, which
+    # always clones global_data; morph must not hand back an aliased
+    # TensorDict whose mutation corrupts the source domain.
+    assert output.global_data is not domain.global_data
+    output.global_data["reynolds"] = torch.tensor(2.0e5)
+    torch.testing.assert_close(domain.global_data["reynolds"], torch.tensor(1.0e5))
 
 
 def test_domain_morph_missing_common_weight_names_failing_component():

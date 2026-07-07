@@ -929,6 +929,38 @@ def test_torch_compile_fullgraph_dynamic_python_scalars_and_defaults():
     )
 
 
+def test_torch_compile_rejects_invalid_python_scalars_like_eager():
+    """Compiled execution must reject the same invalid Python scalars as eager.
+
+    The ``torch.compiler.is_compiling()`` guards in ``_utils.py`` currently
+    skip Python-scalar validation entirely during tracing, so a compiled model
+    silently returns a near-identity morph for ``radius=0.0`` and NaN geometry
+    for ``amount=nan`` where the identical eager call raises ``ValueError``.
+    """
+
+    points = torch.randn((5, 2))
+    controls = torch.randn((3, 2))
+    displacements = torch.randn((3, 2))
+
+    def zero_radius(p, c, d):
+        return morph_points(p, c, d, radius=0.0, implementation="torch")
+
+    def nan_amount(p, c, d):
+        return morph_points(
+            p, c, d, radius=1.0, amount=float("nan"), implementation="torch"
+        )
+
+    with pytest.raises(ValueError, match="radius must be strictly positive"):
+        zero_radius(points, controls, displacements)
+    with pytest.raises(ValueError, match="amount must be finite"):
+        nan_amount(points, controls, displacements)
+
+    with pytest.raises(ValueError, match="radius must be strictly positive"):
+        torch.compile(zero_radius, backend="eager")(points, controls, displacements)
+    with pytest.raises(ValueError, match="amount must be finite"):
+        torch.compile(nan_amount, backend="eager")(points, controls, displacements)
+
+
 @requires_module("warp")
 @pytest.mark.parametrize("implementation", ["torch", "warp"])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
@@ -1107,6 +1139,38 @@ def test_exact_handle_extreme_radius_has_zero_finite_geometry_gradients(
     assert torch.isfinite(point_gradient).all()
     assert torch.isfinite(control_gradient).all()
     assert torch.isfinite(radius_gradient).all()
+
+
+@requires_module("warp")
+def test_infinite_tensor_radius_agrees_across_backends():
+    """Backends must agree when an unvalidated tensor radius contains ``inf``.
+
+    Tensor radius values are documented as unvalidated, so ``radius=inf``
+    must at least behave consistently. The infinite-radius limit of the
+    compact Shepard field applies the full control displacement everywhere
+    (``q -> 0``), which is what the Warp backend and the Torch backend at any
+    large finite radius already produce; the Torch backend must not jump to
+    zero influence exactly at ``inf``.
+    """
+
+    dtype = torch.float64
+    points = torch.tensor([[0.5, 0.0], [3.0, 4.0]], dtype=dtype)
+    controls = torch.tensor([[0.0, 0.0]], dtype=dtype)
+    displacements = torch.tensor([[0.0, 1.0]], dtype=dtype)
+
+    def run(radius_value, implementation):
+        return morph_points(
+            points,
+            controls,
+            displacements,
+            radius=torch.tensor([radius_value], dtype=dtype),
+            implementation=implementation,
+        )
+
+    torch_inf = run(torch.inf, "torch")
+    warp_inf = run(torch.inf, "warp")
+    torch.testing.assert_close(torch_inf, warp_inf)
+    torch.testing.assert_close(torch_inf, run(1e300, "torch"))
 
 
 @requires_module("warp")

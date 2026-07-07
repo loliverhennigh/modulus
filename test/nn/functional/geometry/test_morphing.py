@@ -621,6 +621,51 @@ def test_torch_chunk_checkpoint_bounds_retained_autograd_storage(monkeypatch):
         torch.testing.assert_close(checkpointed_gradient, eager_gradient)
 
 
+def test_torch_control_chunked_gradients_match_unchunked_on_ties(monkeypatch):
+    """Control chunking must not change gradients on tied minimum distances.
+
+    The first query point is exactly equidistant from the first two controls.
+    With one-control chunks that tie straddles a chunk boundary, where the
+    reference selection in ``_compact_shepard_query_chunk`` uses strict ``<``
+    but the differentiable running minimum uses ``torch.minimum``, whose
+    backward splits the gradient 50/50 across exact ties. That routes half of
+    the reference-distance gradient to a control the downstream compensation
+    algebra assumes has no reference role, corrupting the point, control, and
+    radius gradients while forward values and displacement gradients still
+    match. Chunking is a byte-budget implementation detail and must be
+    gradient-invariant.
+    """
+
+    from physicsnemo.nn.functional.geometry.morphing import _torch_impl
+
+    dtype = torch.float64
+    points = torch.tensor([[0.0, 0.0], [0.1, 0.2]], dtype=dtype)
+    controls = torch.tensor([[0.3, 0.4], [-0.3, 0.4], [0.9, -0.7]], dtype=dtype)
+    displacements = torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]], dtype=dtype)
+    radius = torch.ones(3, dtype=dtype)
+
+    def gradients():
+        inputs = tuple(
+            tensor.clone().requires_grad_()
+            for tensor in (points, controls, displacements, radius)
+        )
+        output = morph_points(
+            inputs[0],
+            inputs[1],
+            inputs[2],
+            radius=inputs[3],
+            implementation="torch",
+        )
+        return torch.autograd.grad(output.sum(), inputs)
+
+    unchunked = gradients()
+    monkeypatch.setattr(_torch_impl, "_PAIRWISE_TEMPORARY_BYTE_BUDGET", 1)
+    chunked = gradients()
+
+    for chunked_gradient, unchunked_gradient in zip(chunked, unchunked):
+        torch.testing.assert_close(chunked_gradient, unchunked_gradient)
+
+
 def test_compiled_torch_training_checkpoints_pairwise_activations():
     """The symbolic compile path must not retain the full pairwise graph."""
 

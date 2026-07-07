@@ -1,6 +1,18 @@
 Derivative Functionals
 ======================
 
+.. note::
+
+   The ``rectilinear_grid_divergence``, ``rectilinear_grid_curl``, and
+   ``rectilinear_grid_laplacian`` functionals support periodic boundary
+   conditions only.
+
+   Where available, Warp implementations of the derivative functionals on this
+   page compute internally in ``float32``. Non-``float32`` floating-point
+   inputs are cast to ``float32`` for computation, and outputs are cast back to
+   the input field or value dtype. Consequently, ``float64`` outputs retain
+   their dtype but are limited to ``float32`` numerical precision.
+
 .. autofunction:: physicsnemo.nn.functional.uniform_grid_gradient
 
 .. figure:: /img/nn/functional/derivatives/uniform_grid_gradient.png

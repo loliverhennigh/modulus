@@ -169,3 +169,9 @@ def test_spectral_grid_divergence_error_handling(device: str):
             torch.ones((2, 9, 7), device=device),
             lengths=(1.0, 0.0),
         )
+
+    with pytest.raises(ValueError, match="finite and strictly positive"):
+        spectral_grid_divergence(
+            torch.ones((2, 9, 7), device=device),
+            lengths=(1.0, float("nan")),
+        )

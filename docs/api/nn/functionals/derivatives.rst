@@ -55,26 +55,26 @@ Derivative Functionals
    :alt: Mesh Green-Gauss gradient example
    :width: 100%
 
-.. autofunction:: physicsnemo.nn.functional.spectral_grid_gradient
-
-.. figure:: /img/nn/functional/derivatives/spectral_grid_gradient.png
-   :alt: Spectral grid gradient example
-   :width: 100%
-
 .. autofunction:: physicsnemo.nn.functional.meshless_fd_derivatives
 
-Spectral Grid Vector Calculus
------------------------------
+Spectral Grid Operators
+-----------------------
 
 .. note::
 
-   The spectral vector-calculus functionals assume periodic boundaries and
-   use physical domain lengths to construct their Fourier wavenumbers.
+   The spectral grid operators assume periodic boundaries and use physical
+   domain lengths to construct their Fourier wavenumbers.
 
    For real-valued fields on even-sized grids, odd-order derivatives suppress
    the ambiguous Nyquist mode when converting back from Fourier space. As a
    result, composing two first derivatives can differ from applying a direct
    second-order operator when the field contains Nyquist-frequency content.
+
+.. autofunction:: physicsnemo.nn.functional.spectral_grid_gradient
+
+.. figure:: /img/nn/functional/derivatives/spectral_grid_gradient.png
+   :alt: Spectral grid gradient example
+   :width: 100%
 
 .. autofunction:: physicsnemo.nn.functional.spectral_grid_divergence
 

@@ -146,13 +146,16 @@ def test_spectral_grid_curl_gradcheck(
 
 
 def test_spectral_grid_curl_benchmark_inputs(device: str):
-    label, args, kwargs = next(
-        iter(SpectralGridCurl.make_inputs_forward(device=device))
-    )
-    assert isinstance(label, str)
-    vector_field = args[0]
-    output = SpectralGridCurl.dispatch(*args, implementation="torch", **kwargs)
-    assert output.shape == vector_field.shape[1:]
+    cases = list(SpectralGridCurl.make_inputs_forward(device=device))
+    assert len(cases) == 2
+    for label, args, kwargs in cases:
+        assert isinstance(label, str)
+        vector_field = args[0]
+        output = SpectralGridCurl.dispatch(*args, implementation="torch", **kwargs)
+        expected_shape = (
+            vector_field.shape[1:] if vector_field.ndim == 3 else vector_field.shape
+        )
+        assert output.shape == expected_shape
 
     _label, backward_args, backward_kwargs = next(
         iter(SpectralGridCurl.make_inputs_backward(device=device))
@@ -166,6 +169,14 @@ def test_spectral_grid_curl_benchmark_inputs(device: str):
     output.square().mean().backward()
     assert backward_field.grad is not None
     assert torch.isfinite(backward_field.grad).all()
+
+
+def test_spectral_grid_curl_preserves_low_precision_dtype(device: str):
+    for dtype in (torch.float16, torch.bfloat16):
+        vector_field = torch.randn((2, 9, 7), device=device, dtype=dtype)
+        output = spectral_grid_curl(vector_field, lengths=(2.0, 1.5))
+        assert output.dtype == dtype
+        assert torch.isfinite(output).all()
 
 
 def test_spectral_grid_curl_error_handling(device: str):

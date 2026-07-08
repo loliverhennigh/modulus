@@ -16,16 +16,75 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 import torch
 
-from .._spectral_grid_utils import (
-    normalize_spectral_lengths,
-    restore_spectral_dtype,
-    spectral_wavenumbers,
-    validate_spectral_scalar_field,
-)
+
+def _normalize_lengths(
+    lengths: float | Sequence[float], ndim: int
+) -> tuple[float, ...]:
+    """Normalize periodic lengths into one finite positive entry per axis."""
+    if isinstance(lengths, (float, int)):
+        lengths_tuple = tuple(float(lengths) for _ in range(ndim))
+    else:
+        lengths_tuple = tuple(float(value) for value in lengths)
+        if len(lengths_tuple) != ndim:
+            raise ValueError(
+                f"lengths must have {ndim} entries for a {ndim}D field, "
+                f"got {len(lengths_tuple)}"
+            )
+
+    for axis, length in enumerate(lengths_tuple):
+        if not math.isfinite(length) or length <= 0.0:
+            raise ValueError(f"lengths[{axis}] must be finite and strictly positive")
+    return lengths_tuple
+
+
+def _validate_inputs(
+    field: torch.Tensor,
+    lengths: float | Sequence[float],
+) -> tuple[tuple[float, ...], torch.Tensor]:
+    """Validate an unbatched 1D-3D scalar field."""
+    if field.ndim < 1 or field.ndim > 3:
+        raise ValueError(
+            "spectral_grid_laplacian supports 1D-3D fields, "
+            f"got field.shape={tuple(field.shape)}"
+        )
+    if not torch.is_floating_point(field):
+        raise TypeError("field must be a floating-point tensor")
+
+    lengths_tuple = _normalize_lengths(lengths, field.ndim)
+    field_eval = (
+        field.to(torch.float32)
+        if field.dtype in (torch.float16, torch.bfloat16)
+        else field
+    )
+    return lengths_tuple, field_eval
+
+
+def _wavenumbers(
+    shape: Sequence[int],
+    lengths: Sequence[float],
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> list[torch.Tensor]:
+    """Build broadcastable angular wavenumbers for each spatial axis."""
+    wavenumbers: list[torch.Tensor] = []
+    for axis, (axis_size, axis_length) in enumerate(zip(shape, lengths)):
+        frequency = torch.fft.fftfreq(
+            axis_size,
+            d=axis_length / float(axis_size),
+            device=device,
+            dtype=dtype,
+        )
+        wavenumber = 2.0 * torch.pi * frequency
+        view_shape = [1] * len(shape)
+        view_shape[axis] = axis_size
+        wavenumbers.append(wavenumber.reshape(view_shape))
+    return wavenumbers
 
 
 def spectral_grid_laplacian_torch(
@@ -33,16 +92,12 @@ def spectral_grid_laplacian_torch(
     lengths: float | Sequence[float] = 1.0,
 ) -> torch.Tensor:
     """Compute a periodic scalar Laplacian directly in Fourier space."""
-    grid_shape, field_eval = validate_spectral_scalar_field(
-        field,
-        function_name="spectral_grid_laplacian",
-    )
+    lengths_tuple, field_eval = _validate_inputs(field, lengths)
     grid_ndim = field_eval.ndim
-    lengths_tuple = normalize_spectral_lengths(lengths, grid_ndim)
     spatial_dims = tuple(range(grid_ndim))
     field_hat = torch.fft.fftn(field_eval, dim=spatial_dims)
-    wavenumbers = spectral_wavenumbers(
-        grid_shape,
+    wavenumbers = _wavenumbers(
+        field_eval.shape,
         lengths_tuple,
         device=field_eval.device,
         dtype=field_eval.dtype,
@@ -55,4 +110,6 @@ def spectral_grid_laplacian_torch(
         -squared_wavenumber * field_hat,
         dim=spatial_dims,
     ).real
-    return restore_spectral_dtype(output, field.dtype)
+    if output.dtype != field.dtype:
+        return output.to(dtype=field.dtype)
+    return output

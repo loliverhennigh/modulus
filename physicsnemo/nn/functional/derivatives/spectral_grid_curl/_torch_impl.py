@@ -16,16 +16,81 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 import torch
 
-from .._spectral_grid_utils import (
-    normalize_spectral_lengths,
-    restore_spectral_dtype,
-    spectral_wavenumbers,
-    validate_spectral_vector_field,
-)
+
+def _normalize_lengths(
+    lengths: float | Sequence[float], ndim: int
+) -> tuple[float, ...]:
+    """Normalize periodic lengths into one finite positive entry per axis."""
+    if isinstance(lengths, (float, int)):
+        lengths_tuple = tuple(float(lengths) for _ in range(ndim))
+    else:
+        lengths_tuple = tuple(float(value) for value in lengths)
+        if len(lengths_tuple) != ndim:
+            raise ValueError(
+                f"lengths must have {ndim} entries for a {ndim}D field, "
+                f"got {len(lengths_tuple)}"
+            )
+
+    for axis, length in enumerate(lengths_tuple):
+        if not math.isfinite(length) or length <= 0.0:
+            raise ValueError(f"lengths[{axis}] must be finite and strictly positive")
+    return lengths_tuple
+
+
+def _validate_inputs(
+    vector_field: torch.Tensor,
+    lengths: float | Sequence[float],
+) -> tuple[int, tuple[float, ...], torch.Tensor]:
+    """Validate a channel-first 2D or 3D vector field."""
+    grid_ndim = vector_field.ndim - 1
+    if grid_ndim not in (2, 3):
+        raise ValueError(
+            "spectral_grid_curl supports 2D or 3D vector fields, "
+            f"got vector_field.shape={tuple(vector_field.shape)}"
+        )
+    if vector_field.shape[0] != grid_ndim:
+        raise ValueError(
+            "vector_field.shape[0] must equal the number of spatial dimensions "
+            f"({grid_ndim}), got {vector_field.shape[0]}"
+        )
+    if not torch.is_floating_point(vector_field):
+        raise TypeError("vector_field must be a floating-point tensor")
+
+    lengths_tuple = _normalize_lengths(lengths, grid_ndim)
+    vector_eval = (
+        vector_field.to(torch.float32)
+        if vector_field.dtype in (torch.float16, torch.bfloat16)
+        else vector_field
+    )
+    return grid_ndim, lengths_tuple, vector_eval
+
+
+def _wavenumbers(
+    shape: Sequence[int],
+    lengths: Sequence[float],
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> list[torch.Tensor]:
+    """Build broadcastable angular wavenumbers for each spatial axis."""
+    wavenumbers: list[torch.Tensor] = []
+    for axis, (axis_size, axis_length) in enumerate(zip(shape, lengths)):
+        frequency = torch.fft.fftfreq(
+            axis_size,
+            d=axis_length / float(axis_size),
+            device=device,
+            dtype=dtype,
+        )
+        wavenumber = 2.0 * torch.pi * frequency
+        view_shape = [1] * len(shape)
+        view_shape[axis] = axis_size
+        wavenumbers.append(wavenumber.reshape(view_shape))
+    return wavenumbers
 
 
 def spectral_grid_curl_torch(
@@ -33,16 +98,14 @@ def spectral_grid_curl_torch(
     lengths: float | Sequence[float] = 1.0,
 ) -> torch.Tensor:
     """Compute periodic curl directly in Fourier space."""
-    grid_ndim, grid_shape, vector_eval = validate_spectral_vector_field(
+    grid_ndim, lengths_tuple, vector_eval = _validate_inputs(
         vector_field,
-        function_name="spectral_grid_curl",
-        allowed_dims=(2, 3),
+        lengths,
     )
-    lengths_tuple = normalize_spectral_lengths(lengths, grid_ndim)
     spatial_dims = tuple(range(1, vector_eval.ndim))
     vector_hat = torch.fft.fftn(vector_eval, dim=spatial_dims)
-    k = spectral_wavenumbers(
-        grid_shape,
+    k = _wavenumbers(
+        vector_eval.shape[1:],
         lengths_tuple,
         device=vector_eval.device,
         dtype=vector_eval.dtype,
@@ -61,4 +124,6 @@ def spectral_grid_curl_torch(
             dim=0,
         )
         output = torch.fft.ifftn(curl_hat, dim=(1, 2, 3)).real
-    return restore_spectral_dtype(output, vector_field.dtype)
+    if output.dtype != vector_field.dtype:
+        return output.to(dtype=vector_field.dtype)
+    return output

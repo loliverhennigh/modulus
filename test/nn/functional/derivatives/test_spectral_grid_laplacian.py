@@ -104,6 +104,44 @@ def test_divergence_of_gradient_matches_laplacian(device: str):
     torch.testing.assert_close(divergence, laplacian, atol=1e-10, rtol=1e-10)
 
 
+def test_even_grid_nyquist_mode_contract(device: str):
+    size = 8
+    length = 2.0
+    field = torch.where(
+        torch.arange(size, device=device) % 2 == 0,
+        1.0,
+        -1.0,
+    ).to(torch.float64)
+
+    gradient = spectral_grid_gradient(field, lengths=length, derivative_orders=1)
+    divergence = spectral_grid_divergence(field.unsqueeze(0), lengths=length)
+    divergence_of_gradient = spectral_grid_divergence(gradient, lengths=length)
+    laplacian = spectral_grid_laplacian(field, lengths=length)
+    nyquist_wavenumber = torch.pi * size / length
+
+    torch.testing.assert_close(
+        gradient, torch.zeros_like(gradient), atol=1e-12, rtol=0.0
+    )
+    torch.testing.assert_close(
+        divergence,
+        torch.zeros_like(divergence),
+        atol=1e-12,
+        rtol=0.0,
+    )
+    torch.testing.assert_close(
+        divergence_of_gradient,
+        torch.zeros_like(divergence_of_gradient),
+        atol=1e-12,
+        rtol=0.0,
+    )
+    torch.testing.assert_close(
+        laplacian,
+        -(nyquist_wavenumber**2) * field,
+        atol=1e-10,
+        rtol=1e-10,
+    )
+
+
 def test_spectral_grid_laplacian_gradcheck(device: str):
     field = torch.randn(
         (5, 7),
@@ -148,6 +186,14 @@ def test_spectral_grid_laplacian_benchmark_inputs(device: str):
     assert torch.isfinite(backward_field.grad).all()
 
 
+def test_spectral_grid_laplacian_preserves_low_precision_dtype(device: str):
+    for dtype in (torch.float16, torch.bfloat16):
+        field = torch.randn((9, 7), device=device, dtype=dtype)
+        output = spectral_grid_laplacian(field, lengths=(2.0, 1.5))
+        assert output.dtype == dtype
+        assert torch.isfinite(output).all()
+
+
 def test_spectral_grid_laplacian_error_handling(device: str):
     with pytest.raises(TypeError, match="floating-point"):
         spectral_grid_laplacian(torch.ones((9, 7), device=device, dtype=torch.int64))
@@ -165,4 +211,10 @@ def test_spectral_grid_laplacian_error_handling(device: str):
         spectral_grid_laplacian(
             torch.ones((9, 7), device=device),
             lengths=(1.0, -1.0),
+        )
+
+    with pytest.raises(ValueError, match="finite and strictly positive"):
+        spectral_grid_laplacian(
+            torch.ones((9, 7), device=device),
+            lengths=(1.0, float("inf")),
         )

@@ -995,7 +995,8 @@ def test_default_dispatch_selects_device_backend(device, monkeypatch):
     torch.testing.assert_close(automatic, points)
 
     if device.type == "cuda" and warp_impl.available:
-        # CUDA must still fall back to Torch if the optional backend is unavailable.
+        # CUDA must still fall back to Torch, with the standard one-time
+        # warning, if the optional backend is unavailable.
         calls.clear()
         unavailable_warp = type(warp_impl)(
             name=warp_impl.name,
@@ -1006,7 +1007,9 @@ def test_default_dispatch_selects_device_backend(device, monkeypatch):
             available=False,
         )
         monkeypatch.setitem(MorphPoints._get_impls(), "warp", unavailable_warp)
-        automatic = morph_points(points, controls, displacement, radius=1.0)
+        FunctionSpec._fallback_warned.discard(MorphPoints._class_key())
+        with pytest.warns(RuntimeWarning, match="falling back to implementation"):
+            automatic = morph_points(points, controls, displacement, radius=1.0)
         assert calls == ["torch"]
         torch.testing.assert_close(automatic, points)
 

@@ -245,7 +245,8 @@ class MorphPoints(FunctionSpec):
         ``"wendland_c2"``.
     implementation : {"warp", "torch"} or None, optional
         Explicit backend. ``None`` selects Torch on CPU and Warp on CUDA when
-        Warp is available, otherwise Torch.
+        Warp is available, otherwise Torch with a one-time
+        :class:`RuntimeWarning`.
 
     Returns
     -------
@@ -465,34 +466,31 @@ class MorphPoints(FunctionSpec):
         kernel: Literal["wendland_c2"] = "wendland_c2",
         implementation: Literal["torch", "warp"] | None = None,
     ) -> torch.Tensor:
-        """Select Warp for CUDA inputs and Torch for CPU inputs by default."""
+        """Select Warp for CUDA inputs and Torch for CPU inputs by default.
 
-        impls = cls._get_impls()
-        cls._check_impl(implementation, impls)
-        if implementation is not None:
-            impl = impls[implementation]
-            if not impl.available:
-                raise ImportError(
-                    f"Implementation '{implementation}' is not available "
-                    f"for {cls.__name__}"
-                )
-        else:
+        Falling back to Torch on CUDA inputs because Warp is unavailable emits
+        the standard one-time :class:`RuntimeWarning`.
+        """
+
+        if implementation is None:
+            impls = cls._get_impls()
             warp_impl = impls.get("warp")
-            impl = (
-                warp_impl
-                if isinstance(points, torch.Tensor)
-                and points.is_cuda
-                and warp_impl is not None
-                and warp_impl.available
-                else impls["torch"]
-            )
-        return impl.func(
+            if isinstance(points, torch.Tensor) and points.is_cuda:
+                if warp_impl is not None and warp_impl.available:
+                    implementation = "warp"
+                else:
+                    cls._warn_fallback(warp_impl, impls["torch"])
+                    implementation = "torch"
+            else:
+                implementation = "torch"
+        return super().dispatch(
             points,
             control_points,
             control_displacements,
             radius=radius,
             point_weights=point_weights,
             kernel=kernel,
+            implementation=implementation,
         )
 
     @classmethod

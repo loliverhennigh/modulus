@@ -43,6 +43,7 @@ from physicsnemo.nn.functional.geometry import (
     FarthestPointSampling,
     MeshPoissonDiskSample,
     MeshToVoxelFraction,
+    RayMeshIntersect,
     SignedDistanceField,
 )
 from physicsnemo.nn.functional.interpolation import (
@@ -75,6 +76,7 @@ FUNCTIONAL_SPECS: tuple[type[FunctionSpec], ...] = (
     FarthestPointSampling,
     MeshPoissonDiskSample,
     MeshToVoxelFraction,
+    RayMeshIntersect,
     SignedDistanceField,
     # Interpolation.
     GridToPointInterpolation,

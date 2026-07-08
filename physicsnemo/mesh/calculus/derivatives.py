@@ -54,7 +54,7 @@ def compute_point_derivatives(
     keys: str | tuple[str, ...] | Sequence[str | tuple[str, ...]] | None = None,
     method: Literal["lsq", "dec"] = "lsq",
     gradient_type: Literal["intrinsic", "extrinsic", "both"] = "intrinsic",
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> "Mesh":
     """Compute gradients of point_data fields.
 
@@ -212,7 +212,7 @@ def compute_cell_derivatives(
     keys: str | tuple[str, ...] | Sequence[str | tuple[str, ...]] | None = None,
     method: Literal["lsq", "dec"] = "lsq",
     gradient_type: Literal["intrinsic", "extrinsic", "both"] = "intrinsic",
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> "Mesh":
     """Compute gradients of cell_data fields.
 

@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
+
 import pytest
 import torch
 
@@ -28,6 +30,7 @@ from physicsnemo.mesh.calculus.laplacian import (
     compute_laplacian_points_dec,
     compute_laplacian_points_lsq,
 )
+from physicsnemo.mesh.domain_mesh import DomainMesh
 from physicsnemo.mesh.mesh import Mesh
 from test.conftest import requires_module
 
@@ -56,6 +59,27 @@ def _tet_mesh(device: str):
         device=torch_device,
     )
     return Mesh(points=points, cells=cells)
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        Mesh.compute_point_derivatives,
+        Mesh.compute_cell_derivatives,
+        Mesh.gradient,
+        Mesh.divergence,
+        Mesh.curl,
+        Mesh.laplacian,
+        DomainMesh.compute_point_derivatives,
+        DomainMesh.compute_cell_derivatives,
+    ],
+    ids=lambda wrapper: wrapper.__qualname__,
+)
+def test_mesh_calculus_wrapper_implementation_defaults_to_torch(wrapper):
+    """All Mesh and DomainMesh functional wrappers pin the Torch backend."""
+    implementation = inspect.signature(wrapper).parameters["implementation"]
+
+    assert implementation.default == "torch"
 
 
 @requires_module("warp")

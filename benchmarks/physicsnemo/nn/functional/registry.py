@@ -18,9 +18,14 @@
 
 from physicsnemo.core.function_spec import FunctionSpec
 from physicsnemo.nn.functional.derivatives import (
+    MeshCotanDivergence,
+    MeshCotanLaplacian,
     MeshGreenGaussGradient,
     MeshlessFDDerivatives,
+    MeshLSQCurl,
+    MeshLSQDivergence,
     MeshLSQGradient,
+    MeshLSQLaplacian,
     RectilinearGridGradient,
     SpectralGridGradient,
     UniformGridGradient,
@@ -62,6 +67,11 @@ FUNCTIONAL_SPECS: tuple[type[FunctionSpec], ...] = (
     UniformGridGradient,
     RectilinearGridGradient,
     MeshLSQGradient,
+    MeshLSQDivergence,
+    MeshLSQCurl,
+    MeshLSQLaplacian,
+    MeshCotanLaplacian,
+    MeshCotanDivergence,
     MeshGreenGaussGradient,
     SpectralGridGradient,
     MeshlessFDDerivatives,

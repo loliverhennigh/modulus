@@ -25,7 +25,7 @@ to neighboring points/cells, weighted by inverse distance.
 Reference: Standard in CFD literature (Barth & Jespersen, AIAA 1989)
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import torch
 from jaxtyping import Float
@@ -50,7 +50,7 @@ def compute_point_gradient_lsq(
     point_values: Float[torch.Tensor, "n_points ..."],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, "n_points n_spatial_dims ..."]:
     r"""Compute gradient at vertices using weighted least-squares reconstruction.
 
@@ -135,7 +135,7 @@ def compute_cell_gradient_lsq(
     mesh: "Mesh",
     cell_values: Float[torch.Tensor, "n_cells ..."],
     weight_power: float = 2.0,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, "n_cells n_spatial_dims ..."]:
     r"""Compute gradient at cells using weighted least-squares reconstruction.
 

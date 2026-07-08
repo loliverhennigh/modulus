@@ -32,7 +32,7 @@ properties - no topology reconstruction and no external dependencies.
 repeat).
 """
 
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import torch
 import torch.nn.functional as F
@@ -71,6 +71,7 @@ class CellPartition(NamedTuple):
 def partition_cells(
     mesh: Mesh,
     seeds: Float[torch.Tensor, "n_seeds n_spatial_dims"],
+    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
 ) -> CellPartition:
     """Partition mesh cells into Voronoi regions around seed points.
 
@@ -83,9 +84,10 @@ def partition_cells(
     approximates the Voronoi partition.  The approximation is exact when the
     original mesh is infinitely fine relative to the seed spacing.
 
-    The nearest-neighbor search uses :func:`~physicsnemo.nn.functional.neighbors.knn`
-    which auto-dispatches to the optimal backend (cuML on GPU, scipy KDTree
-    on CPU) for O(M log N) query complexity.
+    The nearest-neighbor search uses
+    :func:`~physicsnemo.nn.functional.neighbors.knn`. The default Torch
+    implementation keeps mesh APIs deterministic across environments; pass
+    ``None`` to use KNN's automatic backend selection.
 
     Parameters
     ----------
@@ -96,6 +98,9 @@ def partition_cells(
     seeds : Float[torch.Tensor, "n_seeds n_spatial_dims"]
         Seed point positions.  ``n_spatial_dims`` must match
         ``mesh.n_spatial_dims``.
+    implementation : {"cuml", "torch", "scipy"} or None, optional
+        KNN backend. Defaults to ``"torch"``. Pass ``None`` to select cuML on
+        CUDA when available or SciPy on CPU.
 
     Returns
     -------
@@ -159,8 +164,12 @@ def partition_cells(
     has_normals = mesh.codimension == 1
 
     ### Assign each cell to its nearest seed via kNN search (k=1).
-    # Auto-dispatches: cuML on GPU, scipy KDTree on CPU.
-    assignments, _ = knn(seeds, cell_centroids, k=1)
+    assignments, _ = knn(
+        seeds,
+        cell_centroids,
+        k=1,
+        implementation=implementation,
+    )
     assignments = assignments.squeeze(1)
 
     ### Accumulate areas per cluster

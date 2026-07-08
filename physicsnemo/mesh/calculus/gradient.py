@@ -77,7 +77,7 @@ def compute_gradient_points_lsq(
     point_values: Float[torch.Tensor, "n_points ..."],
     weight_power: float = 2.0,
     intrinsic: bool = False,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, "n_points n_spatial_dims ..."]:
     r"""Compute gradient at vertices using weighted least-squares.
 
@@ -133,7 +133,7 @@ def compute_gradient_cells_lsq(
     mesh: "Mesh",
     cell_values: Float[torch.Tensor, "n_cells ..."],
     weight_power: float = 2.0,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, "n_cells n_spatial_dims ..."]:
     r"""Compute gradient at cells using weighted least-squares.
 

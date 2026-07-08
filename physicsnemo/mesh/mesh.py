@@ -1528,6 +1528,7 @@ class Mesh:
         project_onto_nearest_cell: bool = False,
         tolerance: float = 1e-6,
         bvh: Any = None,
+        implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
     ) -> "TensorDict":
         """Extract or interpolate mesh data at specified query points.
 
@@ -1560,6 +1561,9 @@ class Mesh:
             Pre-built Bounding Volume Hierarchy. If ``None`` (default), one is
             built automatically. For repeated queries, pre-build with
             ``BVH.from_mesh(mesh)`` and pass it here to avoid redundant work.
+        implementation : {"cuml", "torch", "scipy"} or None, optional
+            KNN backend used when ``project_onto_nearest_cell=True``. Defaults
+            to ``"torch"``. Pass ``None`` to use automatic backend selection.
 
         Returns
         -------
@@ -1586,6 +1590,7 @@ class Mesh:
             project_onto_nearest_cell=project_onto_nearest_cell,
             tolerance=tolerance,
             bvh=bvh,
+            implementation=implementation,
         )
 
     def with_data(

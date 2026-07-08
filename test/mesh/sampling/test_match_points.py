@@ -16,9 +16,40 @@
 
 """Tests for match_points (near-exact vertex matching via KNN + tolerance)."""
 
+import pytest
 import torch
 
 from physicsnemo.mesh.sampling import match_points
+
+
+@pytest.mark.parametrize(
+    ("call_kwargs", "expected_implementation"),
+    [
+        pytest.param({}, "torch", id="default"),
+        pytest.param({"implementation": "scipy"}, "scipy", id="explicit"),
+    ],
+)
+def test_knn_implementation_forwarded(
+    monkeypatch: pytest.MonkeyPatch,
+    call_kwargs: dict[str, str],
+    expected_implementation: str,
+):
+    """The public helper pins Torch by default and forwards explicit choices."""
+    source = torch.tensor([[0.0, 0.0]])
+    target = torch.tensor([[0.0, 0.0]])
+    captured: dict[str, str | None] = {}
+
+    def fake_knn(points, queries, k, implementation):
+        captured["implementation"] = implementation
+        indices = torch.zeros((len(queries), k), dtype=torch.int64)
+        distances = torch.zeros((len(queries), k), dtype=queries.dtype)
+        return indices, distances
+
+    monkeypatch.setitem(match_points.__globals__, "knn", fake_knn)
+
+    match_points(source, target, **call_kwargs)
+
+    assert captured["implementation"] == expected_implementation
 
 
 class TestMatchPoints:

@@ -405,14 +405,16 @@ def find_all_containing_cells(
 def find_nearest_cells(
     mesh: "Mesh",
     query_points: Float[torch.Tensor, "n_queries n_spatial_dims"],
+    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
 ) -> tuple[
     Int[torch.Tensor, " n_queries"],
     Float[torch.Tensor, "n_queries n_spatial_dims"],
 ]:
     """Find the nearest cell for each query point (by centroid distance).
 
-    Uses :func:`~physicsnemo.nn.functional.neighbors.knn` which auto-dispatches
-    to the optimal backend (cuML on GPU, scipy KDTree on CPU).
+    Uses :func:`~physicsnemo.nn.functional.neighbors.knn`. The default Torch
+    implementation is consistent with other mesh functional wrappers; pass
+    ``None`` to use KNN's automatic backend selection.
 
     Parameters
     ----------
@@ -420,6 +422,9 @@ def find_nearest_cells(
         The mesh to query.
     query_points : torch.Tensor
         Query point locations, shape ``(n_queries, n_spatial_dims)``.
+    implementation : {"cuml", "torch", "scipy"} or None, optional
+        KNN backend. Defaults to ``"torch"``. Pass ``None`` to select cuML on
+        CUDA when available or SciPy on CPU.
 
     Returns
     -------
@@ -431,7 +436,12 @@ def find_nearest_cells(
           ``(n_queries, n_spatial_dims)``
     """
     cell_centroids = mesh.cell_centroids  # (n_cells, n_spatial_dims)
-    cell_indices, _ = knn(cell_centroids, query_points, k=1)
+    cell_indices, _ = knn(
+        cell_centroids,
+        query_points,
+        k=1,
+        implementation=implementation,
+    )
     cell_indices = cell_indices.squeeze(1)
     projected_points = cell_centroids[cell_indices]
     return cell_indices, projected_points
@@ -446,6 +456,7 @@ def match_points(
     source: Float[torch.Tensor, "n_source n_spatial_dims"],
     target: Float[torch.Tensor, "n_target n_spatial_dims"],
     tolerance: float = 1e-6,
+    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
 ) -> tuple[Int[torch.Tensor, " n_matched"], Int[torch.Tensor, " n_matched"]]:
     r"""Find near-exact vertex matches between two point sets.
 
@@ -461,6 +472,9 @@ def match_points(
     tolerance : float
         Maximum L2 distance for a pair to be considered coincident. The
         comparison is inclusive (``distance <= tolerance``).
+    implementation : {"cuml", "torch", "scipy"} or None, optional
+        KNN backend. Defaults to ``"torch"``. Pass ``None`` to use KNN's
+        automatic backend selection.
 
     Returns
     -------
@@ -492,7 +506,12 @@ def match_points(
     >>> tgt_idx
     tensor([0])
     """
-    indices, distances = knn(points=target, queries=source, k=1)
+    indices, distances = knn(
+        points=target,
+        queries=source,
+        k=1,
+        implementation=implementation,
+    )
     indices = indices[:, 0]  # (M,)
     distances = distances[:, 0]  # (M,)
     mask = distances <= tolerance
@@ -631,6 +650,7 @@ def sample_data_at_points(
     project_onto_nearest_cell: bool = False,
     tolerance: float = 1e-6,
     bvh: BVH | None = None,
+    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
 ) -> TensorDict:
     """Extract or interpolate mesh data at specified query points.
 
@@ -666,6 +686,9 @@ def sample_data_at_points(
         Pre-built Bounding Volume Hierarchy. If ``None`` (default), one is
         built automatically. For repeated queries on the same mesh, pre-build
         with ``BVH.from_mesh(mesh)`` and pass it here to avoid redundant work.
+    implementation : {"cuml", "torch", "scipy"} or None, optional
+        KNN backend used when ``project_onto_nearest_cell=True``. Defaults to
+        ``"torch"``. Pass ``None`` to use KNN's automatic backend selection.
 
     Returns
     -------
@@ -717,7 +740,11 @@ def sample_data_at_points(
 
     ### Handle projection onto nearest cell
     if project_onto_nearest_cell:
-        _, projected_points = find_nearest_cells(mesh, query_points)
+        _, projected_points = find_nearest_cells(
+            mesh,
+            query_points,
+            implementation=implementation,
+        )
         query_points = projected_points
     query_indices, cell_indices, bary_coords = _find_containing_pairs(
         mesh, query_points, bvh, tolerance

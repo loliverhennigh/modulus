@@ -28,7 +28,7 @@ DEC formula: :math:`\operatorname{curl} = \star\, d\, \flat`,
 For 3D: curl maps vectors to vectors.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import torch
 from jaxtyping import Float
@@ -42,7 +42,7 @@ def compute_curl_points_lsq(
     vector_field: Float[torch.Tensor, "n_points 3"],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, "n_points 3"]:
     r"""Compute curl at vertices using LSQ gradient method.
 
@@ -65,6 +65,12 @@ def compute_curl_points_lsq(
         Simplicial mesh.
     vector_field : Float[torch.Tensor, "n_points 3"]
         Vectors at vertices.
+    weight_power : float, optional
+        Exponent for inverse-distance weighting.
+    min_neighbors : int, optional
+        Points with fewer than this many neighbors receive zero curl.
+    implementation : {"warp", "torch"} or None, optional
+        Functional backend. Defaults to ``"torch"``.
 
     Returns
     -------
@@ -100,7 +106,7 @@ def compute_curl_cells_lsq(
     vector_field: Float[torch.Tensor, "n_cells 3"],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, "n_cells 3"]:
     r"""Compute curl at cell centers using LSQ gradient method.
 
@@ -114,8 +120,12 @@ def compute_curl_cells_lsq(
         Simplicial mesh.
     vector_field : Float[torch.Tensor, "n_cells 3"]
         Vectors at cell centers.
+    weight_power : float, optional
+        Exponent for inverse-distance weighting.
     min_neighbors : int, optional
         Cells with fewer than this many neighbors receive zero curl.
+    implementation : {"warp", "torch"} or None, optional
+        Functional backend. Defaults to ``"torch"``.
 
     Returns
     -------

@@ -39,7 +39,7 @@ Physical interpretation: net flux through the dual cell boundary per unit
 volume, with the PDP-flat providing the edge flux estimate.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import torch
 from jaxtyping import Float
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 def compute_divergence_points_dec(
     mesh: "Mesh",
     vector_field: Float[torch.Tensor, "n_points n_spatial_dims"],
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, " n_points"]:
     r"""Compute divergence at vertices using DEC.
 
@@ -79,6 +79,8 @@ def compute_divergence_points_dec(
         Simplicial mesh of any manifold dimension.
     vector_field : torch.Tensor
         Vectors at vertices, shape ``(n_points, n_spatial_dims)``.
+    implementation : {"warp", "torch"} or None, optional
+        Functional backend. Defaults to ``"torch"``.
 
     Returns
     -------
@@ -114,7 +116,7 @@ def compute_divergence_points_lsq(
     vector_field: Float[torch.Tensor, "n_points n_spatial_dims"],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, " n_points"]:
     r"""Compute divergence at vertices using LSQ gradient of each component.
 
@@ -138,6 +140,12 @@ def compute_divergence_points_lsq(
         Simplicial mesh.
     vector_field : torch.Tensor
         Vectors at vertices, shape ``(n_points, n_spatial_dims)``.
+    weight_power : float, optional
+        Exponent for inverse-distance weighting.
+    min_neighbors : int, optional
+        Points with fewer than this many neighbors receive zero divergence.
+    implementation : {"warp", "torch"} or None, optional
+        Functional backend. Defaults to ``"torch"``.
 
     Returns
     -------
@@ -165,7 +173,7 @@ def compute_divergence_cells_lsq(
     vector_field: Float[torch.Tensor, "n_cells n_spatial_dims"],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
-    implementation: str | None = "torch",
+    implementation: Literal["warp", "torch"] | None = "torch",
 ) -> Float[torch.Tensor, " n_cells"]:
     r"""Compute divergence at cell centers using the LSQ Jacobian trace.
 
@@ -179,8 +187,12 @@ def compute_divergence_cells_lsq(
         Simplicial mesh.
     vector_field : torch.Tensor
         Vectors at cell centers, shape ``(n_cells, n_spatial_dims)``.
+    weight_power : float, optional
+        Exponent for inverse-distance weighting.
     min_neighbors : int, optional
         Cells with fewer than this many neighbors receive zero divergence.
+    implementation : {"warp", "torch"} or None, optional
+        Functional backend. Defaults to ``"torch"``.
 
     Returns
     -------

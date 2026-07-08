@@ -364,7 +364,8 @@ def test_warp_launch_context_missing_warp(monkeypatch):
 
 
 @pytest.mark.parametrize("sync_enter", [False, True])
-def test_warp_stream_scope_forwards_entry_sync(monkeypatch, sync_enter):
+@pytest.mark.parametrize("sync_exit", [False, True])
+def test_warp_stream_scope_forwards_sync_options(monkeypatch, sync_enter, sync_exit):
     events = []
 
     class DummyStream:
@@ -378,20 +379,22 @@ def test_warp_stream_scope_forwards_entry_sync(monkeypatch, sync_enter):
             events.append(("wait", stream))
 
     @contextmanager
-    def scoped_stream(stream, *, sync_enter=True):
-        events.append(("enter", stream, sync_enter))
+    def scoped_stream(stream, *, sync_enter=True, sync_exit=False):
+        events.append(("enter", stream, sync_enter, sync_exit))
         yield
 
     monkeypatch.setattr(function_spec.wp, "Stream", DummyGuard)
     monkeypatch.setattr(function_spec.wp, "ScopedStream", scoped_stream)
 
     stream = DummyStream()
-    with FunctionSpec.warp_stream_scope(stream, sync_enter=sync_enter):
+    with FunctionSpec.warp_stream_scope(
+        stream, sync_enter=sync_enter, sync_exit=sync_exit
+    ):
         events.append(("body",))
 
     assert events == [
         ("guard", "cuda:0"),
-        ("enter", stream, sync_enter),
+        ("enter", stream, sync_enter, sync_exit),
         ("body",),
         ("wait", stream),
     ]

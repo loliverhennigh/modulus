@@ -744,7 +744,10 @@ class FunctionSpec:
     @staticmethod
     @contextlib.contextmanager
     def warp_stream_scope(
-        wp_launch_stream: wp.Stream | None, *, sync_enter: bool = True
+        wp_launch_stream: wp.Stream | None,
+        *,
+        sync_enter: bool = True,
+        sync_exit: bool = False,
     ):
         """Scope Warp work on a borrowed torch stream with a cleanup guard.
 
@@ -771,6 +774,9 @@ class FunctionSpec:
             Whether the borrowed stream should wait on Warp's previous stream
             when entering the scope. Set to ``False`` for CUDA Graph capture,
             where that cross-stream dependency is invalid. Default is ``True``.
+        sync_exit : bool, optional
+            Whether Warp's previous stream should wait on the borrowed stream
+            when leaving the scope. Default is ``False``.
 
         Yields
         ------
@@ -789,7 +795,11 @@ class FunctionSpec:
         # once the launch has been enqueued.
         guard = wp.Stream(wp_launch_stream.device)
         try:
-            with wp.ScopedStream(wp_launch_stream, sync_enter=sync_enter):
+            with wp.ScopedStream(
+                wp_launch_stream,
+                sync_enter=sync_enter,
+                sync_exit=sync_exit,
+            ):
                 yield
         finally:
             # Order Warp's stream-ordered cleanup after the compute so mesh /

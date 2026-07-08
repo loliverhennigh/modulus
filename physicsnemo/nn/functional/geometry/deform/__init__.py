@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Point displacement and compact Shepard morphing functionals."""
+"""Dense and sparse point-deformation functionals."""
 
-from .morphing import DisplacePoints, MorphPoints, displace_points, morph_points
+from .deform import DisplacePoints, MorphPoints, displace_points, morph_points
 
 __all__ = [
     "DisplacePoints",

@@ -684,7 +684,9 @@ class DomainMesh:
                 "key/path, not a raw tensor"
             )
 
-        from physicsnemo.mesh.transformations.geometric import _resolve_point_field
+        from physicsnemo.mesh.transformations.deform._utils import (
+            _resolve_point_field,
+        )
 
         components: list[tuple[str, Mesh]] = [("interior", self.interior)]
         components.extend(
@@ -776,10 +778,10 @@ class DomainMesh:
                 else torch.cat(resolved_point_weights, dim=0)
             )
 
-        from physicsnemo.mesh.transformations.geometric import (
-            _mesh_with_morphed_points,
+        from physicsnemo.mesh.transformations.deform._utils import (
+            _mesh_with_deformed_points,
         )
-        from physicsnemo.nn.functional.geometry.morphing import morph_points
+        from physicsnemo.nn.functional.geometry.deform import morph_points
 
         combined_output = morph_points(
             combined_points,
@@ -796,7 +798,7 @@ class DomainMesh:
             else combined_output.split(point_counts, dim=0)
         )
         output_meshes = [
-            _mesh_with_morphed_points(component, points)
+            _mesh_with_deformed_points(component, points)
             for component, points in zip(component_meshes, output_points)
         ]
 

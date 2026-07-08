@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Mesh and DomainMesh integration tests for nonlinear point morphing."""
+"""Mesh and DomainMesh integration tests for nonlinear point deformation."""
 
 import importlib
 import inspect
@@ -24,7 +24,25 @@ import torch
 from tensordict import TensorDict
 
 from physicsnemo.mesh import DomainMesh, Mesh
-from physicsnemo.mesh.transformations import displace, morph
+from physicsnemo.mesh.transformations.deform import displace, morph
+
+
+def test_deform_namespace_is_canonical():
+    """Deformations are public only from their dedicated namespace."""
+
+    transformations = importlib.import_module("physicsnemo.mesh.transformations")
+    deform_module = importlib.import_module("physicsnemo.mesh.transformations.deform")
+    geometric_module = importlib.import_module(
+        "physicsnemo.mesh.transformations.geometric"
+    )
+
+    assert transformations.deform is deform_module
+    assert deform_module.displace is displace
+    assert deform_module.morph is morph
+    assert not hasattr(transformations, "displace")
+    assert not hasattr(transformations, "morph")
+    assert not hasattr(geometric_module, "displace")
+    assert not hasattr(geometric_module, "morph")
 
 
 def test_mesh_morph_signatures_are_introspectable():
@@ -343,10 +361,8 @@ def test_domain_morph_evaluates_combined_components_once(monkeypatch):
     )
     domain.boundaries["outlet"] = outlet
 
-    morphing_module = importlib.import_module(
-        "physicsnemo.nn.functional.geometry.morphing"
-    )
-    original = morphing_module.morph_points
+    deform_module = importlib.import_module("physicsnemo.nn.functional.geometry.deform")
+    original = deform_module.morph_points
     calls: list[torch.Tensor] = []
     kernels: list[str] = []
 
@@ -355,7 +371,7 @@ def test_domain_morph_evaluates_combined_components_once(monkeypatch):
         kernels.append(kwargs["kernel"])
         return original(points, *args, **kwargs)
 
-    monkeypatch.setattr(morphing_module, "morph_points", counted_morph_points)
+    monkeypatch.setattr(deform_module, "morph_points", counted_morph_points)
     output = domain.morph(
         torch.tensor([[0.0, 0.0]]),
         torch.tensor([[0.0, 0.5]]),
@@ -374,17 +390,15 @@ def test_domain_morph_evaluates_combined_components_once(monkeypatch):
 
 def test_domain_morph_single_component_avoids_concatenation(monkeypatch):
     domain = DomainMesh(interior=_triangle_mesh())
-    morphing_module = importlib.import_module(
-        "physicsnemo.nn.functional.geometry.morphing"
-    )
-    original = morphing_module.morph_points
+    deform_module = importlib.import_module("physicsnemo.nn.functional.geometry.deform")
+    original = deform_module.morph_points
     received_points: list[torch.Tensor] = []
 
     def inspect_morph_points(points, *args, **kwargs):
         received_points.append(points)
         return original(points, *args, **kwargs)
 
-    monkeypatch.setattr(morphing_module, "morph_points", inspect_morph_points)
+    monkeypatch.setattr(deform_module, "morph_points", inspect_morph_points)
     output = domain.morph(
         torch.tensor([[0.0, 0.0]]),
         torch.tensor([[0.0, 0.5]]),

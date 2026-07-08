@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .deform import DisplacePoints, MorphPoints, displace_points, morph_points
 from .farthest_point_sampling import FarthestPointSampling, farthest_point_sampling
 from .mesh_poisson_disk_sample import MeshPoissonDiskSample, mesh_poisson_disk_sample
 from .mesh_to_voxel_fraction import MeshToVoxelFraction, mesh_to_voxel_fraction
-from .morphing import DisplacePoints, MorphPoints, displace_points, morph_points
 from .ray_mesh_intersect import RayMeshIntersect, ray_mesh_intersect
 from .sdf import SignedDistanceField, signed_distance_field
 

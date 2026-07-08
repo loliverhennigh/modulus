@@ -6,7 +6,7 @@ Geometric Transformations
 
 .. currentmodule:: physicsnemo.mesh.transformations.geometric
 
-Linear, affine, and nonlinear transformations on mesh geometry. Each function
+Linear and affine transformations on mesh geometry. Each function
 returns a new :class:`~physicsnemo.mesh.mesh.Mesh` with transformed point
 coordinates and appropriately invalidated caches. Cached quantities such as
 normals and areas are automatically recomputed on next access.
@@ -32,8 +32,17 @@ All transformations are also available as methods on
     matrix = torch.eye(3) * 2
     transformed = mesh.transform(matrix)
 
-Dense and Sparse Morphing
--------------------------
+.. automodule:: physicsnemo.mesh.transformations.geometric
+   :members:
+   :show-inheritance:
+
+Deformations
+------------
+
+.. currentmodule:: physicsnemo.mesh.transformations.deform
+
+Dense displacement and sparse control-point morphing are available from the
+``deform`` namespace and as methods on :class:`~physicsnemo.mesh.mesh.Mesh`.
 
 The mesh methods wrap the tensor-level
 :func:`~physicsnemo.nn.functional.displace_points` and
@@ -204,9 +213,9 @@ lazily; topology caches are retained.
    :meth:`~physicsnemo.mesh.domain_mesh.DomainMesh.validate` explicitly when a
    deformation could compromise validity.
 
-.. automodule:: physicsnemo.mesh.transformations.geometric
-   :members:
-   :show-inheritance:
+.. autofunction:: displace
+
+.. autofunction:: morph
 
 Projections
 -----------

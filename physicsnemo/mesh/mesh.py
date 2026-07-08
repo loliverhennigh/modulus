@@ -38,9 +38,8 @@ from tensordict import NonTensorData, TensorDict, tensorclass
 
 from physicsnemo.mesh.geometry._cell_areas import compute_cell_areas
 from physicsnemo.mesh.geometry._cell_normals import compute_cell_normals
+from physicsnemo.mesh.transformations.deform import displace, morph
 from physicsnemo.mesh.transformations.geometric import (
-    displace,
-    morph,
     rotate,
     scale,
     transform,
@@ -2666,8 +2665,8 @@ class Mesh:
         """Displace points by a dense vector field without changing topology.
 
         Convenience wrapper for
-        :func:`physicsnemo.mesh.transformations.displace`, which documents all
-        parameters and numerical behavior.
+        :func:`physicsnemo.mesh.transformations.deform.displace`, which
+        documents all parameters and numerical behavior.
 
         Returns
         -------
@@ -2694,8 +2693,8 @@ class Mesh:
         """Morph points from sparse compactly supported control handles.
 
         Convenience wrapper for
-        :func:`physicsnemo.mesh.transformations.morph`, which documents all
-        parameters and numerical behavior.
+        :func:`physicsnemo.mesh.transformations.deform.morph`, which documents
+        all parameters and numerical behavior.
 
         Returns
         -------

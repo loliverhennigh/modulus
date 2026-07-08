@@ -63,6 +63,25 @@ Derivative Functionals
 
 .. autofunction:: physicsnemo.nn.functional.meshless_fd_derivatives
 
+Spectral Grid Vector Calculus
+-----------------------------
+
+.. note::
+
+   The spectral vector-calculus functionals assume periodic boundaries and
+   use physical domain lengths to construct their Fourier wavenumbers.
+
+   For real-valued fields on even-sized grids, odd-order derivatives suppress
+   the ambiguous Nyquist mode when converting back from Fourier space. As a
+   result, composing two first derivatives can differ from applying a direct
+   second-order operator when the field contains Nyquist-frequency content.
+
+.. autofunction:: physicsnemo.nn.functional.spectral_grid_divergence
+
+.. autofunction:: physicsnemo.nn.functional.spectral_grid_curl
+
+.. autofunction:: physicsnemo.nn.functional.spectral_grid_laplacian
+
 Uniform Grid Vector Calculus
 ----------------------------
 

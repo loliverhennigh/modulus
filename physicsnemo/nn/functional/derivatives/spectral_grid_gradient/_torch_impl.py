@@ -21,24 +21,11 @@ from itertools import combinations
 
 import torch
 
-
-def _normalize_lengths(
-    lengths: float | Sequence[float], ndim: int
-) -> tuple[float, ...]:
-    """Normalize periodic lengths into one positive entry per axis."""
-    if isinstance(lengths, (float, int)):
-        lengths_tuple = tuple(float(lengths) for _ in range(ndim))
-    else:
-        lengths_tuple = tuple(float(v) for v in lengths)
-        if len(lengths_tuple) != ndim:
-            raise ValueError(
-                f"lengths must have {ndim} entries for a {ndim}D field, got {len(lengths_tuple)}"
-            )
-
-    for axis, length in enumerate(lengths_tuple):
-        if length <= 0.0:
-            raise ValueError(f"lengths[{axis}] must be strictly positive")
-    return lengths_tuple
+from .._spectral_grid_utils import (
+    normalize_spectral_lengths,
+    promote_spectral_input,
+    spectral_wavenumbers,
+)
 
 
 def _validate_inputs(
@@ -61,36 +48,9 @@ def _validate_inputs(
     if return_mixed_derivs and field.ndim == 1:
         raise ValueError("mixed derivatives require at least 2D fields")
 
-    lengths_tuple = _normalize_lengths(lengths=lengths, ndim=field.ndim)
-
-    if field.dtype in (torch.float16, torch.bfloat16):
-        field_eval = field.to(torch.float32)
-    else:
-        field_eval = field
+    lengths_tuple = normalize_spectral_lengths(lengths=lengths, ndim=field.ndim)
+    field_eval = promote_spectral_input(field)
     return lengths_tuple, field_eval
-
-
-def _wavenumbers(
-    shape: Sequence[int],
-    lengths: Sequence[float],
-    *,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> list[torch.Tensor]:
-    """Build broadcastable angular wavenumber tensors for each axis."""
-    ks: list[torch.Tensor] = []
-    for axis, (n_axis, length_axis) in enumerate(zip(shape, lengths)):
-        freq_axis = torch.fft.fftfreq(
-            n_axis,
-            d=length_axis / float(n_axis),
-            device=device,
-            dtype=dtype,
-        )
-        k_axis = 2.0 * torch.pi * freq_axis
-        view_shape = [1] * len(shape)
-        view_shape[axis] = n_axis
-        ks.append(k_axis.reshape(view_shape))
-    return ks
 
 
 def spectral_grid_gradient_torch(
@@ -113,7 +73,7 @@ def spectral_grid_gradient_torch(
     ndim = field_eval.ndim
 
     u_hat = torch.fft.fftn(field_eval, dim=tuple(range(ndim)))
-    k_axes = _wavenumbers(
+    k_axes = spectral_wavenumbers(
         field_eval.shape,
         lengths_tuple,
         device=field_eval.device,

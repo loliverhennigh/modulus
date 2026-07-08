@@ -32,3 +32,35 @@ Derivative Functionals
    :width: 100%
 
 .. autofunction:: physicsnemo.nn.functional.meshless_fd_derivatives
+
+Uniform Grid Vector Calculus
+----------------------------
+
+.. note::
+
+   The ``uniform_grid_divergence``, ``uniform_grid_curl``, and
+   ``uniform_grid_laplacian`` functionals support periodic boundary conditions
+   only.
+
+   Their Warp implementations compute internally in ``float32``. Non-``float32``
+   floating-point inputs are cast to ``float32`` for computation, and outputs
+   are cast back to the input field or value dtype. Consequently, ``float64``
+   outputs retain their dtype but are limited to ``float32`` numerical precision.
+
+.. autofunction:: physicsnemo.nn.functional.uniform_grid_divergence
+
+.. figure:: /img/nn/functional/derivatives/uniform_grid_divergence.png
+   :alt: Uniform grid divergence example
+   :width: 100%
+
+.. autofunction:: physicsnemo.nn.functional.uniform_grid_curl
+
+.. figure:: /img/nn/functional/derivatives/uniform_grid_curl.png
+   :alt: Uniform grid curl example
+   :width: 100%
+
+.. autofunction:: physicsnemo.nn.functional.uniform_grid_laplacian
+
+.. figure:: /img/nn/functional/derivatives/uniform_grid_laplacian.png
+   :alt: Uniform grid Laplacian example
+   :width: 100%

@@ -95,6 +95,26 @@ class RectilinearGridCurl(FunctionSpec):
     torch.Tensor
         Scalar curl field for 2D inputs or channel-first vector curl field for
         3D inputs.
+
+    Examples
+    --------
+    Compute the scalar curl of a two-dimensional periodic vector field:
+
+    >>> import torch
+    >>> x = torch.linspace(0.0, 1.0, 9)[:-1]
+    >>> y = torch.linspace(0.0, 1.0, 7)[:-1]
+    >>> xx, yy = torch.meshgrid(x, y, indexing="ij")
+    >>> vector_field = torch.stack(
+    ...     (torch.zeros_like(xx), torch.sin(2.0 * torch.pi * xx))
+    ... )
+    >>> curl = rectilinear_grid_curl(
+    ...     vector_field,
+    ...     (x, y),
+    ...     periods=(1.0, 1.0),
+    ...     implementation="torch",
+    ... )
+    >>> curl.shape
+    torch.Size([8, 6])
     """
 
     _BENCHMARK_CASES = (

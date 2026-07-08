@@ -90,6 +90,24 @@ class RectilinearGridLaplacian(FunctionSpec):
     -------
     torch.Tensor
         Scalar Laplacian field with the same shape as ``field``.
+
+    Examples
+    --------
+    Compute the Laplacian of a one-dimensional periodic scalar field:
+
+    >>> import torch
+    >>> x = torch.linspace(0.0, 1.0, 9)[:-1]
+    >>> field = torch.sin(2.0 * torch.pi * x)
+    >>> laplacian = rectilinear_grid_laplacian(
+    ...     field,
+    ...     (x,),
+    ...     periods=1.0,
+    ...     implementation="torch",
+    ... )
+    >>> laplacian.shape
+    torch.Size([8])
+    >>> torch.isfinite(laplacian).all().item()
+    True
     """
 
     _BENCHMARK_CASES = (

@@ -17,6 +17,7 @@
 from .derivatives import (
     mesh_green_gauss_gradient,
     mesh_lsq_gradient,
+    mesh_lsq_hessian,
     meshless_fd_derivatives,
     rectilinear_grid_curl,
     rectilinear_grid_divergence,
@@ -78,6 +79,7 @@ __all__ = [
     "legendre_polynomials",
     "line_integral_convolution",
     "mesh_green_gauss_gradient",
+    "mesh_lsq_hessian",
     "mesh_raycast",
     "meshless_fd_derivatives",
     "mesh_lsq_gradient",

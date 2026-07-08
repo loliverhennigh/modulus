@@ -164,6 +164,7 @@ def compute_divergence_cells_lsq(
     mesh: "Mesh",
     vector_field: Float[torch.Tensor, "n_cells n_spatial_dims"],
     weight_power: float = 2.0,
+    min_neighbors: int = 0,
     implementation: str | None = "torch",
 ) -> Float[torch.Tensor, " n_cells"]:
     r"""Compute divergence at cell centers using the LSQ Jacobian trace.
@@ -178,6 +179,8 @@ def compute_divergence_cells_lsq(
         Simplicial mesh.
     vector_field : torch.Tensor
         Vectors at cell centers, shape ``(n_cells, n_spatial_dims)``.
+    min_neighbors : int, optional
+        Cells with fewer than this many neighbors receive zero divergence.
 
     Returns
     -------
@@ -195,6 +198,6 @@ def compute_divergence_cells_lsq(
         neighbor_offsets=adjacency.offsets,
         neighbor_indices=adjacency.indices,
         weight_power=weight_power,
-        min_neighbors=0,
+        min_neighbors=min_neighbors,
         implementation=implementation,
     )

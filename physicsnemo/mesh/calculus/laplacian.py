@@ -214,9 +214,14 @@ def compute_laplacian_cells_lsq(
     mesh: "Mesh",
     cell_values: Float[torch.Tensor, " n_cells"],
     weight_power: float = 2.0,
+    min_neighbors: int = 0,
     implementation: str | None = "torch",
 ) -> Float[torch.Tensor, " n_cells"]:
-    r"""Compute an extrinsic double-LSQ Laplacian at cell centers."""
+    r"""Compute an extrinsic double-LSQ Laplacian at cell centers.
+
+    Cells with fewer than ``min_neighbors`` adjacent cells receive a zero
+    Laplacian.
+    """
     from physicsnemo.nn.functional.derivatives.mesh_lsq_laplacian import (
         mesh_lsq_laplacian,
     )
@@ -228,6 +233,6 @@ def compute_laplacian_cells_lsq(
         neighbor_offsets=adjacency.offsets,
         neighbor_indices=adjacency.indices,
         weight_power=weight_power,
-        min_neighbors=0,
+        min_neighbors=min_neighbors,
         implementation=implementation,
     )

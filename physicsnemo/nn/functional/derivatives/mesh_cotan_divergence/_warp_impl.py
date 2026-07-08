@@ -160,7 +160,7 @@ def mesh_cotan_divergence_impl(
     output = torch.empty_like(accumulation)
     wp_device, wp_stream = FunctionSpec.warp_launch_context(points_fp32)
 
-    with wp.ScopedStream(wp_stream):
+    with FunctionSpec.warp_stream_scope(wp_stream):
         if edges_i32.shape[0] > 0:
             wp.launch(
                 kernel=_cotan_divergence_accumulate_kernel,

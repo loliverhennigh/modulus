@@ -143,7 +143,7 @@ def mesh_cotan_laplacian_impl(
     output_flat = torch.empty_like(values_flat_fp32)
     wp_device, wp_stream = FunctionSpec.warp_launch_context(values_flat_fp32)
 
-    with wp.ScopedStream(wp_stream):
+    with FunctionSpec.warp_stream_scope(wp_stream):
         if edges_i32.shape[0] > 0:
             wp.launch(
                 kernel=_cotan_laplacian_accumulate_kernel,

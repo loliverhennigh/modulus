@@ -99,6 +99,7 @@ def compute_curl_cells_lsq(
     mesh: "Mesh",
     vector_field: Float[torch.Tensor, "n_cells 3"],
     weight_power: float = 2.0,
+    min_neighbors: int = 0,
     implementation: str | None = "torch",
 ) -> Float[torch.Tensor, "n_cells 3"]:
     r"""Compute curl at cell centers using LSQ gradient method.
@@ -113,6 +114,8 @@ def compute_curl_cells_lsq(
         Simplicial mesh.
     vector_field : Float[torch.Tensor, "n_cells 3"]
         Vectors at cell centers.
+    min_neighbors : int, optional
+        Cells with fewer than this many neighbors receive zero curl.
 
     Returns
     -------
@@ -138,7 +141,7 @@ def compute_curl_cells_lsq(
         neighbor_offsets=adjacency.offsets,
         neighbor_indices=adjacency.indices,
         weight_power=weight_power,
-        min_neighbors=0,
+        min_neighbors=min_neighbors,
         implementation=implementation,
     )
 

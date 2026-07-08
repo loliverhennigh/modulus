@@ -17,9 +17,14 @@
 import pytest
 import torch
 
-from physicsnemo.mesh.calculus.divergence import compute_divergence_points_lsq
+from physicsnemo.mesh.calculus.curl import compute_curl_cells_lsq
+from physicsnemo.mesh.calculus.divergence import (
+    compute_divergence_cells_lsq,
+    compute_divergence_points_lsq,
+)
 from physicsnemo.mesh.calculus.gradient import compute_gradient_points_lsq
 from physicsnemo.mesh.calculus.laplacian import (
+    compute_laplacian_cells_lsq,
     compute_laplacian_points_dec,
     compute_laplacian_points_lsq,
 )
@@ -138,6 +143,16 @@ def test_mesh_laplacian_cotan_uses_functional_wiring(device: str):
     torch.testing.assert_close(output, expected)
 
 
+def test_mesh_laplacian_preserves_positional_data_source(device: str):
+    mesh = _tet_mesh(device)
+    values = mesh.points.square().sum(dim=-1)
+
+    output = mesh.laplacian(values, "points", implementation="torch")
+    expected = compute_laplacian_points_dec(mesh, values, implementation="torch")
+
+    torch.testing.assert_close(output, expected)
+
+
 def test_mesh_laplacian_lsq_method_uses_functional_wiring(device: str):
     mesh = _tet_mesh(device)
     values = mesh.points.square().sum(dim=-1)
@@ -150,3 +165,41 @@ def test_mesh_laplacian_lsq_method_uses_functional_wiring(device: str):
     )
 
     torch.testing.assert_close(output, expected)
+
+
+def test_cell_lsq_operators_expose_min_neighbors(device: str):
+    mesh = _tet_mesh(device)
+    min_neighbors = mesh.n_cells
+    vector_field = mesh.cell_centroids.clone()
+    rotational_field = torch.stack(
+        [
+            -mesh.cell_centroids[:, 1],
+            mesh.cell_centroids[:, 0],
+            torch.zeros_like(mesh.cell_centroids[:, 2]),
+        ],
+        dim=-1,
+    )
+    values = mesh.cell_centroids.square().sum(dim=-1)
+
+    divergence = compute_divergence_cells_lsq(
+        mesh,
+        vector_field,
+        min_neighbors=min_neighbors,
+        implementation="torch",
+    )
+    curl = compute_curl_cells_lsq(
+        mesh,
+        rotational_field,
+        min_neighbors=min_neighbors,
+        implementation="torch",
+    )
+    laplacian = compute_laplacian_cells_lsq(
+        mesh,
+        values,
+        min_neighbors=min_neighbors,
+        implementation="torch",
+    )
+
+    torch.testing.assert_close(divergence, torch.zeros_like(divergence))
+    torch.testing.assert_close(curl, torch.zeros_like(curl))
+    torch.testing.assert_close(laplacian, torch.zeros_like(laplacian))

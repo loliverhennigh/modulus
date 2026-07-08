@@ -743,7 +743,9 @@ class FunctionSpec:
 
     @staticmethod
     @contextlib.contextmanager
-    def warp_stream_scope(wp_launch_stream: wp.Stream | None):
+    def warp_stream_scope(
+        wp_launch_stream: wp.Stream | None, *, sync_enter: bool = True
+    ):
         """Scope Warp work on a borrowed torch stream with a cleanup guard.
 
         Warp and torch have different stream semantics: Warp streams are
@@ -755,10 +757,9 @@ class FunctionSpec:
         the launch finishes, which crashes.
 
         This context manager runs the enclosed Warp work inside
-        ``wp.ScopedStream(wp_launch_stream)`` (preserving torch's own ordering of
-        the inputs and outputs on that stream), then, on exit, has a temporary
-        Warp-owned (blocking) stream wait on the borrowed stream so Warp's
-        cleanup is ordered after the compute instead of firing early.
+        ``wp.ScopedStream(wp_launch_stream)``. On exit, a temporary Warp-owned
+        (blocking) stream waits on the borrowed stream so Warp's cleanup is
+        ordered after the compute instead of firing early.
 
         Parameters
         ----------
@@ -766,6 +767,10 @@ class FunctionSpec:
             The borrowed Warp stream to launch on (as returned by
             :meth:`warp_launch_context`). ``None`` selects the CPU / no-stream
             path, where the scope is a no-op and no guard is installed.
+        sync_enter : bool, optional
+            Whether the borrowed stream should wait on Warp's previous stream
+            when entering the scope. Set to ``False`` for CUDA Graph capture,
+            where that cross-stream dependency is invalid. Default is ``True``.
 
         Yields
         ------
@@ -784,7 +789,7 @@ class FunctionSpec:
         # once the launch has been enqueued.
         guard = wp.Stream(wp_launch_stream.device)
         try:
-            with wp.ScopedStream(wp_launch_stream):
+            with wp.ScopedStream(wp_launch_stream, sync_enter=sync_enter):
                 yield
         finally:
             # Order Warp's stream-ordered cleanup after the compute so mesh /

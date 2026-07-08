@@ -16,6 +16,7 @@
 
 import inspect
 import warnings
+from contextlib import contextmanager
 from typing import Literal, get_type_hints
 
 import pytest
@@ -360,6 +361,40 @@ def test_warp_launch_context_missing_warp(monkeypatch):
     monkeypatch.setattr(function_spec.importlib, "import_module", _raise)
     with pytest.raises(ImportError):
         FunctionSpec.warp_launch_context(torch.tensor([1.0]))
+
+
+@pytest.mark.parametrize("sync_enter", [False, True])
+def test_warp_stream_scope_forwards_entry_sync(monkeypatch, sync_enter):
+    events = []
+
+    class DummyStream:
+        device = "cuda:0"
+
+    class DummyGuard:
+        def __init__(self, device):
+            events.append(("guard", device))
+
+        def wait_stream(self, stream):
+            events.append(("wait", stream))
+
+    @contextmanager
+    def scoped_stream(stream, *, sync_enter=True):
+        events.append(("enter", stream, sync_enter))
+        yield
+
+    monkeypatch.setattr(function_spec.wp, "Stream", DummyGuard)
+    monkeypatch.setattr(function_spec.wp, "ScopedStream", scoped_stream)
+
+    stream = DummyStream()
+    with FunctionSpec.warp_stream_scope(stream, sync_enter=sync_enter):
+        events.append(("body",))
+
+    assert events == [
+        ("guard", "cuda:0"),
+        ("enter", stream, sync_enter),
+        ("body",),
+        ("wait", stream),
+    ]
 
 
 def test_dispatch_compatible_with_torch_compile():

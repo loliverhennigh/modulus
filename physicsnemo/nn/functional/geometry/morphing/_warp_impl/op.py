@@ -39,9 +39,9 @@ from .kernels import (
 wp.init()
 wp.config.log_level = wp.LOG_WARNING
 
-# ``warp_launch_context`` wraps Torch's current stream. Synchronizing Warp's
-# previous stream on entry is unnecessary and creates an illegal dependency
-# during CUDA Graph capture, so every scoped launch below disables it.
+# Borrowed Torch streams use ``warp_stream_scope`` so Warp's temporary
+# allocations stay alive until queued work finishes. Entry synchronization is
+# disabled at the launch sites below to preserve CUDA Graph capture.
 
 
 class _ShepardKernelSet(NamedTuple):
@@ -180,7 +180,7 @@ def _launch_shepard_forward(
     correction_launch = correction if correction is not None else _empty_3d(points)
 
     wp_device, wp_stream = FunctionSpec.warp_launch_context(points)
-    with wp.ScopedStream(wp_stream, sync_enter=False):
+    with FunctionSpec.warp_stream_scope(wp_stream, sync_enter=False):
         wp.launch(
             kernels.forward,
             dim=(batch, num_points),
@@ -464,7 +464,7 @@ def compact_shepard_field_warp_backward_impl(
     ):
         kernels = _shepard_kernels(points.dtype)
         wp_device, wp_stream = FunctionSpec.warp_launch_context(grad_field_c)
-        with wp.ScopedStream(wp_stream, sync_enter=False):
+        with FunctionSpec.warp_stream_scope(wp_stream, sync_enter=False):
             control_displacements_launch = (
                 control_displacements_c
                 if control_displacements_c is not None

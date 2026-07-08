@@ -29,7 +29,7 @@ def _curl_backward_2d_kernel(
     period0: float,
     period1: float,
     grad_vector: wp.array3d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]
@@ -65,7 +65,7 @@ def _curl_backward_3d_kernel(
     period1: float,
     period2: float,
     grad_vector: wp.array4d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = grad_vector.shape[1]
     n1 = grad_vector.shape[2]

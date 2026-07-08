@@ -19,6 +19,9 @@ import torch
 
 from physicsnemo.nn.functional import rectilinear_grid_divergence
 from physicsnemo.nn.functional.derivatives import RectilinearGridDivergence
+from physicsnemo.nn.functional.derivatives.rectilinear_grid_divergence._torch_impl import (
+    rectilinear_grid_divergence_torch,
+)
 from test.conftest import requires_module
 from test.nn.functional._parity_utils import clone_case
 
@@ -89,11 +92,10 @@ def _make_periodic_case(device: str, dims: int):
 @pytest.mark.parametrize("dims", [1, 2, 3])
 def test_rectilinear_grid_divergence_torch(device: str, dims: int):
     vector_field, coordinates, periods, expected = _make_periodic_case(device, dims)
-    output = RectilinearGridDivergence.dispatch(
+    output = rectilinear_grid_divergence_torch(
         vector_field.to(torch.float32),
         coordinates,
         periods=periods,
-        implementation="torch",
     )
     torch.testing.assert_close(output, expected, atol=5e-2, rtol=5e-2)
 
@@ -215,17 +217,15 @@ def test_rectilinear_grid_divergence_error_handling(device: str):
     assert output.shape == (16,)
 
     with pytest.raises(ValueError, match="vector_field.shape\\[0\\] must match"):
-        RectilinearGridDivergence.dispatch(
+        rectilinear_grid_divergence_torch(
             torch.randn(2, 16, device=device, dtype=torch.float32),
             (x,),
             periods=1.0,
-            implementation="torch",
         )
 
     with pytest.raises(ValueError, match="must contain one axis tensor"):
-        RectilinearGridDivergence.dispatch(
+        rectilinear_grid_divergence_torch(
             vector_field,
             (),
             periods=1.0,
-            implementation="torch",
         )

@@ -29,7 +29,7 @@ def _curl_2d_kernel(
     period0: float,
     period1: float,
     output: wp.array2d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = output.shape[0]
     n1 = output.shape[1]
@@ -62,7 +62,7 @@ def _curl_3d_kernel(
     period1: float,
     period2: float,
     output: wp.array4d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = output.shape[1]
     n1 = output.shape[2]

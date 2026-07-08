@@ -19,6 +19,9 @@ import torch
 
 from physicsnemo.nn.functional import rectilinear_grid_laplacian
 from physicsnemo.nn.functional.derivatives import RectilinearGridLaplacian
+from physicsnemo.nn.functional.derivatives.rectilinear_grid_laplacian._torch_impl import (
+    rectilinear_grid_laplacian_torch,
+)
 from test.conftest import requires_module
 from test.nn.functional._parity_utils import clone_case
 
@@ -69,11 +72,10 @@ def _make_periodic_case(device: str, dims: int):
 @pytest.mark.parametrize("dims", [1, 2, 3])
 def test_rectilinear_grid_laplacian_torch(device: str, dims: int):
     field, coordinates, periods, expected = _make_periodic_case(device, dims)
-    output = RectilinearGridLaplacian.dispatch(
+    output = rectilinear_grid_laplacian_torch(
         field.to(torch.float32),
         coordinates,
         periods=periods,
-        implementation="torch",
     )
     torch.testing.assert_close(output, expected, atol=6e-1, rtol=1e-1)
 
@@ -194,17 +196,15 @@ def test_rectilinear_grid_laplacian_error_handling(device: str):
     assert output.shape == (16,)
 
     with pytest.raises(ValueError, match="supports 1D-3D fields"):
-        RectilinearGridLaplacian.dispatch(
+        rectilinear_grid_laplacian_torch(
             torch.randn(2, 2, 2, 2, device=device, dtype=torch.float32),
             (x, x, x, x),
             periods=1.0,
-            implementation="torch",
         )
 
     with pytest.raises(ValueError, match="must contain one axis tensor"):
-        RectilinearGridLaplacian.dispatch(
+        rectilinear_grid_laplacian_torch(
             torch.randn(16, 16, device=device, dtype=torch.float32),
             (x,),
             periods=1.0,
-            implementation="torch",
         )

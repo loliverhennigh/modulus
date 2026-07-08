@@ -27,7 +27,7 @@ def _divergence_1d_kernel(
     x0: wp.array(dtype=wp.float32),
     period0: float,
     output: wp.array(dtype=wp.float32),
-):
+):  # pragma: no cover
     i = wp.tid()
     n0 = output.shape[0]
     im = (i + n0 - 1) % n0
@@ -48,7 +48,7 @@ def _divergence_2d_kernel(
     period0: float,
     period1: float,
     output: wp.array2d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = output.shape[0]
     n1 = output.shape[1]
@@ -81,7 +81,7 @@ def _divergence_3d_kernel(
     period1: float,
     period2: float,
     output: wp.array3d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = output.shape[0]
     n1 = output.shape[1]

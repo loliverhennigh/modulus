@@ -27,7 +27,7 @@ def _laplacian_backward_1d_kernel(
     x0: wp.array(dtype=wp.float32),
     period0: float,
     grad_field: wp.array(dtype=wp.float32),
-):
+):  # pragma: no cover
     i = wp.tid()
     n0 = grad_output.shape[0]
     im = (i + n0 - 1) % n0
@@ -48,7 +48,7 @@ def _laplacian_backward_2d_kernel(
     period0: float,
     period1: float,
     grad_field: wp.array2d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]
@@ -85,7 +85,7 @@ def _laplacian_backward_3d_kernel(
     period1: float,
     period2: float,
     grad_field: wp.array3d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]

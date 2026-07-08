@@ -19,6 +19,9 @@ import torch
 
 from physicsnemo.nn.functional import rectilinear_grid_curl
 from physicsnemo.nn.functional.derivatives import RectilinearGridCurl
+from physicsnemo.nn.functional.derivatives.rectilinear_grid_curl._torch_impl import (
+    rectilinear_grid_curl_torch,
+)
 from test.conftest import requires_module
 from test.nn.functional._parity_utils import clone_case
 
@@ -84,11 +87,10 @@ def _make_periodic_case(device: str, dims: int):
 @pytest.mark.parametrize("dims", [2, 3])
 def test_rectilinear_grid_curl_torch(device: str, dims: int):
     vector_field, coordinates, periods, expected = _make_periodic_case(device, dims)
-    output = RectilinearGridCurl.dispatch(
+    output = rectilinear_grid_curl_torch(
         vector_field.to(torch.float32),
         coordinates,
         periods=periods,
-        implementation="torch",
     )
     torch.testing.assert_close(output, expected, atol=5e-2, rtol=5e-2)
 
@@ -216,17 +218,15 @@ def test_rectilinear_grid_curl_error_handling(device: str):
     assert output.shape == (16, 18)
 
     with pytest.raises(ValueError, match="expects a 2D or 3D"):
-        RectilinearGridCurl.dispatch(
+        rectilinear_grid_curl_torch(
             torch.randn(1, 16, device=device, dtype=torch.float32),
             (x0,),
             periods=1.0,
-            implementation="torch",
         )
 
     with pytest.raises(ValueError, match="vector_field.shape\\[0\\] must match"):
-        RectilinearGridCurl.dispatch(
+        rectilinear_grid_curl_torch(
             torch.randn(3, 16, 18, device=device, dtype=torch.float32),
             (x0, x1),
             periods=(1.0, 1.0),
-            implementation="torch",
         )

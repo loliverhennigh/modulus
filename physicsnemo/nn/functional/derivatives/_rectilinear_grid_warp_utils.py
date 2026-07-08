@@ -30,7 +30,7 @@ def _axis_coeff(
     coords: wp.array(dtype=wp.float32),
     period: float,
     idx: int,
-) -> wp.vec3f:
+) -> wp.vec3f:  # pragma: no cover
     n = coords.shape[0]
     im = (idx + n - 1) % n
     ip = (idx + 1) % n
@@ -59,7 +59,7 @@ def _axis_second_coeff(
     coords: wp.array(dtype=wp.float32),
     period: float,
     idx: int,
-) -> wp.vec3f:
+) -> wp.vec3f:  # pragma: no cover
     n = coords.shape[0]
     im = (idx + n - 1) % n
     ip = (idx + 1) % n

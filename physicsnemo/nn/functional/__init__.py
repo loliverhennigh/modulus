@@ -31,8 +31,6 @@ from .equivariant_ops import (
 )
 from .fourier_spectral import imag, irfft, irfft2, real, rfft, rfft2, view_as_complex
 from .geometry import (
-    DisplacePoints,
-    MorphPoints,
     displace_points,
     farthest_point_sampling,
     mesh_poisson_disk_sample,
@@ -61,8 +59,6 @@ from .rendering import (
 )
 
 __all__ = [
-    "DisplacePoints",
-    "MorphPoints",
     "displace_points",
     "irfft",
     "irfft2",

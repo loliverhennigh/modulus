@@ -14,18 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Warp backend for point displacement and compact Shepard morphing."""
+"""Warp backend for compact Shepard morphing."""
 
 from .op import (
     compact_shepard_field_warp_impl,
-    displace_points_warp,
-    displace_points_warp_impl,
     morph_points_warp,
 )
 
 __all__ = [
     "compact_shepard_field_warp_impl",
-    "displace_points_warp",
-    "displace_points_warp_impl",
     "morph_points_warp",
 ]

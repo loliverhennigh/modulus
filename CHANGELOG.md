@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Adds coverage reporting on PRs — an informational `Coverage %` check plus a
   ready-to-enable Codecov integration.
-- Adds differentiable mesh morphing with Torch and NVIDIA Warp backends: dense
-  ``displace_points`` / ``Mesh.displace`` and compact sparse-control
+- Adds differentiable mesh morphing: Torch-backed dense ``displace_points`` /
+  ``Mesh.displace`` and Torch/NVIDIA Warp compact sparse-control
   ``morph_points`` / ``Mesh.morph`` / ``DomainMesh.morph``.
 - Adds the experimental Strata weather-emulation models —
   `physicsnemo.experimental.models.strata.Strata` and `StrataTransformer3D` — plus

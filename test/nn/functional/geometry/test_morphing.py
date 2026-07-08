@@ -17,10 +17,12 @@
 """Tests for dense displacement and compact Shepard point morphing."""
 
 import inspect
+from typing import Literal, get_type_hints
 
 import pytest
 import torch
 
+import physicsnemo.nn.functional as functional
 from physicsnemo.nn.functional import displace_points, morph_points
 from physicsnemo.nn.functional.geometry import DisplacePoints, MorphPoints
 from test.conftest import requires_module
@@ -39,20 +41,40 @@ def test_public_exports_and_function_specs():
     assert morph_points.__name__ == "morph_points"
     assert issubclass(DisplacePoints, object)
     assert issubclass(MorphPoints, object)
-    assert "implementation" in inspect.signature(displace_points).parameters
-    assert "implementation" in inspect.signature(morph_points).parameters
+    assert not hasattr(functional, "DisplacePoints")
+    assert not hasattr(functional, "MorphPoints")
+    assert list(inspect.signature(displace_points).parameters) == [
+        "points",
+        "displacement",
+        "point_weights",
+        "implementation",
+    ]
+    assert list(inspect.signature(morph_points).parameters) == [
+        "points",
+        "control_points",
+        "control_displacements",
+        "radius",
+        "point_weights",
+        "kernel",
+        "implementation",
+    ]
+    assert DisplacePoints.implementations() == ("torch",)
+    assert set(MorphPoints.implementations()) == {"torch", "warp"}
+    assert get_type_hints(displace_points)["implementation"] == Literal["torch"] | None
+    assert get_type_hints(morph_points)["implementation"] == (
+        Literal["torch", "warp"] | None
+    )
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_displace_amount_and_hard_soft_weights(dtype):
+def test_displace_hard_and_soft_point_weights(dtype):
     points = torch.tensor([[1.0, 2.0], [-1.0, 3.0], [4.0, -2.0]], dtype=dtype)
     displacement = torch.tensor([[2.0, -4.0], [3.0, 5.0], [-1.0, 2.0]], dtype=dtype)
 
     hard = displace_points(
         points,
-        displacement,
-        amount=-0.5,
-        weights=torch.tensor([True, False, True]),
+        -0.5 * displacement,
+        point_weights=torch.tensor([True, False, True]),
         implementation="torch",
     )
     torch.testing.assert_close(
@@ -60,22 +82,71 @@ def test_displace_amount_and_hard_soft_weights(dtype):
         points + torch.tensor([[-1.0, 2.0], [0.0, 0.0], [0.5, -1.0]], dtype=dtype),
     )
 
-    weights = torch.tensor([0.25, -1.0, 2.0], dtype=dtype)
-    amount = torch.tensor(1.5, dtype=dtype, requires_grad=True)
+    point_weights = torch.tensor([0.25, -1.0, 2.0], dtype=dtype, requires_grad=True)
     soft = displace_points(
         points,
         displacement,
-        amount=amount,
-        weights=weights,
+        point_weights=point_weights,
         implementation="torch",
     )
     torch.testing.assert_close(
-        soft, points + 1.5 * weights.unsqueeze(-1) * displacement
+        soft, points + point_weights.unsqueeze(-1) * displacement
     )
     soft.sum().backward()
-    torch.testing.assert_close(
-        amount.grad, (weights.unsqueeze(-1) * displacement).sum()
+    torch.testing.assert_close(point_weights.grad, displacement.sum(dim=-1))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_displace_float_weight_forward_is_grad_mode_independent(dtype, device):
+    device = torch.device(device)
+    points = torch.randn((32, 3), dtype=dtype, device=device, requires_grad=True)
+    displacement = torch.randn_like(points, requires_grad=True)
+    point_weights = torch.randn(32, dtype=dtype, device=device, requires_grad=True)
+
+    with_grad = displace_points(
+        points,
+        displacement,
+        point_weights=point_weights,
+        implementation="torch",
     )
+    with torch.no_grad():
+        without_grad = displace_points(
+            points,
+            displacement,
+            point_weights=point_weights,
+            implementation="torch",
+        )
+
+    torch.testing.assert_close(with_grad, without_grad, rtol=0.0, atol=0.0)
+
+
+def test_morph_kernel_default_and_validation():
+    points = torch.tensor([[0.25, 0.0]])
+    controls = torch.tensor([[0.0, 0.0]])
+    displacements = torch.tensor([[0.0, 1.0]])
+
+    default = morph_points(
+        points, controls, displacements, radius=1.0, implementation="torch"
+    )
+    explicit = morph_points(
+        points,
+        controls,
+        displacements,
+        radius=1.0,
+        kernel="wendland_c2",
+        implementation="torch",
+    )
+    torch.testing.assert_close(explicit, default)
+
+    with pytest.raises(ValueError, match="kernel.*wendland_c2"):
+        morph_points(
+            points,
+            controls,
+            displacements,
+            radius=1.0,
+            kernel="gaussian",
+            implementation="torch",
+        )
 
 
 def test_single_handle_exact_fade_and_support_boundary():
@@ -131,39 +202,32 @@ def test_single_handle_analytical_first_derivatives(implementation):
     points = torch.tensor([[q * radius.item(), 0.0]], dtype=dtype, requires_grad=True)
     controls = torch.tensor([[0.0, 0.0]], dtype=dtype, requires_grad=True)
     displacements = torch.tensor([[0.0, 2.0]], dtype=dtype, requires_grad=True)
-    amount = torch.tensor(0.7, dtype=dtype, requires_grad=True)
-    weights = torch.tensor([1.3], dtype=dtype, requires_grad=True)
+    point_weights = torch.tensor([1.3], dtype=dtype, requires_grad=True)
 
     output = morph_points(
         points,
         controls,
         displacements,
         radius=radius,
-        amount=amount,
-        weights=weights,
+        point_weights=point_weights,
         implementation=implementation,
     )
     gradients = torch.autograd.grad(
         output[0, 1],
-        (points, controls, displacements, radius, amount, weights),
+        (points, controls, displacements, radius, point_weights),
     )
 
     phi = (1 - q) ** 4 * (4 * q + 1)
     phi_prime = -20 * q * (1 - q) ** 3
     fraction = phi / (q**2 + phi)
     fraction_prime = (phi_prime * q**2 - 2 * q * phi) / (q**2 + phi) ** 2
-    scale = amount.item() * weights.item() * displacements[0, 1].item()
+    scale = point_weights.item() * displacements[0, 1].item()
     expected = (
         torch.tensor([[scale * fraction_prime / radius.item(), 1.0]], dtype=dtype),
         torch.tensor([[-scale * fraction_prime / radius.item(), 0.0]], dtype=dtype),
-        torch.tensor([[0.0, amount.item() * weights.item() * fraction]], dtype=dtype),
+        torch.tensor([[0.0, point_weights.item() * fraction]], dtype=dtype),
         torch.tensor([scale * fraction_prime * (-q / radius.item())], dtype=dtype),
-        torch.tensor(
-            weights.item() * displacements[0, 1].item() * fraction, dtype=dtype
-        ),
-        torch.tensor(
-            [amount.item() * displacements[0, 1].item() * fraction], dtype=dtype
-        ),
+        torch.tensor([displacements[0, 1].item() * fraction], dtype=dtype),
     )
     for actual, reference in zip(gradients, expected):
         torch.testing.assert_close(actual, reference, atol=2e-10, rtol=2e-10)
@@ -209,20 +273,18 @@ def test_zero_controls_report_zero_gradients(implementation):
     controls = torch.empty((0, 2), dtype=dtype, requires_grad=True)
     displacements = torch.empty((0, 2), dtype=dtype, requires_grad=True)
     radius = torch.empty(0, dtype=dtype, requires_grad=True)
-    amount = torch.tensor(0.8, dtype=dtype, requires_grad=True)
-    weights = torch.tensor([1.2], dtype=dtype, requires_grad=True)
+    point_weights = torch.tensor([1.2], dtype=dtype, requires_grad=True)
     output = morph_points(
         points,
         controls,
         displacements,
         radius=radius,
-        amount=amount,
-        weights=weights,
+        point_weights=point_weights,
         implementation=implementation,
     )
     gradients = torch.autograd.grad(
         output.sum(),
-        (points, controls, displacements, radius, amount, weights),
+        (points, controls, displacements, radius, point_weights),
     )
     torch.testing.assert_close(gradients[0], torch.ones_like(points))
     for gradient in gradients[1:]:
@@ -274,19 +336,19 @@ def test_exact_duplicate_handles_mean_and_defined_gradients(implementation):
 
 @requires_module("warp")
 @pytest.mark.parametrize("implementation", ["torch", "warp"])
-def test_batched_aligned_controls_per_handle_radii_and_weights(implementation):
+def test_batched_aligned_controls_per_handle_radii_and_point_weights(implementation):
     points = torch.tensor([[[0.0, 0.0], [2.0, 0.0]], [[10.0, 0.0], [12.0, 0.0]]])
     controls = torch.tensor([[[0.0, 0.0]], [[10.0, 0.0]]])
     displacements = torch.tensor([[[0.0, 1.0]], [[0.0, -2.0]]])
     radii = torch.tensor([[1.0], [3.0]])
-    weights = torch.tensor([[True, True], [False, True]])
+    point_weights = torch.tensor([[True, True], [False, True]])
 
     output = morph_points(
         points,
         controls,
         displacements,
         radius=radii,
-        weights=weights,
+        point_weights=point_weights,
         implementation=implementation,
     )
     torch.testing.assert_close(output[0, 0], torch.tensor([0.0, 1.0]))
@@ -305,9 +367,7 @@ def test_empty_and_noncontiguous_inputs_preserve_shape_dtype_and_device(
     displacement = torch.ones_like(base)[:, ::2]
     assert not points.is_contiguous()
 
-    displaced = displace_points(
-        points, displacement, amount=0.25, implementation=implementation
-    )
+    displaced = displace_points(points, 0.25 * displacement, implementation="torch")
     torch.testing.assert_close(displaced, points + 0.25)
     assert displaced.shape == points.shape
     assert displaced.dtype == points.dtype
@@ -357,27 +417,17 @@ def test_empty_and_noncontiguous_inputs_preserve_shape_dtype_and_device(
             lambda: displace_points(
                 torch.zeros(2, 2),
                 torch.zeros(2, 2),
-                weights=torch.ones(2, 1),
+                point_weights=torch.ones(2, 1),
                 implementation="torch",
             ),
             ValueError,
-            "weights must have shape",
+            "point_weights must have shape",
         ),
         (
             lambda: displace_points(
                 torch.zeros(2, 2),
                 torch.zeros(2, 2),
-                amount=torch.tensor(1.0, dtype=torch.float64),
-                implementation="torch",
-            ),
-            TypeError,
-            "same dtype",
-        ),
-        (
-            lambda: displace_points(
-                torch.zeros(2, 2),
-                torch.zeros(2, 2),
-                weights=torch.ones(2, dtype=torch.float64),
+                point_weights=torch.ones(2, dtype=torch.float64),
                 implementation="torch",
             ),
             TypeError,
@@ -404,28 +454,6 @@ def test_empty_and_noncontiguous_inputs_preserve_shape_dtype_and_device(
             ),
             ValueError,
             "finite",
-        ),
-        (
-            lambda: morph_points(
-                torch.zeros(2, 2),
-                torch.zeros(1, 2),
-                torch.zeros(1, 2),
-                radius=1.0,
-                amount=float("nan"),
-                implementation="torch",
-            ),
-            ValueError,
-            "amount must be finite",
-        ),
-        (
-            lambda: displace_points(
-                torch.zeros(2, 2),
-                torch.zeros(2, 2),
-                amount=1.0e100,
-                implementation="torch",
-            ),
-            ValueError,
-            "finite in the point dtype",
         ),
         (
             lambda: morph_points(
@@ -489,6 +517,12 @@ def test_validation(call, error, match):
         call()
 
 
+def test_displace_rejects_removed_warp_backend():
+    points = torch.zeros(2, 2)
+    with pytest.raises(KeyError, match="No implementation named 'warp'"):
+        displace_points(points, torch.zeros_like(points), implementation="warp")
+
+
 @requires_module("warp")
 @pytest.mark.parametrize("implementation", ["torch", "warp", None])
 def test_morph_points_is_cuda_graph_capture_safe(device, implementation):
@@ -500,8 +534,7 @@ def test_morph_points_is_cuda_graph_capture_safe(device, implementation):
     controls = torch.rand((2, 3), device=device)
     displacements = torch.rand((2, 3), device=device)
     radius = torch.ones(2, device=device)
-    amount = torch.tensor(0.7, device=device)
-    weights = torch.ones(8, device=device)
+    point_weights = torch.ones(8, device=device)
 
     # Warm allocations and backend kernels before capture.
     expected = morph_points(
@@ -509,8 +542,7 @@ def test_morph_points_is_cuda_graph_capture_safe(device, implementation):
         controls,
         displacements,
         radius=radius,
-        amount=amount,
-        weights=weights,
+        point_weights=point_weights,
         implementation=implementation,
     )
     torch.cuda.synchronize(device)
@@ -521,8 +553,7 @@ def test_morph_points_is_cuda_graph_capture_safe(device, implementation):
             controls,
             displacements,
             radius=radius,
-            amount=amount,
-            weights=weights,
+            point_weights=point_weights,
             implementation=implementation,
         )
     graph.replay()
@@ -538,23 +569,21 @@ def test_morph_torch_double_gradcheck():
         [[0.2, -0.3], [-0.1, 0.25]], dtype=dtype, requires_grad=True
     )
     radius = torch.tensor([1.3, 1.1], dtype=dtype, requires_grad=True)
-    amount = torch.tensor(0.8, dtype=dtype, requires_grad=True)
-    weights = torch.tensor([0.7, -0.4], dtype=dtype, requires_grad=True)
+    point_weights = torch.tensor([0.7, -0.4], dtype=dtype, requires_grad=True)
 
-    def operation(p, c, d, r, a, w):
+    def operation(p, c, d, r, w):
         return morph_points(
             p,
             c,
             d,
             radius=r,
-            amount=a,
-            weights=w,
+            point_weights=w,
             implementation="torch",
         )
 
     assert torch.autograd.gradcheck(
         operation,
-        (points, controls, displacements, radius, amount, weights),
+        (points, controls, displacements, radius, point_weights),
         eps=1e-6,
         atol=2e-5,
         rtol=2e-4,
@@ -727,47 +756,20 @@ def test_morph_warp_double_gradcheck():
         torch.tensor([[-0.1, -0.05], [0.91, 0.08]], dtype=dtype, requires_grad=True),
         torch.tensor([[0.12, 0.3], [-0.2, 0.09]], dtype=dtype, requires_grad=True),
         torch.tensor([0.83, 1.07], dtype=dtype, requires_grad=True),
-        torch.tensor(0.72, dtype=dtype, requires_grad=True),
         torch.tensor([0.8, -0.4], dtype=dtype, requires_grad=True),
     )
 
-    def operation(p, c, d, r, a, w):
+    def operation(p, c, d, r, w):
         return morph_points(
             p,
             c,
             d,
             radius=r,
-            amount=a,
-            weights=w,
+            point_weights=w,
             implementation="warp",
         )
 
     assert torch.autograd.gradcheck(operation, inputs, eps=1e-6, atol=3e-5, rtol=3e-4)
-
-
-def _run_dense_with_gradients(implementation, device, dtype):
-    points = torch.tensor(
-        [[0.1, -0.2, 0.3], [0.7, 0.4, -0.5]], device=device, dtype=dtype
-    ).requires_grad_()
-    displacement = torch.tensor(
-        [[0.4, -0.1, 0.2], [-0.3, 0.6, 0.1]], device=device, dtype=dtype
-    ).requires_grad_()
-    amount = torch.tensor(0.65, device=device, dtype=dtype, requires_grad=True)
-    weights = torch.tensor([0.4, -0.8], device=device, dtype=dtype, requires_grad=True)
-    output = displace_points(
-        points,
-        displacement,
-        amount=amount,
-        weights=weights,
-        implementation=implementation,
-    )
-    cotangent = torch.tensor(
-        [[0.2, -0.5, 0.7], [-0.3, 0.1, 0.4]], device=device, dtype=dtype
-    )
-    gradients = torch.autograd.grad(
-        (output * cotangent).sum(), (points, displacement, amount, weights)
-    )
-    return output, gradients
 
 
 def _run_morph_with_gradients(implementation, device, dtype):
@@ -781,8 +783,7 @@ def _run_morph_with_gradients(implementation, device, dtype):
         [[0.2, -0.3], [-0.1, 0.25]], device=device, dtype=dtype
     ).requires_grad_()
     radius = torch.tensor([1.3, 1.1], device=device, dtype=dtype, requires_grad=True)
-    amount = torch.tensor(0.8, device=device, dtype=dtype, requires_grad=True)
-    weights = torch.tensor(
+    point_weights = torch.tensor(
         [0.7, -0.4, 1.2], device=device, dtype=dtype, requires_grad=True
     )
     output = morph_points(
@@ -790,8 +791,7 @@ def _run_morph_with_gradients(implementation, device, dtype):
         controls,
         displacements,
         radius=radius,
-        amount=amount,
-        weights=weights,
+        point_weights=point_weights,
         implementation=implementation,
     )
     cotangent = torch.tensor(
@@ -799,17 +799,15 @@ def _run_morph_with_gradients(implementation, device, dtype):
     )
     gradients = torch.autograd.grad(
         (output * cotangent).sum(),
-        (points, controls, displacements, radius, amount, weights),
+        (points, controls, displacements, radius, point_weights),
     )
     return output, gradients
 
 
 @requires_module("warp")
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_torch_warp_forward_and_first_gradient_parity(device, dtype):
+def test_morph_torch_warp_forward_and_first_gradient_parity(device, dtype):
     device = torch.device(device)
-    dense_torch = _run_dense_with_gradients("torch", device, dtype)
-    dense_warp = _run_dense_with_gradients("warp", device, dtype)
     morph_torch = _run_morph_with_gradients("torch", device, dtype)
     morph_warp = _run_morph_with_gradients("warp", device, dtype)
 
@@ -817,9 +815,6 @@ def test_torch_warp_forward_and_first_gradient_parity(device, dtype):
         atol, rtol = 4e-5, 4e-5
     else:
         atol, rtol = 2e-9, 2e-8
-    torch.testing.assert_close(dense_warp[0], dense_torch[0], atol=atol, rtol=rtol)
-    for actual, expected in zip(dense_warp[1], dense_torch[1]):
-        torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
     torch.testing.assert_close(morph_warp[0], morph_torch[0], atol=atol, rtol=rtol)
     for actual, expected in zip(morph_warp[1], morph_torch[1]):
         torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
@@ -850,7 +845,6 @@ def test_default_dispatch_matches_device_backend(device):
 def test_warp_custom_ops_opcheck():
     from physicsnemo.nn.functional.geometry.morphing._warp_impl import (
         compact_shepard_field_warp_impl,
-        displace_points_warp_impl,
     )
 
     dtype = torch.float64
@@ -860,13 +854,6 @@ def test_warp_custom_ops_opcheck():
         [[[0.0, 0.3], [0.2, -0.1]]], dtype=dtype, requires_grad=True
     )
     radius = torch.tensor([[0.9, 1.1]], dtype=dtype, requires_grad=True)
-    amount = torch.tensor([0.7], dtype=dtype, requires_grad=True)
-    weights = torch.tensor([[0.4, 1.2]], dtype=dtype, requires_grad=True)
-
-    torch.library.opcheck(
-        displace_points_warp_impl,
-        args=(points, torch.randn_like(points, requires_grad=True), amount, weights),
-    )
     torch.library.opcheck(
         compact_shepard_field_warp_impl,
         args=(points, controls, displacements, radius),
@@ -880,27 +867,23 @@ def test_torch_compile_fullgraph(implementation):
     controls = torch.tensor([[0.0, 0.0], [1.0, 0.0]])
     displacements = torch.tensor([[0.0, 0.3], [0.2, -0.1]])
     radius = torch.tensor([0.8, 1.1])
-    amount = torch.tensor(0.7)
-    weights = torch.tensor([0.5, 1.2])
+    point_weights = torch.tensor([0.5, 1.2])
 
-    def operation(p, c, d, r, a, w):
-        dense = displace_points(
-            p, d, amount=a, weights=w, implementation=implementation
-        )
+    def operation(p, c, d, r, w):
+        dense = displace_points(p, d, point_weights=w, implementation="torch")
         sparse = morph_points(
             p,
             c,
             d,
             radius=r,
-            amount=a,
-            weights=w,
+            point_weights=w,
             implementation=implementation,
         )
         return dense, sparse
 
-    eager = operation(points, controls, displacements, radius, amount, weights)
+    eager = operation(points, controls, displacements, radius, point_weights)
     compiled = torch.compile(operation, fullgraph=True)(
-        points, controls, displacements, radius, amount, weights
+        points, controls, displacements, radius, point_weights
     )
     for actual, reference in zip(compiled, eager):
         torch.testing.assert_close(actual, reference)
@@ -909,13 +892,12 @@ def test_torch_compile_fullgraph(implementation):
 def test_torch_compile_fullgraph_dynamic_shapes():
     """Symbolic query and control counts use the vectorized compile path."""
 
-    def operation(points, controls, displacements, radius, amount):
+    def operation(points, controls, displacements, radius):
         return morph_points(
             points,
             controls,
             displacements,
             radius=radius,
-            amount=amount,
             implementation="torch",
         )
 
@@ -926,10 +908,9 @@ def test_torch_compile_fullgraph_dynamic_shapes():
         controls = torch.randn((num_controls, 3), generator=generator)
         displacements = torch.randn((num_controls, 3), generator=generator)
         radius = torch.ones(num_controls)
-        amount = torch.tensor(0.7)
         torch.testing.assert_close(
-            compiled(points, controls, displacements, radius, amount),
-            operation(points, controls, displacements, radius, amount),
+            compiled(points, controls, displacements, radius),
+            operation(points, controls, displacements, radius),
         )
 
 
@@ -945,73 +926,90 @@ def test_torch_compile_fullgraph_dynamic_python_scalars_and_defaults():
             implementation="torch",
         )
 
-    def runtime_scalars(points, controls, displacements, radius, amount):
+    def runtime_scalar(points, controls, displacements, radius):
         return morph_points(
             points,
             controls,
             displacements,
             radius=radius,
-            amount=amount,
             implementation="torch",
         )
 
     points = torch.randn((4, 3))
     controls = torch.randn((2, 3))
     displacements = torch.randn((2, 3))
+    compiled_graphs = []
+
+    def counting_backend(graph_module, _example_inputs):
+        compiled_graphs.append(graph_module)
+        return graph_module.forward
+
     compiled_defaults = torch.compile(
         defaults, fullgraph=True, dynamic=True, backend="eager"
     )
-    compiled_scalars = torch.compile(
-        runtime_scalars, fullgraph=True, dynamic=True, backend="eager"
+    compiled_scalar = torch.compile(
+        runtime_scalar, fullgraph=True, dynamic=True, backend=counting_backend
     )
     torch.testing.assert_close(
         compiled_defaults(points, controls, displacements),
         defaults(points, controls, displacements),
     )
-    torch.testing.assert_close(
-        compiled_scalars(points, controls, displacements, 1.0, 0.5),
-        runtime_scalars(points, controls, displacements, 1.0, 0.5),
-    )
+    # Multiple values force Dynamo to generalize the Python float to SymFloat;
+    # the symbolic path must remain a single full graph.
+    for radius in (1.0, 2.0, 0.5):
+        torch.testing.assert_close(
+            compiled_scalar(points, controls, displacements, radius),
+            runtime_scalar(points, controls, displacements, radius),
+        )
+
+    # Value checks are intentionally skipped once a call-time scalar has been
+    # generalized to SymFloat. Invalid symbolic values must follow the same
+    # unvalidated numerical path as tensor radii rather than graph-breaking.
+    for radius in (0.0, -1.0):
+        torch.testing.assert_close(
+            compiled_scalar(points, controls, displacements, radius),
+            morph_points(
+                points,
+                controls,
+                displacements,
+                radius=torch.tensor(radius),
+                implementation="torch",
+            ),
+        )
+    assert len(compiled_graphs) == 1
 
 
-def test_torch_compile_rejects_invalid_python_scalars_like_eager():
+@pytest.mark.parametrize(
+    ("radius", "match"),
+    [
+        (0.0, "radius must be strictly positive"),
+        (-1.0, "radius must be strictly positive"),
+        (float("nan"), "radius must be finite"),
+        (float("inf"), "radius must be finite"),
+    ],
+)
+def test_torch_compile_rejects_invalid_python_scalars_like_eager(radius, match):
     """Compiled execution must reject the same invalid Python scalars as eager.
 
-    The ``torch.compiler.is_compiling()`` guards in ``_utils.py`` currently
-    skip Python-scalar validation entirely during tracing, so a compiled model
-    silently returns a near-identity morph for ``radius=0.0`` and NaN geometry
-    for ``amount=nan`` where the identical eager call raises ``ValueError``.
+    Python radius literals must not bypass finite and strictly-positive checks
+    merely because Dynamo is tracing the call.
     """
 
     points = torch.randn((5, 2))
     controls = torch.randn((3, 2))
     displacements = torch.randn((3, 2))
 
-    def zero_radius(p, c, d):
-        return morph_points(p, c, d, radius=0.0, implementation="torch")
+    def invalid_radius(p, c, d):
+        return morph_points(p, c, d, radius=radius, implementation="torch")
 
-    def nan_amount(p, c, d):
-        return morph_points(
-            p, c, d, radius=1.0, amount=float("nan"), implementation="torch"
-        )
-
-    with pytest.raises(ValueError, match="radius must be strictly positive"):
-        zero_radius(points, controls, displacements)
-    with pytest.raises(ValueError, match="amount must be finite"):
-        nan_amount(points, controls, displacements)
-
-    with pytest.raises(ValueError, match="radius must be strictly positive"):
-        torch.compile(zero_radius, backend="eager")(points, controls, displacements)
-    with pytest.raises(ValueError, match="amount must be finite"):
-        torch.compile(nan_amount, backend="eager")(points, controls, displacements)
+    with pytest.raises(ValueError, match=match):
+        invalid_radius(points, controls, displacements)
+    with pytest.raises(ValueError, match=match):
+        torch.compile(invalid_radius, backend="eager")(points, controls, displacements)
 
 
-@requires_module("warp")
-@pytest.mark.parametrize("implementation", ["torch", "warp"])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_bool_mask_suppresses_nonfinite_dense_displacements(
-    implementation, dtype, device
-):
+def test_bool_mask_suppresses_nonfinite_dense_displacements(dtype, device):
     device = torch.device(device)
     points = torch.tensor(
         [[1.0, 2.0], [-1.0, 0.5], [3.0, -2.0]], device=device, dtype=dtype
@@ -1022,20 +1020,18 @@ def test_bool_mask_suppresses_nonfinite_dense_displacements(
         dtype=dtype,
         requires_grad=True,
     )
-    amount = torch.tensor(0.5, device=device, dtype=dtype, requires_grad=True)
     mask = torch.tensor([False, True, False], device=device)
 
     output = displace_points(
         points,
         displacement,
-        amount=amount,
-        weights=mask,
-        implementation=implementation,
+        point_weights=mask,
+        implementation="torch",
     )
     expected = points.detach().clone()
-    expected[1] += torch.tensor([1.0, -1.5], device=device, dtype=dtype)
+    expected[1] += torch.tensor([2.0, -3.0], device=device, dtype=dtype)
     torch.testing.assert_close(output, expected)
-    gradients = torch.autograd.grad(output.sum(), (points, displacement, amount))
+    gradients = torch.autograd.grad(output.sum(), (points, displacement))
     assert all(torch.isfinite(gradient).all() for gradient in gradients)
     torch.testing.assert_close(
         gradients[1][~mask], torch.zeros((2, 2), device=device, dtype=dtype)
@@ -1219,8 +1215,44 @@ def test_infinite_tensor_radius_agrees_across_backends():
 
 
 @requires_module("warp")
-@pytest.mark.parametrize("implementation", ["torch", "warp"])
-def test_public_api_fake_tensor_propagation_with_tensor_options(implementation):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_infinite_radius_with_overflowing_difference_agrees_across_backends(dtype):
+    """An infinite radius overrides the finite-radius overflow sentinel."""
+
+    coordinate = 0.75 * torch.finfo(dtype).max
+    points = torch.tensor([[coordinate, 0.0]], dtype=dtype)
+    controls = torch.tensor([[-coordinate, 0.0]], dtype=dtype)
+    displacements = torch.tensor([[0.0, 1.0]], dtype=dtype)
+    radius = torch.tensor([torch.inf], dtype=dtype)
+
+    def run(implementation):
+        inputs = tuple(
+            tensor.detach().clone().requires_grad_()
+            for tensor in (points, controls, displacements, radius)
+        )
+        output = morph_points(
+            inputs[0],
+            inputs[1],
+            inputs[2],
+            radius=inputs[3],
+            implementation=implementation,
+        )
+        return output, torch.autograd.grad(output.sum(), inputs)
+
+    torch_output, torch_gradients = run("torch")
+    warp_output, warp_gradients = run("warp")
+
+    torch.testing.assert_close(torch_output, warp_output)
+    torch.testing.assert_close(torch_output, points + displacements)
+    for torch_gradient, warp_gradient in zip(torch_gradients, warp_gradients):
+        torch.testing.assert_close(torch_gradient, warp_gradient)
+
+
+@requires_module("warp")
+@pytest.mark.parametrize("morph_implementation", ["torch", "warp"])
+def test_public_api_fake_tensor_propagation_with_tensor_options(
+    morph_implementation,
+):
     from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 
     with FakeTensorMode():
@@ -1228,25 +1260,22 @@ def test_public_api_fake_tensor_propagation_with_tensor_options(implementation):
         displacement = torch.empty_like(points)
         controls = torch.empty((2, 3), dtype=torch.float64)
         control_displacements = torch.empty_like(controls)
-        amount = torch.empty((), dtype=torch.float64)
         radius = torch.empty(2, dtype=torch.float64)
-        weights = torch.empty(4, dtype=torch.float64)
+        point_weights = torch.empty(4, dtype=torch.float64)
 
         dense = displace_points(
             points,
             displacement,
-            amount=amount,
-            weights=weights,
-            implementation=implementation,
+            point_weights=point_weights,
+            implementation="torch",
         )
         sparse = morph_points(
             points,
             controls,
             control_displacements,
             radius=radius,
-            amount=amount,
-            weights=weights,
-            implementation=implementation,
+            point_weights=point_weights,
+            implementation=morph_implementation,
         )
 
     for output in (dense, sparse):
@@ -1262,30 +1291,19 @@ def test_warp_raw_custom_op_fake_strides_match_noncontiguous_real_outputs(device
 
     from physicsnemo.nn.functional.geometry.morphing._warp_impl import (
         compact_shepard_field_warp_impl,
-        displace_points_warp_impl,
     )
 
     device = torch.device(device)
     points = torch.rand((1, 3, 5), device=device).transpose(1, 2)
-    displacement = torch.rand_like(points)
     controls = torch.rand((1, 3, 2), device=device).transpose(1, 2)
     control_displacements = torch.rand_like(controls)
     radius = torch.ones((1, 2), device=device)
-    amount = torch.ones(1, device=device)
-    weights = torch.ones((1, 5), device=device)
 
-    real_dense = displace_points_warp_impl(points, displacement, amount, weights)
     real_sparse = compact_shepard_field_warp_impl(
         points, controls, control_displacements, radius
     )
 
     with FakeTensorMode() as mode:
-        fake_dense = displace_points_warp_impl(
-            mode.from_tensor(points),
-            mode.from_tensor(displacement),
-            mode.from_tensor(amount),
-            mode.from_tensor(weights),
-        )
         fake_sparse = compact_shepard_field_warp_impl(
             mode.from_tensor(points),
             mode.from_tensor(controls),
@@ -1293,7 +1311,6 @@ def test_warp_raw_custom_op_fake_strides_match_noncontiguous_real_outputs(device
             mode.from_tensor(radius),
         )
 
-    assert fake_dense.stride() == real_dense.stride()
     assert [tensor.stride() for tensor in fake_sparse] == [
         tensor.stride() for tensor in real_sparse
     ]
@@ -1310,11 +1327,8 @@ def test_warp_no_grad_uses_forward_only_field(monkeypatch, device):
     controls = torch.tensor([[[0.0, 0.0], [1.0, 0.0]]], device=device)
     displacements = torch.tensor([[[0.0, 0.3], [0.2, -0.1]]], device=device)
     radius = torch.tensor([[0.8, 1.1]], device=device)
-    amount = torch.ones(1, device=device)
 
-    expected = warp_op.morph_points_warp(
-        points, controls, displacements, radius, amount, None
-    )
+    expected = warp_op.morph_points_warp(points, controls, displacements, radius, None)
 
     def fail_full_field(*args, **kwargs):
         raise AssertionError("backward auxiliaries must not be built in no-grad mode")
@@ -1322,7 +1336,7 @@ def test_warp_no_grad_uses_forward_only_field(monkeypatch, device):
     monkeypatch.setattr(warp_op, "compact_shepard_field_warp_impl", fail_full_field)
     with torch.no_grad():
         actual = warp_op.morph_points_warp(
-            points, controls, displacements, radius, amount, None
+            points, controls, displacements, radius, None
         )
     torch.testing.assert_close(actual, expected)
 
@@ -1338,8 +1352,7 @@ def test_warp_zero_controls_bypass_launches_and_keep_zero_gradients(
     controls = torch.empty((1, 0, 3), device=device, requires_grad=True)
     displacements = torch.empty_like(controls, requires_grad=True)
     radius = torch.empty((1, 0), device=device, requires_grad=True)
-    amount = torch.tensor([0.7], device=device, requires_grad=True)
-    weights = torch.rand((1, 4), device=device, requires_grad=True)
+    point_weights = torch.rand((1, 4), device=device, requires_grad=True)
 
     def fail_launch(*args, **kwargs):
         raise AssertionError("zero controls must bypass Warp custom ops")
@@ -1348,13 +1361,12 @@ def test_warp_zero_controls_bypass_launches_and_keep_zero_gradients(
     monkeypatch.setattr(
         warp_op, "compact_shepard_field_warp_forward_only_impl", fail_launch
     )
-    monkeypatch.setattr(warp_op, "displace_points_warp_impl", fail_launch)
     output = warp_op.morph_points_warp(
-        points, controls, displacements, radius, amount, weights
+        points, controls, displacements, radius, point_weights
     )
     gradients = torch.autograd.grad(
         output.sum(),
-        (points, controls, displacements, radius, amount, weights),
+        (points, controls, displacements, radius, point_weights),
     )
 
     torch.testing.assert_close(output, points)
@@ -1364,7 +1376,7 @@ def test_warp_zero_controls_bypass_launches_and_keep_zero_gradients(
 
 
 @requires_module("warp")
-def test_warp_displacement_only_pullbacks_return_only_requested_gradient(device):
+def test_warp_control_displacement_only_pullback_returns_requested_gradient(device):
     from physicsnemo.nn.functional.geometry.morphing._warp_impl import op as warp_op
 
     device = torch.device(device)
@@ -1372,22 +1384,7 @@ def test_warp_displacement_only_pullbacks_return_only_requested_gradient(device)
     controls = torch.rand((1, 2, 3), device=device)
     control_displacements = torch.rand_like(controls)
     radius = torch.ones((1, 2), device=device)
-    amount = torch.ones(1, device=device)
     grad_output = torch.rand_like(points)
-
-    dense_gradients = warp_op.displace_points_warp_backward_impl(
-        grad_output,
-        None,
-        amount,
-        None,
-        False,
-        True,
-        False,
-        False,
-    )
-    assert dense_gradients[0] is None
-    assert dense_gradients[1] is not None
-    assert dense_gradients[2:] == (None, None)
 
     field, min_q, denominator, exact_count, reference_index, correction = (
         warp_op.compact_shepard_field_warp_impl(
@@ -1415,23 +1412,3 @@ def test_warp_displacement_only_pullbacks_return_only_requested_gradient(device)
     assert sparse_gradients[2] is not None
     assert sparse_gradients[3] is None
     assert field.shape == points.shape
-
-
-@requires_module("warp")
-def test_warp_dense_point_only_backward_bypasses_pullback(monkeypatch, device):
-    from physicsnemo.nn.functional.geometry.morphing._warp_impl import op as warp_op
-
-    device = torch.device(device)
-    points = torch.rand((1, 5, 3), device=device, requires_grad=True)
-    displacement = torch.rand_like(points)
-    amount = torch.tensor([0.7], device=device)
-
-    output = warp_op.displace_points_warp(points, displacement, amount, None)
-
-    def fail_pullback(*args, **kwargs):
-        raise AssertionError("point-only differentiation needs no Warp pullback")
-
-    monkeypatch.setattr(warp_op, "displace_points_warp_backward_impl", fail_pullback)
-    cotangent = torch.rand_like(output)
-    (point_gradient,) = torch.autograd.grad(output, points, grad_outputs=cotangent)
-    torch.testing.assert_close(point_gradient, cotangent)

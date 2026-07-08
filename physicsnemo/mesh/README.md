@@ -321,8 +321,8 @@ Comprehensive overview of PhysicsNeMo-Mesh capabilities:
 | Rotation | ✅ | In 2D or 3D (angle-axis); for higher dimensions rotation is ill-defined, use `transform()` instead |
 | Scaling | ✅ | Uniform or anisotropic |
 | Arbitrary matrix transform | ✅ | |
-| Dense point displacement | ✅ | Aligned tensor or `point_data` key, with optional weights |
-| Sparse control-point morphing | ✅ | Compact support with scalar or per-control radii |
+| Dense point displacement | ✅ | Aligned tensor or `point_data` key, with optional point weights |
+| Sparse control-point morphing | ✅ | Wendland-C2 compact support with scalar or per-control radii |
 | Extrusion | ✅ | Manifold → higher dimension |
 | Coordinate projection (drop ambient dims) | ✅ | `projections.project` (e.g. 3D → 2D embedding) |
 | Surface projection / mesh intersection | ❌ | Manifold → lower *manifold* dimension; work in progress |
@@ -381,7 +381,7 @@ import torch
 # Dense displacement: one displacement vector per mesh point
 displacement = torch.zeros_like(mesh.points)
 displacement[:, -1] = 0.05
-displaced = mesh.displace(displacement, amount=0.5)
+displaced = mesh.displace(displacement)
 
 # Sparse morphing: one control at the point with the largest last coordinate
 control_index = mesh.points[:, -1].argmax()
@@ -399,9 +399,10 @@ morphed = mesh.morph(
 
 Tensor-valued radii must remain finite and strictly positive. For a learned
 radius, use a positive parameterization such as
-`torch.nn.functional.softplus(raw_radius) + radius_epsilon`; radius and amount
-tensor values are not validated at runtime. Floating-point weights are applied
-as supplied and may be signed or greater than one.
+`torch.nn.functional.softplus(raw_radius) + radius_epsilon`; tensor radius
+values are not validated at runtime. Floating `point_weights` are applied as
+supplied and may be signed or greater than one. The current morphing kernel is
+`"wendland_c2"`, which is also the default.
 
 ### Subdivision
 

@@ -8,8 +8,8 @@ Geometric Transformations
 
 Linear, affine, and nonlinear transformations on mesh geometry. Each function
 returns a new :class:`~physicsnemo.mesh.mesh.Mesh` with transformed point
-coordinates and appropriately invalidated caches. (Any cached quantities, such
-as normals and areas, are automatically recomputed on next access.)
+coordinates and appropriately invalidated caches. Cached quantities such as
+normals and areas are automatically recomputed on next access.
 
 All transformations are also available as methods on
 :class:`~physicsnemo.mesh.mesh.Mesh`.
@@ -48,7 +48,7 @@ explicit mutation of the source mesh's attached data.
 
     displacement = torch.zeros_like(mesh.points)
     displacement[:, 2] = 0.05
-    displaced = mesh.displace(displacement, amount=0.5)
+    displaced = mesh.displace(0.5 * displacement)
 
     # Point-data fields can drive the same operation.
     mesh.point_data["design_displacement"] = displacement
@@ -85,14 +85,13 @@ not a batch dimension.
     objective = single_morph.points.square().mean()
     objective.backward()
 
-Because ``control_displacements`` is differentiable, a PyTorch optimizer—or a
-model that predicts those displacements—can learn how to deform the mesh from
-any differentiable loss computed from ``single_morph.points``.
+``control_displacements`` is differentiable. An optimizer can learn it from any
+differentiable loss computed from ``single_morph.points``. A model can also
+predict the displacements.
 
-With the default ``amount=1`` and no weights, a mesh vertex exactly at a unique
-control moves by its prescribed displacement. A per-point weight or a different
-``amount`` scales the final movement. Duplicate controls at the same coordinate
-contribute their mean displacement.
+Without point weights, a mesh vertex exactly at a unique control moves by its
+prescribed displacement. ``point_weights`` can scale or mask the final movement.
+Duplicate controls at the same coordinate contribute their mean displacement.
 
 Multiple-Control Morphing
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -125,13 +124,15 @@ outside every support remain unchanged. Put simultaneous controls in one call,
 because applying several morphs sequentially evaluates later fields on already
 modified coordinates and is therefore order-dependent.
 
+The ``kernel`` keyword names the compact radial kernel used by the field;
+``"wendland_c2"`` is currently the supported value and the default.
+
 Every tensor-valued radius must remain finite and strictly positive; its values
 are not validated at runtime. When a model learns the radius, use a positive
 parameterization such as
 ``torch.nn.functional.softplus(raw_radius) + radius_epsilon`` rather than
-optimizing an unconstrained radius directly. Tensor-valued ``amount`` inputs
-must likewise remain finite. Floating per-point weights are used as supplied
-and may be signed or greater than one.
+optimizing an unconstrained radius directly. Floating ``point_weights`` are
+used as supplied and may be signed or greater than one.
 
 .. rubric:: Visualization
 
@@ -149,13 +150,13 @@ Domain Meshes
 
 :meth:`~physicsnemo.mesh.domain_mesh.DomainMesh.morph` evaluates one
 world-coordinate control field on the interior and every named boundary. With
-``weights=None``, coincident component points receive identical motion. Domain
-weights must instead be a point-data key (or nested tuple key) present in every
-component; raw weight tensors are rejected because component point counts can
-differ. Every resolved field must use one common dtype across the domain: bool
-for a hard mask, or the same floating dtype as the mesh points. Coincident
-points remain coincident under a weight key only when their resolved weight
-values also match.
+``point_weights=None``, coincident component points receive identical motion.
+Domain point weights must instead be a point-data key (or nested tuple key)
+present in every component; raw weight tensors are rejected because component
+point counts can differ. Every resolved field must use one common dtype across
+the domain: bool for a hard mask, or the same floating dtype as the mesh points.
+Coincident points remain coincident under a point-weight key only when their
+resolved values also match.
 
 .. code:: python
 
@@ -180,11 +181,11 @@ values also match.
         domain_controls,
         domain_displacements,
         radius=1.25,
-        weights="design_weight",
+        point_weights="design_weight",
         implementation="torch",
     )
 
-    # Equal weights keep the shared wall vertices coincident.
+    # Equal point weights keep the shared wall vertices coincident.
     assert torch.allclose(
         morphed_domain.interior.points[:2],
         morphed_domain.boundaries["wall"].points,

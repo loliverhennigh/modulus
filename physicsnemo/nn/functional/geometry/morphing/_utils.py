@@ -24,6 +24,19 @@ from numbers import Real
 import torch
 
 
+def _zero_dependency(
+    tensor: torch.Tensor,
+    *others: torch.Tensor | None,
+) -> torch.Tensor:
+    """Return scalar zero connected to every differentiable tensor argument."""
+
+    dependency = tensor.sum()
+    for other in others:
+        if other is not None and other.dtype != torch.bool:
+            dependency = dependency + other.sum()
+    return dependency * 0
+
+
 def _validate_points(tensor: torch.Tensor, name: str) -> None:
     """Validate an independent point-coordinate tensor."""
 
@@ -72,80 +85,47 @@ def _as_batched(tensor: torch.Tensor) -> tuple[torch.Tensor, bool]:
     return tensor, False
 
 
-def _normalize_amount(
-    amount: float | torch.Tensor,
-    *,
-    reference: torch.Tensor,
-) -> torch.Tensor:
-    """Normalize a scalar amount to the one-element backend representation."""
-
-    if isinstance(amount, torch.Tensor):
-        if amount.ndim != 0:
-            raise ValueError(
-                f"amount must be a Python scalar or 0-D tensor, got {tuple(amount.shape)}"
-            )
-        _validate_layout(amount, reference, "tensor-valued amount and points")
-        return amount.reshape(1)
-
-    if not isinstance(amount, Real) or isinstance(amount, bool):
-        raise TypeError(
-            "amount must be a finite Python real scalar or a floating-point 0-D tensor"
-        )
-    if not torch.compiler.is_compiling():
-        amount_value = float(amount)
-        if not math.isfinite(amount_value):
-            raise ValueError("amount must be finite")
-        if abs(amount_value) > torch.finfo(reference.dtype).max:
-            raise ValueError("amount must be finite in the point dtype")
-    return torch.as_tensor(
-        amount,
-        device=reference.device,
-        dtype=reference.dtype,
-    ).reshape(1)
-
-
-def _normalize_weights(
-    weights: torch.Tensor | None,
+def _normalize_point_weights(
+    point_weights: torch.Tensor | None,
     points: torch.Tensor,
     was_unbatched: bool,
 ) -> torch.Tensor | None:
-    """Normalize optional per-query weights to ``(B, N)`` without copying."""
+    """Normalize optional per-point weights to ``(B, N)`` without copying."""
 
-    if weights is None:
+    if point_weights is None:
         return None
 
     batch_size, num_points = points.shape[:2]
     expected = (num_points,) if was_unbatched else (batch_size, num_points)
-    if tuple(weights.shape) != expected:
+    if tuple(point_weights.shape) != expected:
         raise ValueError(
-            f"weights must have shape {expected}, got {tuple(weights.shape)}"
+            "point_weights must have shape "
+            f"{expected}, got {tuple(point_weights.shape)}"
         )
-    if weights.device != points.device:
+    if point_weights.device != points.device:
         raise ValueError(
-            "weights and points must be on the same device, got "
-            f"{weights.device} and {points.device}"
+            "point_weights and points must be on the same device, got "
+            f"{point_weights.device} and {points.device}"
         )
-    if weights.dtype not in (torch.bool, points.dtype):
+    if point_weights.dtype not in (torch.bool, points.dtype):
         raise TypeError(
-            "weights must have bool dtype or the same dtype as points, got "
-            f"{weights.dtype} and {points.dtype}"
+            "point_weights must have bool dtype or the same dtype as points, got "
+            f"{point_weights.dtype} and {points.dtype}"
         )
-    return weights.unsqueeze(0) if was_unbatched else weights
+    return point_weights.unsqueeze(0) if was_unbatched else point_weights
 
 
 def normalize_displace_inputs(
     points: torch.Tensor,
     displacement: torch.Tensor,
-    amount: float | torch.Tensor,
-    weights: torch.Tensor | None,
+    point_weights: torch.Tensor | None,
 ) -> tuple[
-    torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor | None,
     bool,
 ]:
-    """Validate and normalize dense-displacement inputs for either backend."""
+    """Validate and normalize dense-displacement inputs."""
 
     _validate_points(points, "points")
     _validate_layout(displacement, points, "points and displacement", True)
@@ -155,8 +135,7 @@ def normalize_displace_inputs(
     return (
         points_b3,
         displacement_b3,
-        _normalize_amount(amount, reference=points_b3),
-        _normalize_weights(weights, points_b3, was_unbatched),
+        _normalize_point_weights(point_weights, points_b3, was_unbatched),
         was_unbatched,
     )
 
@@ -191,21 +170,55 @@ def _normalize_radius(
             )
             raise ValueError(f"radius must be {expected}, got {tuple(radius.shape)}")
     elif isinstance(radius, Real) and not isinstance(radius, bool):
-        if not torch.compiler.is_compiling() and num_controls > 0:
-            radius_value = float(radius)
-            if not math.isfinite(radius_value):
-                raise ValueError("radius must be finite")
-            if radius_value <= 0:
-                raise ValueError("radius must be strictly positive")
+        if num_controls > 0:
             finfo = torch.finfo(controls.dtype)
-            if radius_value > finfo.max:
-                raise ValueError("radius must be finite in the control dtype")
-            if radius_value < finfo.tiny * finfo.eps:
-                raise ValueError(
-                    "radius must be strictly positive in the control dtype"
+            if torch.compiler.is_compiling():
+                # Dynamo may generalize a call-time Python scalar internally
+                # while leaving its source-level type as ``float``. Ask its
+                # symbolic-shape machinery whether each predicate is statically
+                # known instead of relying on ``isinstance(SymFloat)``. Keep
+                # the predicates on ``radius`` itself: converting a SymFloat
+                # with ``float`` would specialize the graph to each call-time
+                # value. This validates literals during tracing and skips only
+                # predicates that depend on a generalized runtime scalar.
+                from torch.fx.experimental.symbolic_shapes import (
+                    statically_known_true,
                 )
+
+                # Preserve eager's ValueError through Dynamo tracing.
+                if statically_known_true(radius != radius) or statically_known_true(
+                    abs(radius) == math.inf
+                ):
+                    torch._check_value(False, lambda: "radius must be finite")
+                if statically_known_true(radius <= 0):
+                    torch._check_value(
+                        False, lambda: "radius must be strictly positive"
+                    )
+                if statically_known_true(radius > finfo.max):
+                    torch._check_value(
+                        False, lambda: "radius must be finite in the control dtype"
+                    )
+                if statically_known_true(radius < finfo.tiny * finfo.eps):
+                    torch._check_value(
+                        False,
+                        lambda: "radius must be strictly positive in the control dtype",
+                    )
+            else:
+                radius_value = float(radius)
+                if not math.isfinite(radius_value):
+                    raise ValueError("radius must be finite")
+                if radius_value <= 0:
+                    raise ValueError("radius must be strictly positive")
+                if radius_value > finfo.max:
+                    raise ValueError("radius must be finite in the control dtype")
+                if radius_value < finfo.tiny * finfo.eps:
+                    raise ValueError(
+                        "radius must be strictly positive in the control dtype"
+                    )
+        # ``as_tensor`` specializes a Dynamo SymFloat to its current value;
+        # ``tensor`` keeps generalized call-time radii in one graph.
         normalized = (
-            torch.as_tensor(radius, dtype=controls.dtype, device=controls.device)
+            torch.tensor(radius, dtype=controls.dtype, device=controls.device)
             .reshape(1, 1)
             .expand(batch_size, num_controls)
         )
@@ -222,10 +235,8 @@ def normalize_morph_inputs(
     control_points: torch.Tensor,
     control_displacements: torch.Tensor,
     radius: float | torch.Tensor,
-    amount: float | torch.Tensor,
-    weights: torch.Tensor | None,
+    point_weights: torch.Tensor | None,
 ) -> tuple[
-    torch.Tensor,
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
@@ -268,8 +279,7 @@ def normalize_morph_inputs(
         controls_b3,
         control_displacements_b3,
         _normalize_radius(radius, controls_b3, was_unbatched),
-        _normalize_amount(amount, reference=points_b3),
-        _normalize_weights(weights, points_b3, was_unbatched),
+        _normalize_point_weights(point_weights, points_b3, was_unbatched),
         was_unbatched,
     )
 

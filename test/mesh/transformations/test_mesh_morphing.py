@@ -17,6 +17,7 @@
 """Mesh and DomainMesh integration tests for nonlinear point morphing."""
 
 import importlib
+import inspect
 
 import pytest
 import torch
@@ -24,6 +25,15 @@ from tensordict import TensorDict
 
 from physicsnemo.mesh import DomainMesh, Mesh
 from physicsnemo.mesh.transformations import displace, morph
+
+
+def test_mesh_morph_signatures_are_introspectable():
+    """Generated ``.float()`` methods must not break public annotations."""
+
+    for morph_method in (Mesh.morph, DomainMesh.morph):
+        signature = inspect.signature(morph_method)
+        assert signature.parameters["radius"].annotation == float | torch.Tensor
+        assert signature.parameters["kernel"].default == "wendland_c2"
 
 
 def _triangle_mesh(*, requires_grad: bool = False) -> Mesh:
@@ -54,12 +64,11 @@ def test_mesh_displace_resolves_nested_keys_and_preserves_data():
 
     output = mesh.displace(
         ("motion", "delta"),
-        amount=2.0,
-        weights=("motion", "weight"),
+        point_weights=("motion", "weight"),
         implementation="torch",
     )
 
-    expected = source_points + torch.tensor([[0.0, 2.0], [-2.0, 0.0], [0.0, 0.0]])
+    expected = source_points + torch.tensor([[0.0, 1.0], [-1.0, 0.0], [0.0, 0.0]])
     torch.testing.assert_close(output.points, expected)
     torch.testing.assert_close(mesh.points, source_points)
     assert output is not mesh
@@ -113,30 +122,26 @@ def test_mesh_displace_preserves_autograd_through_returned_points():
     displacement = torch.tensor(
         [[0.2, -0.1], [0.4, 0.3], [-0.5, 0.7]], requires_grad=True
     )
-    amount = torch.tensor(0.75, requires_grad=True)
-
-    output = mesh.displace(displacement, amount=amount, implementation="torch")
+    output = mesh.displace(displacement, implementation="torch")
     loss = output.points.square().sum()
     loss.backward()
 
     assert mesh.points.grad is not None
     assert displacement.grad is not None
-    assert amount.grad is not None
     assert torch.isfinite(mesh.points.grad).all()
     assert torch.isfinite(displacement.grad).all()
-    assert torch.isfinite(amount.grad)
 
 
 def test_mesh_missing_point_data_key_has_actionable_diagnostic():
     mesh = _triangle_mesh()
     with pytest.raises(KeyError, match="displacement field 'missing'.*Available keys"):
         mesh.displace("missing", implementation="torch")
-    with pytest.raises(KeyError, match="weights field 'missing'.*Available keys"):
+    with pytest.raises(KeyError, match="point_weights field 'missing'.*Available keys"):
         mesh.morph(
             torch.tensor([[0.0, 0.0]]),
             torch.tensor([[0.0, 1.0]]),
             radius=1.0,
-            weights="missing",
+            point_weights="missing",
             implementation="torch",
         )
 
@@ -149,17 +154,17 @@ def test_mesh_point_data_path_through_leaf_has_actionable_diagnostic():
     # tensordict ValueError.
     with pytest.raises(KeyError, match="displacement field.*Available keys"):
         mesh.displace(("temperature", "x"), implementation="torch")
-    with pytest.raises(KeyError, match="weights field.*Available keys"):
+    with pytest.raises(KeyError, match="point_weights field.*Available keys"):
         mesh.morph(
             torch.tensor([[0.0, 0.0]]),
             torch.tensor([[0.0, 1.0]]),
             radius=1.0,
-            weights=("temperature", "x"),
+            point_weights=("temperature", "x"),
             implementation="torch",
         )
 
 
-def test_mesh_displace_rejects_weights_resolving_to_tensordict():
+def test_mesh_displace_rejects_point_weights_resolving_to_tensordict():
     mesh = _triangle_mesh()
     mesh.point_data["motion"] = TensorDict(
         {"weight": torch.tensor([0.5, 1.0, 0.0]), "mask": torch.ones(3)},
@@ -168,11 +173,10 @@ def test_mesh_displace_rejects_weights_resolving_to_tensordict():
     )
     displacement = torch.zeros_like(mesh.points)
 
-    # A key resolving to a nested TensorDict must be rejected at the API
-    # boundary; today it flows through _resolve_point_field and silently
-    # produces a Mesh whose points attribute is a TensorDict, not a tensor.
+    # A nested TensorDict is not a valid tensor-valued point field and must be
+    # rejected at the API boundary.
     with pytest.raises(TypeError, match="must resolve to a torch.Tensor"):
-        mesh.displace(displacement, weights="motion", implementation="torch")
+        mesh.displace(displacement, point_weights="motion", implementation="torch")
 
 
 def test_mesh_morph_rejects_non_tensor_control_points():
@@ -206,8 +210,8 @@ def _domain_with_coincident_points() -> DomainMesh:
     )
 
 
-@pytest.mark.parametrize("weights", [None, "marker"])
-def test_domain_morph_shared_controls_and_common_weight_key(weights):
+@pytest.mark.parametrize("point_weights", [None, "marker"])
+def test_domain_morph_shared_controls_and_common_point_weight_key(point_weights):
     domain = _domain_with_coincident_points()
     controls = torch.tensor([[0.0, 0.0], [1.0, 0.0]])
     control_displacements = torch.tensor([[0.0, 0.5], [0.25, 0.0]])
@@ -215,7 +219,7 @@ def test_domain_morph_shared_controls_and_common_weight_key(weights):
         controls,
         control_displacements,
         radius=torch.tensor([1.2, 1.2]),
-        weights=weights,
+        point_weights=point_weights,
         implementation="torch",
     )
 
@@ -250,24 +254,27 @@ def test_domain_morph_clones_domain_global_data():
     torch.testing.assert_close(domain.global_data["reynolds"], torch.tensor(1.0e5))
 
 
-def test_domain_morph_missing_common_weight_names_failing_component():
+def test_domain_morph_missing_common_point_weight_names_failing_component():
     domain = _domain_with_coincident_points()
     del domain.boundaries["wall"].point_data["marker"]
 
     with pytest.raises(
         KeyError,
-        match=r"weights field 'marker' not found in boundaries\['wall'\]\.point_data",
+        match=(
+            r"point_weights field 'marker' not found in "
+            r"boundaries\['wall'\]\.point_data"
+        ),
     ):
         domain.morph(
             torch.tensor([[0.0, 0.0]]),
             torch.tensor([[0.0, 1.0]]),
             radius=1.0,
-            weights="marker",
+            point_weights="marker",
             implementation="torch",
         )
 
 
-def test_domain_morph_validates_common_weight_dtype_before_concatenation():
+def test_domain_morph_validates_common_point_weight_dtype_before_concatenation():
     domain = _domain_with_coincident_points()
     domain.boundaries["wall"].point_data["marker"] = torch.tensor([True, False])
 
@@ -279,12 +286,12 @@ def test_domain_morph_validates_common_weight_dtype_before_concatenation():
             torch.tensor([[0.0, 0.0]]),
             torch.tensor([[0.0, 1.0]]),
             radius=1.0,
-            weights="marker",
+            point_weights="marker",
             implementation="torch",
         )
 
 
-def test_domain_morph_resolves_common_nested_weight_path():
+def test_domain_morph_resolves_common_nested_point_weight_path():
     domain = _domain_with_coincident_points()
     for component in (domain.interior, domain.boundaries["wall"]):
         component.point_data["motion"] = TensorDict(
@@ -298,14 +305,14 @@ def test_domain_morph_resolves_common_nested_weight_path():
         controls,
         displacements,
         radius=1.2,
-        weights=("motion", "weight"),
+        point_weights=("motion", "weight"),
         implementation="torch",
     )
     flat = domain.morph(
         controls,
         displacements,
         radius=1.2,
-        weights="marker",
+        point_weights="marker",
         implementation="torch",
     )
 
@@ -315,14 +322,14 @@ def test_domain_morph_resolves_common_nested_weight_path():
     )
 
 
-def test_domain_morph_rejects_raw_weight_tensor():
+def test_domain_morph_rejects_raw_point_weight_tensor():
     domain = _domain_with_coincident_points()
     with pytest.raises(TypeError, match="common point_data key/path"):
         domain.morph(
             torch.tensor([[0.0, 0.0]]),
             torch.tensor([[0.0, 1.0]]),
             radius=1.0,
-            weights=torch.ones(domain.interior.n_points),
+            point_weights=torch.ones(domain.interior.n_points),
             implementation="torch",
         )
 
@@ -341,9 +348,11 @@ def test_domain_morph_evaluates_combined_components_once(monkeypatch):
     )
     original = morphing_module.morph_points
     calls: list[torch.Tensor] = []
+    kernels: list[str] = []
 
     def counted_morph_points(points, *args, **kwargs):
         calls.append(points)
+        kernels.append(kwargs["kernel"])
         return original(points, *args, **kwargs)
 
     monkeypatch.setattr(morphing_module, "morph_points", counted_morph_points)
@@ -351,11 +360,12 @@ def test_domain_morph_evaluates_combined_components_once(monkeypatch):
         torch.tensor([[0.0, 0.0]]),
         torch.tensor([[0.0, 0.5]]),
         radius=3.0,
-        weights="marker",
+        point_weights="marker",
         implementation="torch",
     )
 
     assert len(calls) == 1
+    assert kernels == ["wendland_c2"]
     assert calls[0].shape == (7, 2)
     assert output.interior.n_points == 3
     assert output.boundaries["wall"].n_points == 2
@@ -392,15 +402,15 @@ def test_domain_combined_morph_preserves_component_autograd():
     domain = _domain_with_coincident_points()
     interior_points = domain.interior.points.requires_grad_()
     wall_points = domain.boundaries["wall"].points.requires_grad_()
-    interior_weights = domain.interior.point_data["marker"].requires_grad_()
-    wall_weights = domain.boundaries["wall"].point_data["marker"].requires_grad_()
+    interior_point_weights = domain.interior.point_data["marker"].requires_grad_()
+    wall_point_weights = domain.boundaries["wall"].point_data["marker"].requires_grad_()
     control_displacements = torch.tensor([[0.2, 0.5], [-0.1, 0.25]], requires_grad=True)
 
     output = domain.morph(
         torch.tensor([[0.0, 0.0], [1.0, 0.0]]),
         control_displacements,
         radius=1.5,
-        weights="marker",
+        point_weights="marker",
         implementation="torch",
     )
     loss = output.interior.points.square().sum()
@@ -410,8 +420,8 @@ def test_domain_combined_morph_preserves_component_autograd():
         (
             interior_points,
             wall_points,
-            interior_weights,
-            wall_weights,
+            interior_point_weights,
+            wall_point_weights,
             control_displacements,
         ),
     )

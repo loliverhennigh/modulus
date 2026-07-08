@@ -14,7 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import warnings
+from typing import Literal, get_type_hints
 
 import pytest
 import torch
@@ -102,6 +104,61 @@ def test_make_function_wrapper():
     assert wrapper.__module__ == WrapperSpec.__module__
     assert wrapper.__doc__ == WrapperSpec.__doc__
     assert wrapper(3) == 6
+    implementation = inspect.signature(wrapper).parameters["implementation"]
+    assert implementation.kind is inspect.Parameter.KEYWORD_ONLY
+    assert implementation.default is None
+    assert implementation.annotation == Literal["impl"] | None
+    assert wrapper(3, implementation="impl") == 6
+
+
+def test_make_function_uses_custom_dispatch_signature():
+    class CustomDispatchSpec(FunctionSpec):
+        @FunctionSpec.register(name="custom", rank=0)
+        def custom(x: int) -> int:
+            return x * 2
+
+        @classmethod
+        def dispatch(
+            cls,
+            x: int,
+            implementation: Literal["custom"] | None = None,
+        ) -> int:
+            return super().dispatch(x, implementation=implementation)
+
+    wrapper = CustomDispatchSpec.make_function("custom_dispatch_spec")
+    assert inspect.signature(wrapper) == inspect.signature(
+        CustomDispatchSpec.dispatch, eval_str=True
+    )
+    assert get_type_hints(wrapper) == get_type_hints(CustomDispatchSpec.dispatch)
+    assert wrapper(3, implementation="custom") == 6
+
+
+def test_make_function_preserves_unresolved_forward_references(monkeypatch):
+    class ForwardReferenceSpec(FunctionSpec):
+        @FunctionSpec.register(name="forward", rank=0)
+        def forward(value):
+            return value
+
+    # Simulate a type available to static analysis but absent at runtime.
+    ForwardReferenceSpec.forward.__annotations__ = {
+        "value": "OnlyImportedUnderTypeChecking",
+        "return": "OnlyImportedUnderTypeChecking",
+    }
+    wrapper = ForwardReferenceSpec.make_function("forward_reference_spec")
+    signature = inspect.signature(wrapper)
+    implementation_annotation = Literal["forward"] | None
+    assert signature.parameters["value"].annotation == "OnlyImportedUnderTypeChecking"
+    assert (
+        signature.parameters["implementation"].annotation == implementation_annotation
+    )
+    assert signature.return_annotation == "OnlyImportedUnderTypeChecking"
+    monkeypatch.delitem(wrapper.__wrapped__.__globals__, "Literal")
+    assert get_type_hints(wrapper, localns={"OnlyImportedUnderTypeChecking": int}) == {
+        "value": int,
+        "return": int,
+        "implementation": implementation_annotation,
+    }
+    assert wrapper("value", implementation="forward") == "value"
 
 
 def test_dispatch_explicit_implementation():

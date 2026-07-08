@@ -30,7 +30,14 @@ from ._utils import (
     normalize_morph_inputs,
     restore_point_rank,
 )
-from ._warp_impl import displace_points_warp, morph_points_warp
+from ._warp_impl import morph_points_warp
+
+
+def _validate_kernel(kernel: str) -> None:
+    """Validate the public morph-kernel selector."""
+
+    if kernel != "wendland_c2":
+        raise ValueError(f"kernel must be 'wendland_c2', got {kernel!r}")
 
 
 class DisplacePoints(FunctionSpec):
@@ -40,11 +47,11 @@ class DisplacePoints(FunctionSpec):
 
     .. math::
 
-       x'_i = x_i + a\,w_i\,d_i,
+       x'_i = x_i + w_i\,d_i,
 
-    where ``amount`` is the scalar :math:`a`, ``weights`` contains optional
-    per-query values :math:`w_i`, and ``displacement`` contains vectors
-    :math:`d_i`. Signed or greater-than-one weights are permitted.
+    where ``point_weights`` contains optional per-point values :math:`w_i` and
+    ``displacement`` contains vectors :math:`d_i`. Signed or greater-than-one
+    point weights are permitted.
 
     Inputs may be unbatched ``(N, D)`` or batched ``(B, N, D)``. Batched
     inputs are aligned rather than broadcast: ``points`` and ``displacement``
@@ -57,34 +64,27 @@ class DisplacePoints(FunctionSpec):
     displacement : torch.Tensor
         Dense displacement vectors with exactly the same shape, dtype, and
         device as ``points``.
-    amount : float or torch.Tensor, optional
-        Scalar displacement multiplier. A differentiable 0-D tensor is accepted
-        and must match the point dtype and device. Python scalars are checked
-        for finiteness; tensor values must remain finite but are not validated
-        at runtime. Default is ``1.0``.
-    weights : torch.Tensor or None, optional
-        Optional bool or floating per-query weights. Accepted shapes are ``(N,)``
-        for unbatched inputs and ``(B, N)`` for batched inputs. Floating weights
-        must match the point dtype and device; bool weights act as hard masks.
-        Values are used as supplied without clamping. Default is ``None``.
-    implementation : {"warp", "torch"} or None, optional
-        Explicit backend. ``None`` selects Torch on every device.
+    point_weights : torch.Tensor or None, optional
+        Optional bool or floating per-point weights. Accepted shapes are ``(N,)``
+        for unbatched inputs and ``(B, N)`` for batched inputs. Floating point
+        weights must match the point dtype and device; bool values act as hard
+        masks. Values are used as supplied without clamping. Default is ``None``.
+    implementation : {"torch"} or None, optional
+        Explicit backend. ``None`` selects Torch.
 
     Returns
     -------
     torch.Tensor
         Displaced points with the same shape, dtype, and device as ``points``.
 
-    Notes
-    -----
-    Both backends propagate first-order gradients. Only first-order gradients
-    are part of the Warp backend's public contract.
+    The operation is implemented with native Torch tensor operations and
+    participates in autograd and :func:`torch.compile`.
     """
 
     _FORWARD_BENCHMARK_CASES = (
-        ("small-n4096-d3-no-weights", 1, 4096, 3, "none"),
-        ("medium-b4-n16384-d3-bool-weights", 4, 16384, 3, "bool"),
-        ("large-b8-n32768-d3-float-weights", 8, 32768, 3, "float"),
+        ("small-n4096-d3-no-point-weights", 1, 4096, 3, "none"),
+        ("medium-b4-n16384-d3-bool-point-weights", 4, 16384, 3, "bool"),
+        ("large-b8-n32768-d3-float-point-weights", 8, 32768, 3, "float"),
     )
     _BACKWARD_BENCHMARK_CASES = (
         ("medium-n16384-d3-displacement-only", 1, 16384, 3, "displacement"),
@@ -93,36 +93,19 @@ class DisplacePoints(FunctionSpec):
     _COMPARE_ATOL = 1.0e-6
     _COMPARE_RTOL = 1.0e-6
 
-    @FunctionSpec.register(name="warp", required_imports=("warp>=0.6.0",), rank=1)
-    def warp_forward(
-        points: torch.Tensor,
-        displacement: torch.Tensor,
-        *,
-        amount: float | torch.Tensor = 1.0,
-        weights: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Apply dense displacement with the Warp backend."""
-
-        points_b3, displacement_b3, amount_1, weights_b2, was_unbatched = (
-            normalize_displace_inputs(points, displacement, amount, weights)
-        )
-        output = displace_points_warp(points_b3, displacement_b3, amount_1, weights_b2)
-        return restore_point_rank(output, was_unbatched)
-
     @FunctionSpec.register(name="torch", rank=0, baseline=True)
     def torch_forward(
         points: torch.Tensor,
         displacement: torch.Tensor,
         *,
-        amount: float | torch.Tensor = 1.0,
-        weights: torch.Tensor | None = None,
+        point_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Apply dense displacement with the pure-Torch backend."""
 
-        points_b3, displacement_b3, amount_1, weights_b2, was_unbatched = (
-            normalize_displace_inputs(points, displacement, amount, weights)
+        points_b3, displacement_b3, point_weights_b2, was_unbatched = (
+            normalize_displace_inputs(points, displacement, point_weights)
         )
-        output = displace_points_torch(points_b3, displacement_b3, amount_1, weights_b2)
+        output = displace_points_torch(points_b3, displacement_b3, point_weights_b2)
         return restore_point_rank(output, was_unbatched)
 
     @classmethod
@@ -142,14 +125,16 @@ class DisplacePoints(FunctionSpec):
             points = torch.rand(shape, generator=generator, device=device)
             displacement = 0.1 * torch.randn(shape, generator=generator, device=device)
             if weight_mode == "none":
-                weights = None
+                point_weights = None
             elif weight_mode == "bool":
-                weights = (
+                point_weights = (
                     torch.rand(shape[:-1], generator=generator, device=device) > 0.25
                 )
             else:
-                weights = torch.rand(shape[:-1], generator=generator, device=device)
-            yield label, (points, displacement), {"amount": 0.75, "weights": weights}
+                point_weights = torch.rand(
+                    shape[:-1], generator=generator, device=device
+                )
+            yield label, (points, displacement), {"point_weights": point_weights}
 
     @classmethod
     def make_inputs_backward(cls, device: torch.device | str = "cpu"):
@@ -173,7 +158,7 @@ class DisplacePoints(FunctionSpec):
             )
             points = torch.rand(shape, generator=generator, device=device)
             displacement = torch.randn(shape, generator=generator, device=device)
-            weights = torch.rand(shape[:-1], generator=generator, device=device)
+            point_weights = torch.rand(shape[:-1], generator=generator, device=device)
             all_gradients = gradient_mode == "all"
             yield (
                 label,
@@ -182,19 +167,13 @@ class DisplacePoints(FunctionSpec):
                     displacement.requires_grad_(True),
                 ),
                 {
-                    "amount": torch.tensor(
-                        0.75,
-                        device=device,
-                        dtype=points.dtype,
-                        requires_grad=all_gradients,
-                    ),
-                    "weights": weights.requires_grad_(all_gradients),
+                    "point_weights": point_weights.requires_grad_(all_gradients),
                 },
             )
 
     @classmethod
     def compare_forward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
-        """Compare dense-displacement outputs across backends."""
+        """Compare dense-displacement benchmark outputs."""
 
         torch.testing.assert_close(
             output, reference, atol=cls._COMPARE_ATOL, rtol=cls._COMPARE_RTOL
@@ -202,17 +181,11 @@ class DisplacePoints(FunctionSpec):
 
     @classmethod
     def compare_backward(cls, output: torch.Tensor, reference: torch.Tensor) -> None:
-        """Compare dense-displacement gradients across backends."""
+        """Compare dense-displacement benchmark gradients."""
 
-        # The scalar amount gradient is a large atomic reduction in Warp. Its
-        # summation order is nondeterministic on CUDA, so use a reduction-scale
-        # tolerance for that one float32 value while keeping elementwise
-        # displacement/point/weight gradients strict.
-        if output.dtype == torch.float32 and output.numel() == 1:
-            atol, rtol = 5.0e-2, 5.0e-4
-        else:
-            atol, rtol = cls._COMPARE_ATOL, cls._COMPARE_RTOL
-        torch.testing.assert_close(output, reference, atol=atol, rtol=rtol)
+        torch.testing.assert_close(
+            output, reference, atol=cls._COMPARE_ATOL, rtol=cls._COMPARE_RTOL
+        )
 
 
 class MorphPoints(FunctionSpec):
@@ -232,15 +205,15 @@ class MorphPoints(FunctionSpec):
     .. math::
 
        u(x) = \frac{\sum_j a_j d_j}{1 + \sum_j a_j}, \qquad
-       x' = x + \mathtt{amount}\,\mathtt{weights}\,u(x).
+       x' = x + \mathtt{point\_weights}\,u(x).
 
     Each control's influence vanishes smoothly at its own support boundary. The
     total field is zero wherever no control support is active; it need not be
     zero at one control's boundary if another support overlaps that location.
     At an exact control coincidence, the unscaled field returns the mean
-    displacement of all controls at that coordinate. ``amount`` and ``weights``
-    are then applied to that field. The implementation uses a stably scaled
-    equivalent of the quotient near controls.
+    displacement of all controls at that coordinate. ``point_weights`` are then
+    applied to that field. The implementation uses a stably scaled equivalent
+    of the quotient near controls.
 
     Inputs may be unbatched ``(N, D)``/``(C, D)`` or aligned batched
     ``(B, N, D)``/``(B, C, D)``. Point and control batches are not implicitly
@@ -262,15 +235,14 @@ class MorphPoints(FunctionSpec):
         batched ``(B, C)`` tensor. Every value must be positive and finite.
         Tensor radii must match the control dtype and device; their numerical
         values are not validated at runtime.
-    amount : float or torch.Tensor, optional
-        Scalar morph multiplier. A differentiable 0-D tensor is accepted and must
-        match the point dtype and device. Python scalars are checked for
-        finiteness; tensor values must remain finite but are not validated at
-        runtime. Default is ``1.0``.
-    weights : torch.Tensor or None, optional
-        Optional bool or floating per-query weights. Shapes follow
-        :class:`DisplacePoints`; weights are not per-control values. Signed and
-        amplifying values are permitted and are used without clamping.
+    point_weights : torch.Tensor or None, optional
+        Optional bool or floating per-point weights. Shapes follow
+        :class:`DisplacePoints`; point weights are not per-control values. Signed
+        and amplifying values are permitted and are used without clamping.
+    kernel : {"wendland_c2"}, optional
+        Compact radial kernel used by Shepard blending. The explicit name
+        reserves the algorithm-selection extension point. Default is
+        ``"wendland_c2"``.
     implementation : {"warp", "torch"} or None, optional
         Explicit backend. ``None`` selects Torch on CPU and Warp on CUDA when
         Warp is available, otherwise Torch.
@@ -283,9 +255,8 @@ class MorphPoints(FunctionSpec):
     Notes
     -----
     Both backends propagate first-order gradients through points, controls,
-    control displacements, tensor-valued radii and amounts, and floating
-    weights. Only first-order gradients are part of the Warp backend's public
-    contract.
+    control displacements, tensor-valued radii, and floating-point weights.
+    Only first-order gradients are part of the Warp backend's public contract.
 
     A learned radius should be parameterized to remain positive, for example as
     ``torch.nn.functional.softplus(raw_radius) + eps`` with a positive ``eps``
@@ -325,7 +296,7 @@ class MorphPoints(FunctionSpec):
             True,
         ),
         (
-            "small-n2048-c16-d3-no-weights",
+            "small-n2048-c16-d3-no-point-weights",
             1,
             2048,
             16,
@@ -345,7 +316,7 @@ class MorphPoints(FunctionSpec):
             False,
         ),
         (
-            "medium-b2-n8192-c32-d3-bool-weights",
+            "medium-b2-n8192-c32-d3-bool-point-weights",
             2,
             8192,
             32,
@@ -355,7 +326,7 @@ class MorphPoints(FunctionSpec):
             False,
         ),
         (
-            "large-b4-n16384-c64-d3-float-weights",
+            "large-b4-n16384-c64-d3-float-point-weights",
             4,
             16384,
             64,
@@ -415,26 +386,25 @@ class MorphPoints(FunctionSpec):
         control_displacements: torch.Tensor,
         *,
         radius: float | torch.Tensor,
-        amount: float | torch.Tensor = 1.0,
-        weights: torch.Tensor | None = None,
+        point_weights: torch.Tensor | None = None,
+        kernel: Literal["wendland_c2"] = "wendland_c2",
     ) -> torch.Tensor:
         """Apply compact Shepard morphing with the Warp backend."""
 
+        _validate_kernel(kernel)
         normalized = normalize_morph_inputs(
             points,
             control_points,
             control_displacements,
             radius,
-            amount,
-            weights,
+            point_weights,
         )
         (
             points_b3,
             controls_b3,
             control_displacements_b3,
             radius_b2,
-            amount_1,
-            weights_b2,
+            point_weights_b2,
             was_unbatched,
         ) = normalized
         output = morph_points_warp(
@@ -442,8 +412,7 @@ class MorphPoints(FunctionSpec):
             controls_b3,
             control_displacements_b3,
             radius_b2,
-            amount_1,
-            weights_b2,
+            point_weights_b2,
         )
         return restore_point_rank(output, was_unbatched)
 
@@ -454,26 +423,25 @@ class MorphPoints(FunctionSpec):
         control_displacements: torch.Tensor,
         *,
         radius: float | torch.Tensor,
-        amount: float | torch.Tensor = 1.0,
-        weights: torch.Tensor | None = None,
+        point_weights: torch.Tensor | None = None,
+        kernel: Literal["wendland_c2"] = "wendland_c2",
     ) -> torch.Tensor:
         """Apply compact Shepard morphing with the pure-Torch backend."""
 
+        _validate_kernel(kernel)
         normalized = normalize_morph_inputs(
             points,
             control_points,
             control_displacements,
             radius,
-            amount,
-            weights,
+            point_weights,
         )
         (
             points_b3,
             controls_b3,
             control_displacements_b3,
             radius_b2,
-            amount_1,
-            weights_b2,
+            point_weights_b2,
             was_unbatched,
         ) = normalized
         output = morph_points_torch(
@@ -481,8 +449,7 @@ class MorphPoints(FunctionSpec):
             controls_b3,
             control_displacements_b3,
             radius_b2,
-            amount_1,
-            weights_b2,
+            point_weights_b2,
         )
         return restore_point_rank(output, was_unbatched)
 
@@ -494,9 +461,9 @@ class MorphPoints(FunctionSpec):
         control_displacements: torch.Tensor,
         *,
         radius: float | torch.Tensor,
-        amount: float | torch.Tensor = 1.0,
-        weights: torch.Tensor | None = None,
-        implementation: str | None = None,
+        point_weights: torch.Tensor | None = None,
+        kernel: Literal["wendland_c2"] = "wendland_c2",
+        implementation: Literal["torch", "warp"] | None = None,
     ) -> torch.Tensor:
         """Select Warp for CUDA inputs and Torch for CPU inputs by default."""
 
@@ -524,8 +491,8 @@ class MorphPoints(FunctionSpec):
             control_points,
             control_displacements,
             radius=radius,
-            amount=amount,
-            weights=weights,
+            point_weights=point_weights,
+            kernel=kernel,
         )
 
     @classmethod
@@ -576,14 +543,14 @@ class MorphPoints(FunctionSpec):
                 control_shape, generator=generator, device=device, dtype=dtype
             )
             if weight_mode == "none":
-                weights = None
+                point_weights = None
             elif weight_mode == "bool":
-                weights = (
+                point_weights = (
                     torch.rand(point_shape[:-1], generator=generator, device=device)
                     > 0.25
                 )
             else:
-                weights = torch.rand(
+                point_weights = torch.rand(
                     point_shape[:-1],
                     generator=generator,
                     device=device,
@@ -592,7 +559,7 @@ class MorphPoints(FunctionSpec):
             yield (
                 label,
                 (points, controls, control_displacements),
-                {"radius": 0.75, "amount": 0.8, "weights": weights},
+                {"radius": 0.75, "point_weights": point_weights},
             )
 
     @classmethod
@@ -632,7 +599,7 @@ class MorphPoints(FunctionSpec):
                 control_shape, generator=generator, device=device, dtype=dtype
             )
             radius = torch.full(control_shape[:-1], 0.9, device=device, dtype=dtype)
-            weights = torch.rand(
+            point_weights = torch.rand(
                 point_shape[:-1], generator=generator, device=device, dtype=dtype
             )
             all_gradients = gradient_mode == "all"
@@ -645,13 +612,7 @@ class MorphPoints(FunctionSpec):
                 ),
                 {
                     "radius": radius.requires_grad_(all_gradients),
-                    "amount": torch.tensor(
-                        0.8,
-                        device=device,
-                        dtype=points.dtype,
-                        requires_grad=all_gradients,
-                    ),
-                    "weights": weights.requires_grad_(all_gradients),
+                    "point_weights": point_weights.requires_grad_(all_gradients),
                 },
             )
 
@@ -675,50 +636,8 @@ class MorphPoints(FunctionSpec):
         )
 
 
-def displace_points(
-    points: torch.Tensor,
-    displacement: torch.Tensor,
-    *,
-    amount: float | torch.Tensor = 1.0,
-    weights: torch.Tensor | None = None,
-    implementation: Literal["torch", "warp"] | None = None,
-) -> torch.Tensor:
-    """Dispatch dense point displacement to a registered backend."""
-    return DisplacePoints.dispatch(
-        points,
-        displacement,
-        amount=amount,
-        weights=weights,
-        implementation=implementation,
-    )
-
-
-def morph_points(
-    points: torch.Tensor,
-    control_points: torch.Tensor,
-    control_displacements: torch.Tensor,
-    *,
-    radius: float | torch.Tensor,
-    amount: float | torch.Tensor = 1.0,
-    weights: torch.Tensor | None = None,
-    implementation: Literal["torch", "warp"] | None = None,
-) -> torch.Tensor:
-    """Dispatch compact-Shepard point morphing to a registered backend."""
-    return MorphPoints.dispatch(
-        points,
-        control_points,
-        control_displacements,
-        radius=radius,
-        amount=amount,
-        weights=weights,
-        implementation=implementation,
-    )
-
-
-# Keep the detailed mathematical contract on the public functions so Sphinx
-# and interactive help expose the same documentation as the FunctionSpecs.
-displace_points.__doc__ = DisplacePoints.__doc__
-morph_points.__doc__ = MorphPoints.__doc__
+displace_points = DisplacePoints.make_function("displace_points")
+morph_points = MorphPoints.make_function("morph_points")
 
 
 __all__ = [

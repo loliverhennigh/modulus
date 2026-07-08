@@ -23,6 +23,8 @@ from math import isqrt
 import torch
 from torch.utils.checkpoint import checkpoint
 
+from ._utils import _zero_dependency
+
 # Bound all live pairwise temporaries, rather than only the nominal
 # ``(B, query_chunk, control_chunk, D)`` difference tensor. Profiling the
 # numerically robust distance calculation shows a peak of roughly 24 value-sized
@@ -36,17 +38,19 @@ _PAIRWISE_LIVE_VALUE_FACTOR = 32
 def displace_points_torch(
     points: torch.Tensor,
     displacement: torch.Tensor,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
+    point_weights: torch.Tensor | None,
 ) -> torch.Tensor:
     """Apply dense displacement to normalized rank-3 point tensors."""
 
-    if weights is None:
-        return points + amount.reshape(1, 1, 1) * displacement
-    if weights.dtype == torch.bool:
-        displacement = torch.where(weights.unsqueeze(-1), displacement, 0.0)
-        return points + amount.reshape(1, 1, 1) * displacement
-    return points + amount.reshape(1, 1, 1) * weights.unsqueeze(-1) * displacement
+    if point_weights is None:
+        return points + displacement
+    if point_weights.dtype == torch.bool:
+        displacement = torch.where(point_weights.unsqueeze(-1), displacement, 0.0)
+        return points + displacement
+    if points.is_cuda:
+        # Avoid materializing the weighted displacement in eager CUDA execution.
+        return torch.addcmul(points, point_weights.unsqueeze(-1), displacement)
+    return points + point_weights.unsqueeze(-1) * displacement
 
 
 def _chunk_sizes(
@@ -109,8 +113,8 @@ def _normalized_distance(
 
     Forming ``sum((x-c)**2) / radius**2`` can overflow even when the final
     normalized distance is inside the support. Divide componentwise first,
-    fall back to separately scaled coordinates if subtraction overflowed, and
-    clamp components before the norm because only ``q < 1`` is relevant.
+    replace overflowed differences with finite boundary sentinels, and clamp
+    components before the norm because only ``q < 1`` is relevant.
     """
 
     query = points.unsqueeze(2)
@@ -118,7 +122,6 @@ def _normalized_distance(
     radii = radius.unsqueeze(1).unsqueeze(-1)
     coordinate_exact = (query == control).all(dim=-1)
     difference = query - control
-    finite_difference = torch.isfinite(difference)
 
     # Scale numerator and denominator by the same detached factor before the
     # division. Besides avoiding forward overflow, this matters in backward:
@@ -127,26 +130,28 @@ def _normalized_distance(
     # when the final field derivative is finite. Keeping the scaled radius in
     # the normal range lets ordinary Torch autograd preserve that cancellation.
     finfo = torch.finfo(points.dtype)
-    normal_radius = torch.where(radii < finfo.tiny, torch.ones_like(radii), radii)
+    infinite_radius = torch.isinf(radii)
+    small_radius = (radii < finfo.tiny) & ~infinite_radius
+    normal_radius = torch.where(
+        small_radius | infinite_radius, torch.ones_like(radii), radii
+    )
     ratio_scale = torch.where(
-        radii < finfo.tiny,
+        small_radius,
         torch.full_like(radii, finfo.max),
         normal_radius.reciprocal(),
     ).detach()
-    safe_difference = torch.where(
-        finite_difference, difference, torch.zeros_like(difference)
+    # For finite coordinates, a nonfinite subtraction can only result from
+    # overflow. Replacing it with a finite boundary sentinel keeps every
+    # finite-radius pair outside its support and gives that branch a zero
+    # geometry derivative. With an infinite radius the sentinel divides to
+    # zero, which is the correct limiting influence.
+    safe_difference = torch.nan_to_num(
+        difference,
+        nan=finfo.max,
+        posinf=finfo.max,
+        neginf=-finfo.max,
     )
     normalized = (safe_difference * ratio_scale) / (radii * ratio_scale)
-    # A finite-coordinate subtraction can overflow only when its mathematical
-    # magnitude already exceeds every finite radius, hence it is outside the
-    # compact support. Use a constant boundary sentinel so its gradient is the
-    # specified zero rather than evaluating an invalid fallback division.
-    overflow_sentinel = torch.where(
-        query >= control,
-        torch.ones_like(difference),
-        -torch.ones_like(difference),
-    )
-    normalized = torch.where(finite_difference, normalized, overflow_sentinel)
     normalized = torch.nan_to_num(normalized, nan=1.0, posinf=1.0, neginf=-1.0).clamp(
         -1.0, 1.0
     )
@@ -253,7 +258,7 @@ def _compact_shepard_query_chunk(
         reference_q_squared = torch.where(
             update_minimum, local_q_squared, reference_q_squared
         )
-        minimum_q = torch.minimum(minimum_q, local_minimum)
+        minimum_q = torch.where(update_minimum, local_minimum, minimum_q)
 
     has_active = torch.isfinite(minimum_q)
     reference_q = torch.where(has_active, minimum_q, torch.zeros_like(minimum_q))
@@ -385,7 +390,7 @@ def compact_shepard_field_torch(
     if batch_size == 0 or num_points == 0 or num_controls == 0:
         # Keep every field input connected to autograd so empty-control and
         # empty-query cases report defined zero gradients, matching Warp.
-        zero = (control_points.sum() + control_displacements.sum() + radius.sum()) * 0
+        zero = _zero_dependency(control_points, control_displacements, radius)
         return points * 0 + zero
 
     # Dynamo cannot unroll shape-dependent Python chunk loops for symbolic
@@ -473,8 +478,7 @@ def morph_points_torch(
     control_points: torch.Tensor,
     control_displacements: torch.Tensor,
     radius: torch.Tensor,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
+    point_weights: torch.Tensor | None,
 ) -> torch.Tensor:
     """Morph normalized rank-3 points with a compact Shepard field."""
 
@@ -482,20 +486,15 @@ def morph_points_torch(
         # The point identity supplies its gradient directly. Connect every other
         # differentiable input through one scalar zero instead of constructing a
         # full zero field and running dense displacement over it.
-        zero = (
-            control_points.sum()
-            + control_displacements.sum()
-            + radius.sum()
-            + amount.sum()
-        ) * 0
-        if weights is not None and weights.dtype != torch.bool:
-            zero = zero + weights.sum() * 0
+        zero = _zero_dependency(
+            control_points, control_displacements, radius, point_weights
+        )
         return points + zero
 
     field = compact_shepard_field_torch(
         points, control_points, control_displacements, radius
     )
-    return displace_points_torch(points, field, amount, weights)
+    return displace_points_torch(points, field, point_weights)
 
 
 __all__ = [

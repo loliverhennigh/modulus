@@ -17,13 +17,12 @@ Point Displacement
     displacement = torch.tensor(
         [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]], requires_grad=True
     )
-    weights = torch.tensor([0.0, 0.5, 1.0])
+    point_weights = torch.tensor([0.0, 0.5, 1.0])
 
     moved = displace_points(
         points,
         displacement,
-        amount=0.5,
-        weights=weights,
+        point_weights=point_weights,
     )
     moved.square().sum().backward()
 
@@ -50,6 +49,7 @@ Sparse Control-Point Morphing
         control_points,
         control_displacements,
         radius=radii,
+        kernel="wendland_c2",
     )
     morphed.square().mean().backward()
 
@@ -59,11 +59,11 @@ learn a deformation from a differentiable objective on ``morphed``.
 Performance and Compilation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The default dispatch targets eager execution: Torch is normally faster on CPU
-and Warp is normally faster on CUDA for sparse control sets. If Warp is
+Dense point displacement uses Torch on every device. Morphing uses Torch by
+default on CPU and Warp by default on CUDA for sparse control sets. If Warp is
 unavailable, automatic CUDA dispatch falls back to Torch, while explicitly
-requesting ``implementation="warp"`` raises an ``ImportError``. For a
-repeatedly evaluated, fixed-shape CUDA workload wrapped in
+requesting ``implementation="warp"`` for morphing raises an ``ImportError``.
+For a repeatedly evaluated, fixed-shape CUDA morph wrapped in
 :func:`torch.compile`, benchmark ``implementation="torch"`` as well; compiler
 fusion can make that path faster after its one-time compilation cost. Keep the
 backend explicit when comparing compiled and eager runs.

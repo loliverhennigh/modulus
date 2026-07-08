@@ -18,20 +18,16 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import torch
 import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
 
+from .._torch_impl import displace_points_torch
+from .._utils import _zero_dependency
 from .kernels import (
-    displace_backward_f32,
-    displace_backward_f64,
-    displace_forward_f32,
-    displace_forward_f64,
-    displace_masked_backward_f32,
-    displace_masked_backward_f64,
-    displace_masked_forward_f32,
-    displace_masked_forward_f64,
     shepard_backward_f32,
     shepard_backward_f64,
     shepard_forward_f32,
@@ -48,12 +44,29 @@ wp.config.log_level = wp.LOG_WARNING
 # during CUDA Graph capture, so every scoped launch below disables it.
 
 
-def _wp_dtype(dtype: torch.dtype):
-    if dtype == torch.float32:
-        return wp.float32
-    if dtype == torch.float64:
-        return wp.float64
-    raise TypeError(f"Warp morphing supports float32 and float64, got {dtype}")
+class _ShepardKernelSet(NamedTuple):
+    """Warp dtype and matching compact-Shepard kernels."""
+
+    warp_dtype: object
+    forward: object
+    backward: object
+    point_backward: object
+
+
+_SHEPARD_KERNELS = {
+    torch.float32: _ShepardKernelSet(
+        wp.float32,
+        shepard_forward_f32,
+        shepard_backward_f32,
+        shepard_point_backward_f32,
+    ),
+    torch.float64: _ShepardKernelSet(
+        wp.float64,
+        shepard_forward_f64,
+        shepard_backward_f64,
+        shepard_point_backward_f64,
+    ),
+}
 
 
 def _check_common_dtype(*tensors: torch.Tensor) -> None:
@@ -85,12 +98,6 @@ def _empty_2d(reference: torch.Tensor) -> torch.Tensor:
     return torch.empty((0, 0), dtype=reference.dtype, device=reference.device)
 
 
-def _empty_1d(reference: torch.Tensor) -> torch.Tensor:
-    """Return a rank-1 zero-size launch placeholder."""
-
-    return torch.empty((0,), dtype=reference.dtype, device=reference.device)
-
-
 def _wp_view(tensor: torch.Tensor, dtype):
     """Create the faster zero-copy Warp array descriptor for a Torch tensor."""
 
@@ -99,356 +106,103 @@ def _wp_view(tensor: torch.Tensor, dtype):
     )
 
 
-@torch.library.custom_op(
-    "physicsnemo::displace_points_warp_impl",
-    mutates_args=(),
-    schema=(
-        "(Tensor points, Tensor displacement, Tensor amount, Tensor? weights) -> Tensor"
-    ),
-)
-def displace_points_warp_impl(
+def _shepard_kernels(dtype: torch.dtype) -> _ShepardKernelSet:
+    """Return one internally consistent dtype/kernel family."""
+
+    try:
+        return _SHEPARD_KERNELS[dtype]
+    except KeyError:
+        raise TypeError(
+            f"Warp morphing supports float32 and float64, got {dtype}"
+        ) from None
+
+
+def _prepare_shepard_forward_inputs(
     points: torch.Tensor,
-    displacement: torch.Tensor,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
-) -> torch.Tensor:
-    """Apply a normalized batched dense displacement with Warp."""
-    floating_inputs = [points, displacement, amount]
-    if weights is not None and weights.dtype != torch.bool:
-        floating_inputs.append(weights)
-    _check_common_dtype(*floating_inputs)
-    if points.ndim != 3 or displacement.shape != points.shape:
-        raise ValueError("points and displacement must have identical rank-3 shapes")
-    if weights is not None and weights.shape != points.shape[:2]:
-        raise ValueError("weights must have shape (batch, num_points)")
-    if weights is not None and weights.dtype not in (torch.bool, points.dtype):
-        raise TypeError("weights must be bool or match the point dtype")
-    if weights is not None and weights.device != points.device:
-        raise ValueError("weights and points must be on the same device")
-    if amount.shape != (1,):
-        raise ValueError("amount must be a one-element tensor")
+    controls: torch.Tensor,
+    control_displacements: torch.Tensor,
+    radii: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Validate and make contiguous the inputs shared by both forward ops."""
 
-    points_c = points.contiguous()
-    displacement_c = displacement.contiguous()
-    amount_c = amount.contiguous()
-    weights_c = weights.contiguous() if weights is not None else None
-    output = torch.empty_like(points_c)
-    if output.numel() == 0:
-        return output
-
-    wp_dtype = _wp_dtype(points.dtype)
-    is_mask = weights_c is not None and weights_c.dtype == torch.bool
-    if is_mask:
-        kernel = (
-            displace_masked_forward_f32
-            if points.dtype == torch.float32
-            else displace_masked_forward_f64
+    _check_common_dtype(points, controls, control_displacements, radii)
+    if points.ndim != 3 or controls.ndim != 3:
+        raise ValueError("points and controls must be normalized rank-3 tensors")
+    if control_displacements.shape != controls.shape:
+        raise ValueError("control_displacements must match controls")
+    if controls.shape[0] != points.shape[0] or controls.shape[2] != points.shape[2]:
+        raise ValueError(
+            "points and controls must have aligned batch/spatial dimensions"
         )
+    if radii.shape != controls.shape[:2]:
+        raise ValueError("radii must have shape (batch, num_controls)")
+
+    return (
+        points.contiguous(),
+        controls.contiguous(),
+        control_displacements.contiguous(),
+        radii.contiguous(),
+    )
+
+
+def _launch_shepard_forward(
+    points: torch.Tensor,
+    controls: torch.Tensor,
+    control_displacements: torch.Tensor,
+    radii: torch.Tensor,
+    field: torch.Tensor,
+    auxiliaries: tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor | None,
+    ]
+    | None,
+) -> None:
+    """Launch the forward kernel with optional backward auxiliaries."""
+
+    batch, num_points, num_dims = points.shape
+    if batch * num_points == 0:
+        return
+
+    kernels = _shepard_kernels(points.dtype)
+    if auxiliaries is None:
+        # The kernel ignores these aliased zero-size placeholders when
+        # save_auxiliaries is false.
+        empty_float = _empty_2d(points)
+        empty_int = torch.empty((0, 0), dtype=torch.int32, device=points.device)
+        min_q = denominator = empty_float
+        exact_count = reference_index = empty_int
+        correction = None
     else:
-        kernel = (
-            displace_forward_f32
-            if points.dtype == torch.float32
-            else displace_forward_f64
-        )
-    wp_device, wp_stream = FunctionSpec.warp_launch_context(points_c)
+        min_q, denominator, exact_count, reference_index, correction = auxiliaries
+    correction_launch = correction if correction is not None else _empty_3d(points)
+
+    wp_device, wp_stream = FunctionSpec.warp_launch_context(points)
     with wp.ScopedStream(wp_stream, sync_enter=False):
-        common = [
-            _wp_view(points_c, wp_dtype),
-            _wp_view(displacement_c, wp_dtype),
-            _wp_view(amount_c, wp_dtype),
-        ]
-        if is_mask:
-            inputs = [
-                *common,
-                _wp_view(weights_c, wp.bool),
-                _wp_view(output, wp_dtype),
-            ]
-        else:
-            weights_launch = weights_c if weights_c is not None else _empty_2d(points_c)
-            inputs = [
-                *common,
-                _wp_view(weights_launch, wp_dtype),
-                int(weights_c is not None),
-                _wp_view(output, wp_dtype),
-            ]
         wp.launch(
-            kernel,
-            dim=tuple(points_c.shape),
-            inputs=inputs,
+            kernels.forward,
+            dim=(batch, num_points),
+            inputs=[
+                _wp_view(points, kernels.warp_dtype),
+                _wp_view(controls, kernels.warp_dtype),
+                _wp_view(control_displacements, kernels.warp_dtype),
+                _wp_view(radii, kernels.warp_dtype),
+                int(controls.shape[1]),
+                int(num_dims),
+                int(auxiliaries is not None),
+                int(correction is not None),
+                _wp_view(field, kernels.warp_dtype),
+                _wp_view(min_q, kernels.warp_dtype),
+                _wp_view(denominator, kernels.warp_dtype),
+                _wp_view(exact_count, wp.int32),
+                _wp_view(reference_index, wp.int32),
+                _wp_view(correction_launch, kernels.warp_dtype),
+            ],
             device=wp_device,
             stream=wp_stream,
         )
-    return output
-
-
-@displace_points_warp_impl.register_fake
-def _displace_points_warp_fake(
-    points: torch.Tensor,
-    displacement: torch.Tensor,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
-) -> torch.Tensor:
-    _ = displacement, amount, weights
-    return _empty_contiguous_like(points)
-
-
-def _setup_displace_context(
-    ctx: torch.autograd.function.FunctionCtx,
-    inputs: tuple,
-    output: torch.Tensor,
-) -> None:
-    _ = output
-    _, displacement, amount, weights = inputs
-    needs = ctx.needs_input_grad
-    # Displacement values are only needed to differentiate amount or floating
-    # weights. Avoid retaining a full morph field in the common case where only
-    # the displacement-producing model needs a gradient.
-    ctx.save_nonpoint_inputs = bool(any(needs[1:]))
-    ctx.save_displacement = bool(needs[2] or needs[3])
-    ctx.has_weights = weights is not None
-    saved = []
-    if ctx.save_nonpoint_inputs:
-        saved.append(amount.contiguous())
-        if weights is not None:
-            saved.append(weights.contiguous())
-        if ctx.save_displacement:
-            saved.append(displacement.contiguous())
-    ctx.save_for_backward(*saved)
-
-
-# Keeping the native pullback behind its own opaque custom op lets AOTAutograd
-# compile callers without tracing into Warp. It intentionally has no autograd
-# registration: Warp morphing guarantees first-order derivatives only.
-@torch.library.custom_op(
-    "physicsnemo::displace_points_warp_backward_impl",
-    mutates_args=(),
-    schema=(
-        "(Tensor grad_output, Tensor? displacement, Tensor amount, Tensor? weights, "
-        "bool need_points=True, bool need_displacement=True, bool need_amount=True, "
-        "bool need_weights=True) -> (Tensor?, Tensor?, Tensor?, Tensor?)"
-    ),
-)
-def displace_points_warp_backward_impl(
-    grad_output: torch.Tensor,
-    displacement: torch.Tensor | None,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
-    need_points: bool = True,
-    need_displacement: bool = True,
-    need_amount: bool = True,
-    need_weights: bool = True,
-) -> tuple[
-    torch.Tensor | None,
-    torch.Tensor | None,
-    torch.Tensor | None,
-    torch.Tensor | None,
-]:
-    """Evaluate the first-order dense-displacement pullback with Warp."""
-    floating_inputs = [grad_output, amount]
-    if displacement is not None:
-        floating_inputs.append(displacement)
-    if weights is not None and weights.dtype != torch.bool:
-        floating_inputs.append(weights)
-    _check_common_dtype(*floating_inputs)
-    if grad_output.ndim != 3:
-        raise ValueError("grad_output must be a rank-3 tensor")
-    if displacement is not None and grad_output.shape != displacement.shape:
-        raise ValueError(
-            "grad_output and displacement must have matching rank-3 shapes"
-        )
-    if (need_amount or need_weights) and displacement is None:
-        raise ValueError("displacement is required for amount or weight gradients")
-    if amount.shape != (1,):
-        raise ValueError("amount has an invalid normalized shape")
-    if weights is not None:
-        if weights.shape != grad_output.shape[:2]:
-            raise ValueError("weights have an invalid normalized shape")
-        if weights.device != grad_output.device:
-            raise ValueError("weights and grad_output must be on the same device")
-        if weights.dtype not in (torch.bool, grad_output.dtype):
-            raise TypeError("weights must be bool or match grad_output dtype")
-    if need_weights and (weights is None or weights.dtype == torch.bool):
-        raise ValueError("only floating weights can require a gradient")
-
-    grad_output_c = grad_output.contiguous()
-    displacement_c = displacement.contiguous() if displacement is not None else None
-    weights_c = weights.contiguous() if weights is not None else None
-    grad_points = _empty_contiguous_like(grad_output_c) if need_points else None
-    grad_displacement = (
-        _empty_contiguous_like(grad_output_c) if need_displacement else None
-    )
-    grad_amount = torch.zeros_like(amount) if need_amount else None
-    grad_weights = (
-        torch.empty(
-            grad_output_c.shape[:2],
-            dtype=grad_output.dtype,
-            device=grad_output.device,
-        )
-        if need_weights
-        else None
-    )
-
-    if grad_output_c.numel() > 0 and (
-        need_points or need_displacement or need_amount or need_weights
-    ):
-        wp_dtype = _wp_dtype(grad_output.dtype)
-        is_mask = weights_c is not None and weights_c.dtype == torch.bool
-        if is_mask:
-            kernel = (
-                displace_masked_backward_f32
-                if grad_output.dtype == torch.float32
-                else displace_masked_backward_f64
-            )
-        else:
-            kernel = (
-                displace_backward_f32
-                if grad_output.dtype == torch.float32
-                else displace_backward_f64
-            )
-        wp_device, wp_stream = FunctionSpec.warp_launch_context(grad_output_c)
-        with wp.ScopedStream(wp_stream, sync_enter=False):
-            displacement_launch = (
-                displacement_c
-                if displacement_c is not None
-                else _empty_3d(grad_output_c)
-            )
-            points_launch = (
-                grad_points if grad_points is not None else _empty_3d(grad_output_c)
-            )
-            displacement_grad_launch = (
-                grad_displacement
-                if grad_displacement is not None
-                else _empty_3d(grad_output_c)
-            )
-            amount_grad_launch = (
-                grad_amount if grad_amount is not None else _empty_1d(grad_output_c)
-            )
-            common = [
-                _wp_view(displacement_launch, wp_dtype),
-                _wp_view(amount.contiguous(), wp_dtype),
-            ]
-            if is_mask:
-                inputs = [
-                    *common,
-                    _wp_view(weights_c, wp.bool),
-                    _wp_view(grad_output_c, wp_dtype),
-                    _wp_view(points_launch, wp_dtype),
-                    _wp_view(displacement_grad_launch, wp_dtype),
-                    _wp_view(amount_grad_launch, wp_dtype),
-                    int(grad_output_c.shape[2]),
-                    int(need_points),
-                    int(need_displacement),
-                    int(need_amount),
-                ]
-            else:
-                weights_launch = (
-                    weights_c if weights_c is not None else _empty_2d(grad_output_c)
-                )
-                weights_grad_launch = (
-                    grad_weights
-                    if grad_weights is not None
-                    else _empty_2d(grad_output_c)
-                )
-                inputs = [
-                    *common,
-                    _wp_view(weights_launch, wp_dtype),
-                    _wp_view(grad_output_c, wp_dtype),
-                    _wp_view(points_launch, wp_dtype),
-                    _wp_view(displacement_grad_launch, wp_dtype),
-                    _wp_view(amount_grad_launch, wp_dtype),
-                    _wp_view(weights_grad_launch, wp_dtype),
-                    int(grad_output_c.shape[2]),
-                    int(weights_c is not None),
-                    int(need_points),
-                    int(need_displacement),
-                    int(need_amount),
-                    int(need_weights),
-                ]
-            wp.launch(
-                kernel,
-                dim=tuple(grad_output_c.shape[:2]),
-                inputs=inputs,
-                device=wp_device,
-                stream=wp_stream,
-            )
-    return grad_points, grad_displacement, grad_amount, grad_weights
-
-
-@displace_points_warp_backward_impl.register_fake
-def _displace_points_warp_backward_fake(
-    grad_output: torch.Tensor,
-    displacement: torch.Tensor | None,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
-    need_points: bool = True,
-    need_displacement: bool = True,
-    need_amount: bool = True,
-    need_weights: bool = True,
-) -> tuple[
-    torch.Tensor | None,
-    torch.Tensor | None,
-    torch.Tensor | None,
-    torch.Tensor | None,
-]:
-    _ = displacement
-    return (
-        _empty_contiguous_like(grad_output) if need_points else None,
-        _empty_contiguous_like(grad_output) if need_displacement else None,
-        torch.empty_like(amount) if need_amount else None,
-        (
-            torch.empty(
-                grad_output.shape[:2],
-                dtype=grad_output.dtype,
-                device=grad_output.device,
-            )
-            if need_weights and weights is not None
-            else None
-        ),
-    )
-
-
-def _backward_displace(
-    ctx: torch.autograd.function.FunctionCtx,
-    grad_output: torch.Tensor,
-) -> tuple[torch.Tensor | None, ...]:
-    needs = ctx.needs_input_grad
-    if grad_output is None or not any(needs):
-        return None, None, None, None
-
-    # The point contribution is an exact identity; return the cotangent directly
-    # and keep it outside the opaque first-order Warp pullback.
-    grad_points = grad_output if needs[0] else None
-    if any(needs[1:]):
-        saved = list(ctx.saved_tensors)
-        amount = saved.pop(0)
-        weights = saved.pop(0) if ctx.has_weights else None
-        displacement = saved.pop(0) if ctx.save_displacement else None
-        _, grad_displacement, grad_amount, grad_weights = (
-            displace_points_warp_backward_impl(
-                grad_output,
-                displacement,
-                amount,
-                weights,
-                False,
-                bool(needs[1]),
-                bool(needs[2]),
-                bool(needs[3]),
-            )
-        )
-    else:
-        grad_displacement = grad_amount = grad_weights = None
-
-    return (
-        grad_points if needs[0] else None,
-        grad_displacement if needs[1] else None,
-        grad_amount if needs[2] else None,
-        grad_weights if needs[3] else None,
-    )
-
-
-displace_points_warp_impl.register_autograd(
-    _backward_displace, setup_context=_setup_displace_context
-)
 
 
 @torch.library.custom_op(
@@ -475,24 +229,10 @@ def compact_shepard_field_warp_impl(
     torch.Tensor,
 ]:
     """Evaluate the compact Shepard displacement field with Warp."""
-    _check_common_dtype(points, controls, control_displacements, radii)
-    if points.ndim != 3 or controls.ndim != 3:
-        raise ValueError("points and controls must be normalized rank-3 tensors")
-    if control_displacements.shape != controls.shape:
-        raise ValueError("control_displacements must match controls")
-    if controls.shape[0] != points.shape[0] or controls.shape[2] != points.shape[2]:
-        raise ValueError(
-            "points and controls must have aligned batch/spatial dimensions"
-        )
-    if radii.shape != controls.shape[:2]:
-        raise ValueError("radii must have shape (batch, num_controls)")
-
-    points_c = points.contiguous()
-    controls_c = controls.contiguous()
-    control_displacements_c = control_displacements.contiguous()
-    radii_c = radii.contiguous()
-    batch, num_points, num_dims = points_c.shape
-    num_controls = controls_c.shape[1]
+    points_c, controls_c, control_displacements_c, radii_c = (
+        _prepare_shepard_forward_inputs(points, controls, control_displacements, radii)
+    )
+    batch, num_points, _ = points_c.shape
     field = torch.empty_like(points_c)
     min_q = torch.empty((batch, num_points), dtype=points.dtype, device=points.device)
     denominator = torch.empty_like(min_q)
@@ -501,38 +241,20 @@ def compact_shepard_field_warp_impl(
     )
     reference_index = torch.empty_like(exact_count)
     correction = torch.empty_like(points_c) if save_correction else _empty_3d(points_c)
-
-    if batch * num_points > 0:
-        wp_dtype = _wp_dtype(points.dtype)
-        kernel = (
-            shepard_forward_f32
-            if points.dtype == torch.float32
-            else shepard_forward_f64
-        )
-        wp_device, wp_stream = FunctionSpec.warp_launch_context(points_c)
-        with wp.ScopedStream(wp_stream, sync_enter=False):
-            wp.launch(
-                kernel,
-                dim=(batch, num_points),
-                inputs=[
-                    _wp_view(points_c, wp_dtype),
-                    _wp_view(controls_c, wp_dtype),
-                    _wp_view(control_displacements_c, wp_dtype),
-                    _wp_view(radii_c, wp_dtype),
-                    int(num_controls),
-                    int(num_dims),
-                    int(1),
-                    int(save_correction),
-                    _wp_view(field, wp_dtype),
-                    _wp_view(min_q, wp_dtype),
-                    _wp_view(denominator, wp_dtype),
-                    _wp_view(exact_count, wp.int32),
-                    _wp_view(reference_index, wp.int32),
-                    _wp_view(correction, wp_dtype),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
+    _launch_shepard_forward(
+        points_c,
+        controls_c,
+        control_displacements_c,
+        radii_c,
+        field,
+        (
+            min_q,
+            denominator,
+            exact_count,
+            reference_index,
+            correction if save_correction else None,
+        ),
+    )
     return field, min_q, denominator, exact_count, reference_index, correction
 
 
@@ -573,60 +295,18 @@ def compact_shepard_field_warp_forward_only_impl(
     radii: torch.Tensor,
 ) -> torch.Tensor:
     """Evaluate only the field, omitting every backward-only auxiliary."""
-
-    _check_common_dtype(points, controls, control_displacements, radii)
-    if points.ndim != 3 or controls.ndim != 3:
-        raise ValueError("points and controls must be normalized rank-3 tensors")
-    if control_displacements.shape != controls.shape:
-        raise ValueError("control_displacements must match controls")
-    if controls.shape[0] != points.shape[0] or controls.shape[2] != points.shape[2]:
-        raise ValueError(
-            "points and controls must have aligned batch/spatial dimensions"
-        )
-    if radii.shape != controls.shape[:2]:
-        raise ValueError("radii must have shape (batch, num_controls)")
-
-    points_c = points.contiguous()
-    controls_c = controls.contiguous()
-    control_displacements_c = control_displacements.contiguous()
-    radii_c = radii.contiguous()
-    batch, num_points, num_dims = points_c.shape
-    num_controls = controls_c.shape[1]
+    points_c, controls_c, control_displacements_c, radii_c = (
+        _prepare_shepard_forward_inputs(points, controls, control_displacements, radii)
+    )
     field = torch.empty_like(points_c)
-    if batch * num_points > 0:
-        wp_dtype = _wp_dtype(points.dtype)
-        kernel = (
-            shepard_forward_f32
-            if points.dtype == torch.float32
-            else shepard_forward_f64
-        )
-        empty_2d = _empty_2d(points_c)
-        empty_int = torch.empty((0, 0), dtype=torch.int32, device=points_c.device)
-        empty_3d = _empty_3d(points_c)
-        wp_device, wp_stream = FunctionSpec.warp_launch_context(points_c)
-        with wp.ScopedStream(wp_stream, sync_enter=False):
-            wp.launch(
-                kernel,
-                dim=(batch, num_points),
-                inputs=[
-                    _wp_view(points_c, wp_dtype),
-                    _wp_view(controls_c, wp_dtype),
-                    _wp_view(control_displacements_c, wp_dtype),
-                    _wp_view(radii_c, wp_dtype),
-                    int(num_controls),
-                    int(num_dims),
-                    int(0),
-                    int(0),
-                    _wp_view(field, wp_dtype),
-                    _wp_view(empty_2d, wp_dtype),
-                    _wp_view(empty_2d, wp_dtype),
-                    _wp_view(empty_int, wp.int32),
-                    _wp_view(empty_int, wp.int32),
-                    _wp_view(empty_3d, wp_dtype),
-                ],
-                device=wp_device,
-                stream=wp_stream,
-            )
+    _launch_shepard_forward(
+        points_c,
+        controls_c,
+        control_displacements_c,
+        radii_c,
+        field,
+        None,
+    )
     return field
 
 
@@ -782,17 +462,7 @@ def compact_shepard_field_warp_backward_impl(
     if batch * num_points * num_controls > 0 and (
         need_points or need_controls or need_control_displacements or need_radii
     ):
-        wp_dtype = _wp_dtype(points.dtype)
-        pair_kernel = (
-            shepard_backward_f32
-            if points.dtype == torch.float32
-            else shepard_backward_f64
-        )
-        point_kernel = (
-            shepard_point_backward_f32
-            if points.dtype == torch.float32
-            else shepard_point_backward_f64
-        )
+        kernels = _shepard_kernels(points.dtype)
         wp_device, wp_stream = FunctionSpec.warp_launch_context(grad_field_c)
         with wp.ScopedStream(wp_stream, sync_enter=False):
             control_displacements_launch = (
@@ -804,26 +474,26 @@ def compact_shepard_field_warp_backward_impl(
                 correction_c if correction_c is not None else _empty_3d(points_c)
             )
             common = [
-                _wp_view(points_c, wp_dtype),
-                _wp_view(controls_c, wp_dtype),
-                _wp_view(control_displacements_launch, wp_dtype),
-                _wp_view(radii_c, wp_dtype),
-                _wp_view(min_q_c, wp_dtype),
-                _wp_view(denominator_c, wp_dtype),
+                _wp_view(points_c, kernels.warp_dtype),
+                _wp_view(controls_c, kernels.warp_dtype),
+                _wp_view(control_displacements_launch, kernels.warp_dtype),
+                _wp_view(radii_c, kernels.warp_dtype),
+                _wp_view(min_q_c, kernels.warp_dtype),
+                _wp_view(denominator_c, kernels.warp_dtype),
                 _wp_view(exact_count_c, wp.int32),
                 _wp_view(reference_index_c, wp.int32),
-                _wp_view(correction_launch, wp_dtype),
-                _wp_view(grad_field_c, wp_dtype),
+                _wp_view(correction_launch, kernels.warp_dtype),
+                _wp_view(grad_field_c, kernels.warp_dtype),
             ]
             if need_points:
                 wp.launch(
-                    point_kernel,
+                    kernels.point_backward,
                     dim=(batch, num_points),
                     inputs=[
                         *common,
                         int(num_controls),
                         int(num_dims),
-                        _wp_view(grad_points, wp_dtype),
+                        _wp_view(grad_points, kernels.warp_dtype),
                     ],
                     device=wp_device,
                     stream=wp_stream,
@@ -841,7 +511,7 @@ def compact_shepard_field_warp_backward_impl(
                     grad_radii if grad_radii is not None else _empty_2d(points_c)
                 )
                 wp.launch(
-                    pair_kernel,
+                    kernels.backward,
                     dim=(batch, num_points, num_controls),
                     inputs=[
                         *common,
@@ -850,10 +520,10 @@ def compact_shepard_field_warp_backward_impl(
                         int(need_controls),
                         int(need_control_displacements),
                         int(need_radii),
-                        _wp_view(_empty_3d(points_c), wp_dtype),
-                        _wp_view(controls_grad_launch, wp_dtype),
-                        _wp_view(displacement_grad_launch, wp_dtype),
-                        _wp_view(radii_grad_launch, wp_dtype),
+                        _wp_view(_empty_3d(points_c), kernels.warp_dtype),
+                        _wp_view(controls_grad_launch, kernels.warp_dtype),
+                        _wp_view(displacement_grad_launch, kernels.warp_dtype),
+                        _wp_view(radii_grad_launch, kernels.warp_dtype),
                     ],
                     device=wp_device,
                     stream=wp_stream,
@@ -966,49 +636,30 @@ compact_shepard_field_warp_impl.register_autograd(
 )
 
 
-def displace_points_warp(
-    points: torch.Tensor,
-    displacement: torch.Tensor,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
-) -> torch.Tensor:
-    """Normalized rank-3 Warp dense-displacement entry point."""
-    return displace_points_warp_impl(
-        points.contiguous(),
-        displacement.contiguous(),
-        amount.contiguous(),
-        weights.contiguous() if weights is not None else None,
-    )
-
-
 def morph_points_warp(
     points: torch.Tensor,
     control_points: torch.Tensor,
     control_displacements: torch.Tensor,
     radius: torch.Tensor,
-    amount: torch.Tensor,
-    weights: torch.Tensor | None,
+    point_weights: torch.Tensor | None,
 ) -> torch.Tensor:
     """Normalized rank-3 Warp compact-Shepard morphing entry point."""
     if control_points.shape[1] == 0:
         # Preserve every differentiable zero dependency without paying for two
         # Warp launches or allocating field auxiliaries.
-        zero = (
-            control_points.sum()
-            + control_displacements.sum()
-            + radius.sum()
-            + amount.sum()
+        zero = _zero_dependency(
+            control_points,
+            control_displacements,
+            radius,
+            point_weights,
         )
-        if weights is not None and weights.dtype != torch.bool:
-            zero = zero + weights.sum()
-        return points + zero * 0
+        return points + zero
 
     points_c = points.contiguous()
     controls_c = control_points.contiguous()
     control_displacements_c = control_displacements.contiguous()
     radius_c = radius.contiguous()
-    amount_c = amount.contiguous()
-    weights_c = weights.contiguous() if weights is not None else None
+    point_weights_c = point_weights.contiguous() if point_weights is not None else None
     needs_field_grad = torch.is_grad_enabled() and any(
         tensor.requires_grad
         for tensor in (points_c, controls_c, control_displacements_c, radius_c)
@@ -1028,15 +679,14 @@ def morph_points_warp(
         field = compact_shepard_field_warp_forward_only_impl(
             points_c, controls_c, control_displacements_c, radius_c
         )
-    return displace_points_warp_impl(points_c, field, amount_c, weights_c)
+    # Only the compact Shepard field warrants a Warp kernel. Native Torch
+    # handles the final point weighting and addition without a dense Warp API.
+    return displace_points_torch(points_c, field, point_weights_c)
 
 
 __all__ = [
     "compact_shepard_field_warp_backward_impl",
     "compact_shepard_field_warp_forward_only_impl",
     "compact_shepard_field_warp_impl",
-    "displace_points_warp",
-    "displace_points_warp_backward_impl",
-    "displace_points_warp_impl",
     "morph_points_warp",
 ]

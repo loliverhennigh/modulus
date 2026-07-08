@@ -288,7 +288,7 @@ def rotation_matrix(
     device: torch.device,
     dtype: torch.dtype,
 ) -> Float[torch.Tensor, "n_spatial_dims n_spatial_dims"]:
-    r"""Build a rotation matrix from angle and axis.
+    """Build a rotation matrix from angle and axis.
 
     Parameters
     ----------
@@ -320,7 +320,7 @@ def scale_matrix(
     device: torch.device,
     dtype: torch.dtype,
 ) -> Float[torch.Tensor, "n_spatial_dims n_spatial_dims"]:
-    r"""Build a diagonal scale matrix from a factor specification.
+    """Build a diagonal scale matrix from a factor specification.
 
     Parameters
     ----------
@@ -829,6 +829,7 @@ def _resolve_point_field(
     value: str | tuple[str, ...] | torch.Tensor,
     *,
     argument_name: str,
+    owner_label: str | None = None,
 ) -> torch.Tensor:
     """Resolve a raw tensor or nested ``point_data`` key."""
     if isinstance(value, torch.Tensor):
@@ -838,27 +839,37 @@ def _resolve_point_field(
             f"{argument_name} must be a tensor or point_data key/path, got "
             f"{type(value).__name__}"
         )
+    point_data_label = (
+        "point_data" if owner_label is None else f"{owner_label}.point_data"
+    )
     try:
-        return mesh.point_data[value]
-    except KeyError:
+        resolved = mesh.point_data[value]
+    except (AttributeError, KeyError, ValueError):
         available = list(mesh.point_data.keys(include_nested=True, leaves_only=True))
         raise KeyError(
-            f"{argument_name} field {value!r} not found in point_data. "
+            f"{argument_name} field {value!r} not found in {point_data_label}. "
             f"Available keys: {available}"
         ) from None
+    if not isinstance(resolved, torch.Tensor):
+        raise TypeError(
+            f"{argument_name} field {value!r} in {point_data_label} must "
+            "resolve to a torch.Tensor"
+        )
+    return resolved
 
 
 def _mesh_with_morphed_points(mesh: "Mesh", points: torch.Tensor) -> "Mesh":
     """Construct a geometry-invalidated mesh while retaining topology caches."""
     from physicsnemo.mesh.mesh import Mesh
 
+    device = points.device
     cache = TensorDict(
         {
-            "cell": TensorDict({}, batch_size=[mesh.n_cells]),
-            "point": TensorDict({}, batch_size=[mesh.n_points]),
-            "topology": mesh._cache.get("topology", TensorDict({})),
+            "cell": TensorDict({}, batch_size=[mesh.n_cells], device=device),
+            "point": TensorDict({}, batch_size=[mesh.n_points], device=device),
+            "topology": mesh._cache.get("topology", TensorDict({}, device=device)),
         },
-        device=points.device,
+        device=device,
     )
     return Mesh(
         points=points,
@@ -874,15 +885,15 @@ def displace(
     mesh: "Mesh",
     displacement: str | tuple[str, ...] | torch.Tensor,
     *,
-    amount: float | torch.Tensor = 1.0,
-    weights: str | tuple[str, ...] | torch.Tensor | None = None,
-    implementation: Literal["torch", "warp"] | None = None,
+    point_weights: str | tuple[str, ...] | torch.Tensor | None = None,
+    implementation: Literal["torch"] | None = None,
 ) -> "Mesh":
-    r"""Displace every mesh point by a dense vector field.
+    """Displace every mesh point by a dense vector field.
 
-    Computes ``points + amount * weights[..., None] * displacement`` without
-    changing connectivity. ``displacement`` and ``weights`` may be raw tensors
-    or keys (including nested tuple keys) in
+    Computes ``points + displacement`` without changing connectivity, optionally
+    multiplying the displacement by ``point_weights[..., None]``.
+    ``displacement`` and ``point_weights`` may be raw tensors or keys (including
+    nested tuple keys) in
     :attr:`~physicsnemo.mesh.mesh.Mesh.point_data`.
 
     Parameters
@@ -894,15 +905,12 @@ def displace(
         ``(mesh.n_points, mesh.n_spatial_dims)``, or a point-data key resolving
         to such a tensor. The tensor and ``mesh.points`` must have the same
         float32 or float64 dtype and device.
-    amount : float or torch.Tensor, optional
-        Scalar multiplier. A differentiable zero-dimensional tensor must match
-        ``mesh.points`` in dtype and device and must remain finite; its value
-        is not validated at runtime. Default is ``1.0``.
-    weights : str, tuple[str, ...], torch.Tensor, or None, optional
-        Optional bool or floating per-point weights with shape
-        ``(mesh.n_points,)``, or a point-data key resolving to those weights.
-        Floating weights may be signed or greater than one. Default is ``None``.
-    implementation : {"torch", "warp"} or None, optional
+    point_weights : str, tuple[str, ...], torch.Tensor, or None, optional
+        Optional bool or floating-point weights with shape
+        ``(mesh.n_points,)``, or a point-data key resolving to those point weights.
+        Floating-point weights may be signed or greater than one. Default is
+        ``None``.
+    implementation : {"torch"} or None, optional
         Backend override. ``None`` selects Torch for dense displacement.
 
     Returns
@@ -922,18 +930,17 @@ def displace(
     displacement_t = _resolve_point_field(
         mesh, displacement, argument_name="displacement"
     )
-    weights_t = (
+    point_weights_t = (
         None
-        if weights is None
-        else _resolve_point_field(mesh, weights, argument_name="weights")
+        if point_weights is None
+        else _resolve_point_field(mesh, point_weights, argument_name="point_weights")
     )
     from physicsnemo.nn.functional.geometry.morphing import displace_points
 
     points = displace_points(
         mesh.points,
         displacement_t,
-        amount=amount,
-        weights=weights_t,
+        point_weights=point_weights_t,
         implementation=implementation,
     )
     return _mesh_with_morphed_points(mesh, points)
@@ -945,11 +952,11 @@ def morph(
     control_displacements: torch.Tensor,
     *,
     radius: float | torch.Tensor,
-    amount: float | torch.Tensor = 1.0,
-    weights: str | tuple[str, ...] | torch.Tensor | None = None,
+    point_weights: str | tuple[str, ...] | torch.Tensor | None = None,
+    kernel: Literal["wendland_c2"] = "wendland_c2",
     implementation: Literal["torch", "warp"] | None = None,
 ) -> "Mesh":
-    r"""Morph a mesh from sparse, compactly-supported control displacements.
+    """Morph a mesh from sparse, compactly supported control displacements.
 
     Control influence uses a Wendland-C2 compact Shepard field with a stationary
     zero-displacement background. Each control's influence vanishes smoothly at
@@ -957,10 +964,10 @@ def morph(
     background are blended together; the result is not a simple sum or average.
     The field is zero outside the union of all supports.
 
-    With ``amount=1`` and no weights, the field at a unique control coordinate
-    is exactly that control's displacement. Duplicate controls at one coordinate
-    contribute their mean displacement. A control may be anywhere in world
-    coordinates and need not coincide with a mesh point.
+    With no point weights, the field at a unique control coordinate is exactly
+    that control's displacement. Duplicate controls at one coordinate contribute
+    their mean displacement. A control may be anywhere in world coordinates and
+    need not coincide with a mesh point.
 
     Parameters
     ----------
@@ -978,17 +985,15 @@ def morph(
         control or a tensor with shape ``(n_controls,)`` that matches the control
         dtype and device. Every tensor value must remain positive and finite;
         values are not validated at runtime.
-    amount : float or torch.Tensor, optional
-        Scalar multiplier applied after control blending. A differentiable
-        zero-dimensional tensor must match ``mesh.points`` in dtype and device
-        and must remain finite; its value is not validated at runtime. Default
-        is ``1.0``.
-    weights : str, tuple[str, ...], torch.Tensor, or None, optional
-        Optional bool or floating per-mesh-point weights with shape
+    point_weights : str, tuple[str, ...], torch.Tensor, or None, optional
+        Optional bool or floating mesh-point weights with shape
         ``(mesh.n_points,)``, or a
         :attr:`~physicsnemo.mesh.mesh.Mesh.point_data` key resolving to those
-        weights. These are query-point weights, not per-control values. Default
-        is ``None``.
+        point weights. These are query-point weights, not per-control values.
+        Default is ``None``.
+    kernel : {"wendland_c2"}, optional
+        Compact radial kernel used to blend control displacements. Default is
+        ``"wendland_c2"``.
     implementation : {"torch", "warp"} or None, optional
         Backend override. ``None`` selects Torch on CPU and Warp on CUDA when
         Warp is available, otherwise Torch.
@@ -1009,10 +1014,20 @@ def morph(
     self-intersecting cells; call
     :meth:`~physicsnemo.mesh.mesh.Mesh.validate` explicitly when needed.
     """
-    weights_t = (
+    if not isinstance(control_points, torch.Tensor):
+        raise TypeError(
+            "control_points must be a torch.Tensor, got "
+            f"{type(control_points).__name__}"
+        )
+    if not isinstance(control_displacements, torch.Tensor):
+        raise TypeError(
+            "control_displacements must be a torch.Tensor, got "
+            f"{type(control_displacements).__name__}"
+        )
+    point_weights_t = (
         None
-        if weights is None
-        else _resolve_point_field(mesh, weights, argument_name="weights")
+        if point_weights is None
+        else _resolve_point_field(mesh, point_weights, argument_name="point_weights")
     )
     from physicsnemo.nn.functional.geometry.morphing import morph_points
 
@@ -1021,8 +1036,8 @@ def morph(
         control_points,
         control_displacements,
         radius=radius,
-        amount=amount,
-        weights=weights_t,
+        point_weights=point_weights_t,
+        kernel=kernel,
         implementation=implementation,
     )
     return _mesh_with_morphed_points(mesh, points)

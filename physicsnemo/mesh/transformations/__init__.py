@@ -20,6 +20,24 @@ This module provides linear, affine, and nonlinear point transformations with
 intelligent cache handling.
 """
 
-from .geometric import displace, morph, rotate, scale, transform, translate
+from physicsnemo.mesh.transformations.geometric import (
+    displace,
+    morph,
+    rotate,
+    rotation_matrix,
+    scale,
+    scale_matrix,
+    transform,
+    translate,
+)
 
-__all__ = ["displace", "morph", "rotate", "scale", "transform", "translate"]
+__all__ = [
+    "displace",
+    "morph",
+    "rotate",
+    "rotation_matrix",
+    "scale",
+    "scale_matrix",
+    "transform",
+    "translate",
+]

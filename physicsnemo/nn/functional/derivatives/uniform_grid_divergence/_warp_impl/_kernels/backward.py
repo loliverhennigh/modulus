@@ -31,7 +31,7 @@ def _divergence_backward_1d_order2_kernel(
     grad_output: wp.array(dtype=wp.float32),
     inv_dx0: float,
     grad_vector: wp.array2d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i = wp.tid()
     n0 = grad_output.shape[0]
     im = _wrap_minus1(i, n0)
@@ -44,7 +44,7 @@ def _divergence_backward_1d_order4_kernel(
     grad_output: wp.array(dtype=wp.float32),
     inv_dx0: float,
     grad_vector: wp.array2d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i = wp.tid()
     n0 = grad_output.shape[0]
     im1 = _wrap_minus1(i, n0)
@@ -65,7 +65,7 @@ def _divergence_backward_2d_order2_kernel(
     inv_dx0: float,
     inv_dx1: float,
     grad_vector: wp.array3d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]
@@ -83,7 +83,7 @@ def _divergence_backward_2d_order4_kernel(
     inv_dx0: float,
     inv_dx1: float,
     grad_vector: wp.array3d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]
@@ -116,7 +116,7 @@ def _divergence_backward_3d_order2_kernel(
     inv_dx1: float,
     inv_dx2: float,
     grad_vector: wp.array4d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]
@@ -145,7 +145,7 @@ def _divergence_backward_3d_order4_kernel(
     inv_dx1: float,
     inv_dx2: float,
     grad_vector: wp.array4d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]

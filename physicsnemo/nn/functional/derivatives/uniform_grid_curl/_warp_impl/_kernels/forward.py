@@ -32,7 +32,7 @@ def _curl_2d_order2_kernel(
     inv_dx0: float,
     inv_dx1: float,
     output: wp.array2d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = output.shape[0]
     n1 = output.shape[1]
@@ -51,7 +51,7 @@ def _curl_2d_order4_kernel(
     inv_dx0: float,
     inv_dx1: float,
     output: wp.array2d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = output.shape[0]
     n1 = output.shape[1]
@@ -85,7 +85,7 @@ def _curl_3d_order2_kernel(
     inv_dx1: float,
     inv_dx2: float,
     output: wp.array4d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = output.shape[1]
     n1 = output.shape[2]
@@ -114,7 +114,7 @@ def _curl_3d_order4_kernel(
     inv_dx1: float,
     inv_dx2: float,
     output: wp.array4d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j, k = wp.tid()
     n0 = output.shape[1]
     n1 = output.shape[2]

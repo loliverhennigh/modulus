@@ -32,7 +32,7 @@ def _curl_backward_2d_order2_kernel(
     inv_dx0: float,
     inv_dx1: float,
     grad_vector: wp.array3d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]
@@ -50,7 +50,7 @@ def _curl_backward_2d_order4_kernel(
     inv_dx0: float,
     inv_dx1: float,
     grad_vector: wp.array3d(dtype=wp.float32),
-):
+):  # pragma: no cover
     i, j = wp.tid()
     n0 = grad_output.shape[0]
     n1 = grad_output.shape[1]

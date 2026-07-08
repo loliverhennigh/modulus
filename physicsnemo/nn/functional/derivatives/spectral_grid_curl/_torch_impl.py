@@ -102,6 +102,7 @@ def spectral_grid_curl_torch(
         vector_field,
         lengths,
     )
+    # Transform spatial axes only; the leading component axis is a batch axis.
     spatial_dims = tuple(range(1, vector_eval.ndim))
     vector_hat = torch.fft.fftn(vector_eval, dim=spatial_dims)
     k = _wavenumbers(
@@ -111,6 +112,7 @@ def spectral_grid_curl_torch(
         dtype=vector_eval.dtype,
     )
 
+    # In Fourier space, curl has the symbol i * k cross u_hat.
     if grid_ndim == 2:
         curl_hat = 1j * (k[0] * vector_hat[1] - k[1] * vector_hat[0])
         output = torch.fft.ifftn(curl_hat, dim=(0, 1)).real

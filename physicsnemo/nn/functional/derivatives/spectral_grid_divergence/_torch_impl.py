@@ -102,6 +102,7 @@ def spectral_grid_divergence_torch(
         vector_field,
         lengths,
     )
+    # Transform spatial axes only; the leading component axis is a batch axis.
     spatial_dims = tuple(range(1, vector_eval.ndim))
     vector_hat = torch.fft.fftn(vector_eval, dim=spatial_dims)
     wavenumbers = _wavenumbers(
@@ -111,6 +112,7 @@ def spectral_grid_divergence_torch(
         dtype=vector_eval.dtype,
     )
 
+    # In Fourier space, divergence has the symbol i * k dot u_hat.
     divergence_hat = 1j * wavenumbers[0] * vector_hat[0]
     for axis in range(1, grid_ndim):
         divergence_hat = divergence_hat + 1j * wavenumbers[axis] * vector_hat[axis]

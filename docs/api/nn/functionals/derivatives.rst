@@ -78,9 +78,21 @@ Spectral Grid Operators
 
 .. autofunction:: physicsnemo.nn.functional.spectral_grid_divergence
 
+.. figure:: /img/nn/functional/derivatives/spectral_grid_divergence.png
+   :alt: Spectral grid divergence example
+   :width: 100%
+
 .. autofunction:: physicsnemo.nn.functional.spectral_grid_curl
 
+.. figure:: /img/nn/functional/derivatives/spectral_grid_curl.png
+   :alt: Spectral grid curl example
+   :width: 100%
+
 .. autofunction:: physicsnemo.nn.functional.spectral_grid_laplacian
+
+.. figure:: /img/nn/functional/derivatives/spectral_grid_laplacian.png
+   :alt: Spectral grid Laplacian example
+   :width: 100%
 
 Uniform Grid Vector Calculus
 ----------------------------

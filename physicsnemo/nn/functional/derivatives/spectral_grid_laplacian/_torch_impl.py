@@ -103,6 +103,7 @@ def spectral_grid_laplacian_torch(
         dtype=field_eval.dtype,
     )
 
+    # In Fourier space, the scalar Laplacian has the symbol -|k|^2.
     squared_wavenumber = wavenumbers[0].square()
     for axis in range(1, grid_ndim):
         squared_wavenumber = squared_wavenumber + wavenumbers[axis].square()

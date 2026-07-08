@@ -30,11 +30,10 @@ def _normalize_lengths(
     if isinstance(lengths, (float, int)):
         lengths_tuple = tuple(float(lengths) for _ in range(ndim))
     else:
-        lengths_tuple = tuple(float(value) for value in lengths)
+        lengths_tuple = tuple(float(v) for v in lengths)
         if len(lengths_tuple) != ndim:
             raise ValueError(
-                f"lengths must have {ndim} entries for a {ndim}D field, "
-                f"got {len(lengths_tuple)}"
+                f"lengths must have {ndim} entries for a {ndim}D field, got {len(lengths_tuple)}"
             )
 
     for axis, length in enumerate(lengths_tuple):
@@ -64,11 +63,11 @@ def _validate_inputs(
         raise ValueError("mixed derivatives require at least 2D fields")
 
     lengths_tuple = _normalize_lengths(lengths=lengths, ndim=field.ndim)
-    field_eval = (
-        field.to(torch.float32)
-        if field.dtype in (torch.float16, torch.bfloat16)
-        else field
-    )
+
+    if field.dtype in (torch.float16, torch.bfloat16):
+        field_eval = field.to(torch.float32)
+    else:
+        field_eval = field
     return lengths_tuple, field_eval
 
 
@@ -79,20 +78,20 @@ def _wavenumbers(
     device: torch.device,
     dtype: torch.dtype,
 ) -> list[torch.Tensor]:
-    """Build broadcastable angular wavenumbers for each spatial axis."""
-    wavenumbers: list[torch.Tensor] = []
-    for axis, (axis_size, axis_length) in enumerate(zip(shape, lengths)):
-        frequency = torch.fft.fftfreq(
-            axis_size,
-            d=axis_length / float(axis_size),
+    """Build broadcastable angular wavenumber tensors for each axis."""
+    ks: list[torch.Tensor] = []
+    for axis, (n_axis, length_axis) in enumerate(zip(shape, lengths)):
+        freq_axis = torch.fft.fftfreq(
+            n_axis,
+            d=length_axis / float(n_axis),
             device=device,
             dtype=dtype,
         )
-        wavenumber = 2.0 * torch.pi * frequency
+        k_axis = 2.0 * torch.pi * freq_axis
         view_shape = [1] * len(shape)
-        view_shape[axis] = axis_size
-        wavenumbers.append(wavenumber.reshape(view_shape))
-    return wavenumbers
+        view_shape[axis] = n_axis
+        ks.append(k_axis.reshape(view_shape))
+    return ks
 
 
 def spectral_grid_gradient_torch(

@@ -166,6 +166,16 @@ def test_natten_version_mismatch_error_message(device, monkeypatch):
         na1d(q, q, q, kernel_size=3)
 
 
+def test_legacy_natten_module_reexports_public_functionals():
+    """The PhysicsNeMo 2.1 NATTEN module path remains import-compatible."""
+    from physicsnemo.nn import functional
+    from physicsnemo.nn.functional import natten
+
+    assert natten.na1d is functional.na1d
+    assert natten.na2d is functional.na2d
+    assert natten.na3d is functional.na3d
+
+
 # ---------------------------------------------------------------------------
 # 1-D neighbourhood attention
 # ---------------------------------------------------------------------------

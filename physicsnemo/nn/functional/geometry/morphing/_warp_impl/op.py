@@ -516,11 +516,9 @@ def compact_shepard_field_warp_backward_impl(
                     inputs=[
                         *common,
                         int(num_dims),
-                        int(0),
                         int(need_controls),
                         int(need_control_displacements),
                         int(need_radii),
-                        _wp_view(_empty_3d(points_c), kernels.warp_dtype),
                         _wp_view(controls_grad_launch, kernels.warp_dtype),
                         _wp_view(displacement_grad_launch, kernels.warp_dtype),
                         _wp_view(radii_grad_launch, kernels.warp_dtype),

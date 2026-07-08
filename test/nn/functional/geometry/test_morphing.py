@@ -23,9 +23,12 @@ import pytest
 import torch
 
 import physicsnemo.nn.functional as functional
+from physicsnemo.core.function_spec import FunctionSpec
 from physicsnemo.nn.functional import displace_points, morph_points
 from physicsnemo.nn.functional.geometry import DisplacePoints, MorphPoints
+from physicsnemo.nn.functional.geometry.morphing import morphing as morphing_module
 from test.conftest import requires_module
+from test.nn.functional._parity_utils import clone_case
 
 
 def _single_handle_fraction(q: torch.Tensor) -> torch.Tensor:
@@ -36,11 +39,42 @@ def _single_handle_fraction(q: torch.Tensor) -> torch.Tensor:
     return influence / (1 + influence)
 
 
+def _trim_morph_benchmark_case(args, kwargs, max_points=32, max_controls=16):
+    """Keep benchmark coverage representative without running benchmark sizes."""
+
+    points, controls, control_displacements = args
+    num_controls = min(controls.shape[-2], max_controls)
+    trimmed_args = (
+        points[..., :max_points, :],
+        controls[..., :num_controls, :],
+        control_displacements[..., :num_controls, :],
+    )
+    trimmed_kwargs = dict(kwargs)
+    radius = trimmed_kwargs["radius"]
+    if isinstance(radius, torch.Tensor):
+        trimmed_kwargs["radius"] = radius[..., :num_controls]
+    point_weights = trimmed_kwargs["point_weights"]
+    if isinstance(point_weights, torch.Tensor):
+        trimmed_kwargs["point_weights"] = point_weights[..., :max_points]
+    return trimmed_args, trimmed_kwargs
+
+
+def _differentiable_case_tensors(args, kwargs):
+    """Return differentiable tensors in a stable positional/keyword order."""
+
+    values = (*args, kwargs["radius"], kwargs["point_weights"])
+    return tuple(
+        value
+        for value in values
+        if isinstance(value, torch.Tensor) and value.requires_grad
+    )
+
+
 def test_public_exports_and_function_specs():
     assert displace_points.__name__ == "displace_points"
     assert morph_points.__name__ == "morph_points"
-    assert issubclass(DisplacePoints, object)
-    assert issubclass(MorphPoints, object)
+    assert issubclass(DisplacePoints, FunctionSpec)
+    assert issubclass(MorphPoints, FunctionSpec)
     assert not hasattr(functional, "DisplacePoints")
     assert not hasattr(functional, "MorphPoints")
     assert list(inspect.signature(displace_points).parameters) == [
@@ -64,6 +98,120 @@ def test_public_exports_and_function_specs():
     assert get_type_hints(morph_points)["implementation"] == (
         Literal["torch", "warp"] | None
     )
+
+
+def test_displace_benchmark_cases_and_hooks(device):
+    """Every registered benchmark case must be callable and comparable."""
+
+    device = torch.device(device)
+    forward_labels = []
+    for label, args, kwargs in DisplacePoints.make_inputs_forward(device=device):
+        forward_labels.append(label)
+        points, displacement = args
+        point_weights = kwargs["point_weights"]
+        scale = 1 if point_weights is None else point_weights.unsqueeze(-1)
+        expected = points + scale * displacement
+        output = DisplacePoints.dispatch(*args, implementation="torch", **kwargs)
+        DisplacePoints.compare_forward(output, expected)
+
+    assert forward_labels == [
+        case[0] for case in DisplacePoints._FORWARD_BENCHMARK_CASES
+    ]
+
+    backward_labels = []
+    for label, args, kwargs in DisplacePoints.make_inputs_backward(device=device):
+        backward_labels.append(label)
+        points, displacement = args
+        point_weights = kwargs["point_weights"]
+        output = DisplacePoints.dispatch(*args, implementation="torch", **kwargs)
+        output.sum().backward()
+
+        assert displacement.grad is not None
+        DisplacePoints.compare_backward(
+            displacement.grad, point_weights.detach().unsqueeze(-1).expand_as(points)
+        )
+        if points.requires_grad:
+            assert points.grad is not None
+            DisplacePoints.compare_backward(points.grad, torch.ones_like(points))
+        if point_weights.requires_grad:
+            assert point_weights.grad is not None
+            DisplacePoints.compare_backward(
+                point_weights.grad, displacement.detach().sum(dim=-1)
+            )
+
+    assert backward_labels == [
+        case[0] for case in DisplacePoints._BACKWARD_BENCHMARK_CASES
+    ]
+
+
+@requires_module("warp")
+def test_morph_benchmark_forward_cases_and_hooks(device):
+    """Run every forward generator branch through reduced Torch/Warp parity cases."""
+
+    device = torch.device(device)
+    labels = []
+    for label, args, kwargs in MorphPoints.make_inputs_forward(device=device):
+        labels.append(label)
+        reduced_args, reduced_kwargs = _trim_morph_benchmark_case(args, kwargs)
+        args_torch, kwargs_torch = clone_case(reduced_args, reduced_kwargs)
+        args_warp, kwargs_warp = clone_case(reduced_args, reduced_kwargs)
+
+        output_torch = MorphPoints.dispatch(
+            *args_torch, implementation="torch", **kwargs_torch
+        )
+        output_warp = MorphPoints.dispatch(
+            *args_warp, implementation="warp", **kwargs_warp
+        )
+        MorphPoints.compare_forward(output_warp, output_torch)
+
+        if label == "exact-handles-n2048-c16-d3":
+            points, controls, control_displacements = args_torch
+            num_controls = controls.shape[-2]
+            distances = torch.cdist(controls, controls)
+            diagonal = torch.eye(num_controls, dtype=torch.bool, device=controls.device)
+            # At least one coincident query is also in another control's support,
+            # so this assertion exercises the exact-handle override, not an
+            # isolated-control special case.
+            assert ((distances < kwargs_torch["radius"]) & ~diagonal).any()
+            expected = points[..., :num_controls, :] + control_displacements
+            torch.testing.assert_close(output_torch[..., :num_controls, :], expected)
+            torch.testing.assert_close(output_warp[..., :num_controls, :], expected)
+
+    assert labels == [case[0] for case in MorphPoints._FORWARD_BENCHMARK_CASES]
+
+
+@requires_module("warp")
+def test_morph_benchmark_backward_cases_and_hooks(device):
+    """Run every backward generator branch through reduced Torch/Warp parity cases."""
+
+    device = torch.device(device)
+    labels = []
+    for label, args, kwargs in MorphPoints.make_inputs_backward(device=device):
+        labels.append(label)
+        reduced_args, reduced_kwargs = _trim_morph_benchmark_case(args, kwargs)
+        args_torch, kwargs_torch = clone_case(reduced_args, reduced_kwargs)
+        args_warp, kwargs_warp = clone_case(reduced_args, reduced_kwargs)
+
+        output_torch = MorphPoints.dispatch(
+            *args_torch, implementation="torch", **kwargs_torch
+        )
+        output_warp = MorphPoints.dispatch(
+            *args_warp, implementation="warp", **kwargs_warp
+        )
+        MorphPoints.compare_forward(output_warp, output_torch)
+
+        tensors_torch = _differentiable_case_tensors(args_torch, kwargs_torch)
+        tensors_warp = _differentiable_case_tensors(args_warp, kwargs_warp)
+        gradients_torch = torch.autograd.grad(
+            output_torch.square().mean(), tensors_torch
+        )
+        gradients_warp = torch.autograd.grad(output_warp.square().mean(), tensors_warp)
+        for gradient_warp, gradient_torch in zip(
+            gradients_warp, gradients_torch, strict=True
+        ):
+            MorphPoints.compare_backward(gradient_warp, gradient_torch)
+
+    assert labels == [case[0] for case in MorphPoints._BACKWARD_BENCHMARK_CASES]
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
@@ -820,25 +968,47 @@ def test_morph_torch_warp_forward_and_first_gradient_parity(device, dtype):
         torch.testing.assert_close(actual, expected, atol=atol, rtol=rtol)
 
 
-def test_default_dispatch_matches_device_backend(device):
+def test_default_dispatch_selects_device_backend(device, monkeypatch):
     device = torch.device(device)
     points = torch.tensor([[0.2, 0.1], [0.7, 0.0]], device=device)
     controls = torch.tensor([[0.0, 0.0]], device=device)
     displacement = torch.tensor([[0.0, 1.0]], device=device)
+    calls = []
+
+    def torch_spy(normalized_points, *_args):
+        calls.append("torch")
+        return normalized_points
+
+    def warp_spy(normalized_points, *_args):
+        calls.append("warp")
+        return normalized_points
+
+    # Patch the names resolved by the registered methods, rather than the source
+    # implementation modules, to assert which custom dispatch branch ran.
+    monkeypatch.setattr(morphing_module, "morph_points_torch", torch_spy)
+    monkeypatch.setattr(morphing_module, "morph_points_warp", warp_spy)
+
+    warp_impl = MorphPoints._get_impls()["warp"]
+    expected = "warp" if device.type == "cuda" and warp_impl.available else "torch"
     automatic = morph_points(points, controls, displacement, radius=1.0)
-    explicit = morph_points(
-        points,
-        controls,
-        displacement,
-        radius=1.0,
-        implementation="warp" if device.type == "cuda" else "torch",
-    )
-    torch.testing.assert_close(automatic, explicit)
-    dense_automatic = displace_points(points, torch.ones_like(points))
-    dense_torch = displace_points(
-        points, torch.ones_like(points), implementation="torch"
-    )
-    torch.testing.assert_close(dense_automatic, dense_torch)
+    assert calls == [expected]
+    torch.testing.assert_close(automatic, points)
+
+    if device.type == "cuda" and warp_impl.available:
+        # CUDA must still fall back to Torch if the optional backend is unavailable.
+        calls.clear()
+        unavailable_warp = type(warp_impl)(
+            name=warp_impl.name,
+            func=warp_impl.func,
+            required_imports=warp_impl.required_imports,
+            rank=warp_impl.rank,
+            baseline=warp_impl.baseline,
+            available=False,
+        )
+        monkeypatch.setitem(MorphPoints._get_impls(), "warp", unavailable_warp)
+        automatic = morph_points(points, controls, displacement, radius=1.0)
+        assert calls == ["torch"]
+        torch.testing.assert_close(automatic, points)
 
 
 @requires_module("warp")

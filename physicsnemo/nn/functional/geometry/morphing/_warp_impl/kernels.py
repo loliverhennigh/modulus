@@ -60,6 +60,22 @@ def _normalized_distance_f32(
 
 
 @wp.func
+def _wendland_phi_f32(q: wp.float32) -> wp.float32:
+    """Evaluate the compact Wendland weight in single precision."""
+
+    t = wp.float32(1.0) - q
+    return t * t * t * t * (wp.float32(4.0) * q + wp.float32(1.0))
+
+
+@wp.func
+def _wendland_phi_prime_f32(q: wp.float32) -> wp.float32:
+    """Evaluate the compact Wendland weight derivative in single precision."""
+
+    t = wp.float32(1.0) - q
+    return -wp.float32(20.0) * q * t * t * t
+
+
+@wp.func
 def _normalized_component_f64(
     point: wp.float64,
     control: wp.float64,
@@ -97,6 +113,22 @@ def _normalized_distance_f64(
         scaled = value / maximum
         norm_squared = norm_squared + scaled * scaled
     return maximum * wp.sqrt(norm_squared)
+
+
+@wp.func
+def _wendland_phi_f64(q: wp.float64) -> wp.float64:
+    """Evaluate the compact Wendland weight in double precision."""
+
+    t = wp.float64(1.0) - q
+    return t * t * t * t * (wp.float64(4.0) * q + wp.float64(1.0))
+
+
+@wp.func
+def _wendland_phi_prime_f64(q: wp.float64) -> wp.float64:
+    """Evaluate the compact Wendland weight derivative in double precision."""
+
+    t = wp.float64(1.0) - q
+    return -wp.float64(20.0) * q * t * t * t
 
 
 @wp.kernel
@@ -168,14 +200,7 @@ def shepard_forward_f32(
     # ratio as (minimum_q / q)^2 avoids overflow and q^2 underflow.
     if save_auxiliaries != 0:
         min_q[b, i] = minimum
-    reference_t = wp.float32(1.0) - minimum
-    reference_phi = (
-        reference_t
-        * reference_t
-        * reference_t
-        * reference_t
-        * (wp.float32(4.0) * minimum + wp.float32(1.0))
-    )
+    reference_phi = _wendland_phi_f32(minimum)
     background = minimum * minimum / reference_phi
     denom = background
     for d in range(n_dims):
@@ -190,8 +215,7 @@ def shepard_forward_f32(
     for j in range(n_controls):
         q = _normalized_distance_f32(points, controls, radii, b, i, j, n_dims)
         if q > wp.float32(0.0) and q < wp.float32(1.0):
-            t = wp.float32(1.0) - q
-            phi = t * t * t * t * (wp.float32(4.0) * q + wp.float32(1.0))
+            phi = _wendland_phi_f32(q)
             ratio = minimum / q
             a = ratio * ratio * phi / reference_phi
             denom = denom + a
@@ -233,11 +257,9 @@ def shepard_backward_f32(
     correction: wp.array3d(dtype=wp.float32),
     grad_field: wp.array3d(dtype=wp.float32),
     n_dims: int,
-    need_points: int,
     need_controls: int,
     need_control_displacements: int,
     need_radii: int,
-    grad_points: wp.array3d(dtype=wp.float32),
     grad_controls: wp.array3d(dtype=wp.float32),
     grad_control_displacements: wp.array3d(dtype=wp.float32),
     grad_radii: wp.array2d(dtype=wp.float32),
@@ -265,18 +287,10 @@ def shepard_backward_f32(
     if coincident or q >= wp.float32(1.0):
         return
     radius = radii[b, j]
-    t = wp.float32(1.0) - q
-    phi = t * t * t * t * (wp.float32(4.0) * q + wp.float32(1.0))
+    phi = _wendland_phi_f32(q)
     minimum = min_q[b, i]
     denom = denominator[b, i]
-    reference_t = wp.float32(1.0) - minimum
-    reference_phi = (
-        reference_t
-        * reference_t
-        * reference_t
-        * reference_t
-        * (wp.float32(4.0) * minimum + wp.float32(1.0))
-    )
+    reference_phi = _wendland_phi_f32(minimum)
     scaled_denom = reference_phi * denom
     ratio = minimum / q
     ratio_squared = ratio * ratio
@@ -293,10 +307,10 @@ def shepard_backward_f32(
                 (a / scaled_denom) * grad_field[b, i, d],
             )
 
-    if need_points == 0 and need_controls == 0 and need_radii == 0:
+    if need_controls == 0 and need_radii == 0:
         return
 
-    phi_prime = -wp.float32(20.0) * q * t * t * t
+    phi_prime = _wendland_phi_prime_f32(q)
     base_dot = wp.float32(0.0)
     correction_dot = wp.float32(0.0)
     reference_dot = wp.float32(0.0)
@@ -330,7 +344,7 @@ def shepard_backward_f32(
             / (scaled_denom * scaled_denom)
         )
 
-    if need_points != 0 or need_controls != 0:
+    if need_controls != 0:
         for d in range(n_dims):
             normalized_delta = _normalized_component_f32(
                 points[b, i, d], controls[b, j, d], radius
@@ -338,10 +352,7 @@ def shepard_backward_f32(
             value = wp.float32(0.0)
             if normalized_delta != wp.float32(0.0):
                 value = (gamma / radius) * (normalized_delta / q)
-            if need_points != 0:
-                wp.atomic_add(grad_points, b, i, d, value)
-            if need_controls != 0:
-                wp.atomic_sub(grad_controls, b, j, d, value)
+            wp.atomic_sub(grad_controls, b, j, d, value)
     if need_radii != 0:
         wp.atomic_add(grad_radii, b, j, -q_gamma / radius)
 
@@ -372,14 +383,7 @@ def shepard_point_backward_f32(
 
     minimum = min_q[b, i]
     denom = denominator[b, i]
-    reference_t = wp.float32(1.0) - minimum
-    reference_phi = (
-        reference_t
-        * reference_t
-        * reference_t
-        * reference_t
-        * (wp.float32(4.0) * minimum + wp.float32(1.0))
-    )
+    reference_phi = _wendland_phi_f32(minimum)
     scaled_denom = reference_phi * denom
     ref = reference_index[b, i]
 
@@ -388,9 +392,8 @@ def shepard_point_backward_f32(
         coincident = q == wp.float32(0.0)
         if not coincident and q < wp.float32(1.0):
             radius = radii[b, j]
-            t = wp.float32(1.0) - q
-            phi = t * t * t * t * (wp.float32(4.0) * q + wp.float32(1.0))
-            phi_prime = -wp.float32(20.0) * q * t * t * t
+            phi = _wendland_phi_f32(q)
+            phi_prime = _wendland_phi_prime_f32(q)
             ratio = minimum / q
             ratio_squared = ratio * ratio
             base_dot = wp.float32(0.0)
@@ -494,14 +497,7 @@ def shepard_forward_f64(
 
     if save_auxiliaries != 0:
         min_q[b, i] = minimum
-    reference_t = wp.float64(1.0) - minimum
-    reference_phi = (
-        reference_t
-        * reference_t
-        * reference_t
-        * reference_t
-        * (wp.float64(4.0) * minimum + wp.float64(1.0))
-    )
+    reference_phi = _wendland_phi_f64(minimum)
     background = minimum * minimum / reference_phi
     denom = background
     for d in range(n_dims):
@@ -514,8 +510,7 @@ def shepard_forward_f64(
     for j in range(n_controls):
         q = _normalized_distance_f64(points, controls, radii, b, i, j, n_dims)
         if q > wp.float64(0.0) and q < wp.float64(1.0):
-            t = wp.float64(1.0) - q
-            phi = t * t * t * t * (wp.float64(4.0) * q + wp.float64(1.0))
+            phi = _wendland_phi_f64(q)
             ratio = minimum / q
             a = ratio * ratio * phi / reference_phi
             denom = denom + a
@@ -557,11 +552,9 @@ def shepard_backward_f64(
     correction: wp.array3d(dtype=wp.float64),
     grad_field: wp.array3d(dtype=wp.float64),
     n_dims: int,
-    need_points: int,
     need_controls: int,
     need_control_displacements: int,
     need_radii: int,
-    grad_points: wp.array3d(dtype=wp.float64),
     grad_controls: wp.array3d(dtype=wp.float64),
     grad_control_displacements: wp.array3d(dtype=wp.float64),
     grad_radii: wp.array2d(dtype=wp.float64),
@@ -589,18 +582,10 @@ def shepard_backward_f64(
     if coincident or q >= wp.float64(1.0):
         return
     radius = radii[b, j]
-    t = wp.float64(1.0) - q
-    phi = t * t * t * t * (wp.float64(4.0) * q + wp.float64(1.0))
+    phi = _wendland_phi_f64(q)
     minimum = min_q[b, i]
     denom = denominator[b, i]
-    reference_t = wp.float64(1.0) - minimum
-    reference_phi = (
-        reference_t
-        * reference_t
-        * reference_t
-        * reference_t
-        * (wp.float64(4.0) * minimum + wp.float64(1.0))
-    )
+    reference_phi = _wendland_phi_f64(minimum)
     scaled_denom = reference_phi * denom
     ratio = minimum / q
     ratio_squared = ratio * ratio
@@ -617,10 +602,10 @@ def shepard_backward_f64(
                 (a / scaled_denom) * grad_field[b, i, d],
             )
 
-    if need_points == 0 and need_controls == 0 and need_radii == 0:
+    if need_controls == 0 and need_radii == 0:
         return
 
-    phi_prime = -wp.float64(20.0) * q * t * t * t
+    phi_prime = _wendland_phi_prime_f64(q)
     base_dot = wp.float64(0.0)
     correction_dot = wp.float64(0.0)
     reference_dot = wp.float64(0.0)
@@ -654,7 +639,7 @@ def shepard_backward_f64(
             / (scaled_denom * scaled_denom)
         )
 
-    if need_points != 0 or need_controls != 0:
+    if need_controls != 0:
         for d in range(n_dims):
             normalized_delta = _normalized_component_f64(
                 points[b, i, d], controls[b, j, d], radius
@@ -662,10 +647,7 @@ def shepard_backward_f64(
             value = wp.float64(0.0)
             if normalized_delta != wp.float64(0.0):
                 value = (gamma / radius) * (normalized_delta / q)
-            if need_points != 0:
-                wp.atomic_add(grad_points, b, i, d, value)
-            if need_controls != 0:
-                wp.atomic_sub(grad_controls, b, j, d, value)
+            wp.atomic_sub(grad_controls, b, j, d, value)
     if need_radii != 0:
         wp.atomic_add(grad_radii, b, j, -q_gamma / radius)
 
@@ -696,14 +678,7 @@ def shepard_point_backward_f64(
 
     minimum = min_q[b, i]
     denom = denominator[b, i]
-    reference_t = wp.float64(1.0) - minimum
-    reference_phi = (
-        reference_t
-        * reference_t
-        * reference_t
-        * reference_t
-        * (wp.float64(4.0) * minimum + wp.float64(1.0))
-    )
+    reference_phi = _wendland_phi_f64(minimum)
     scaled_denom = reference_phi * denom
     ref = reference_index[b, i]
 
@@ -712,9 +687,8 @@ def shepard_point_backward_f64(
         coincident = q == wp.float64(0.0)
         if not coincident and q < wp.float64(1.0):
             radius = radii[b, j]
-            t = wp.float64(1.0) - q
-            phi = t * t * t * t * (wp.float64(4.0) * q + wp.float64(1.0))
-            phi_prime = -wp.float64(20.0) * q * t * t * t
+            phi = _wendland_phi_f64(q)
+            phi_prime = _wendland_phi_prime_f64(q)
             ratio = minimum / q
             ratio_squared = ratio * ratio
             base_dot = wp.float64(0.0)

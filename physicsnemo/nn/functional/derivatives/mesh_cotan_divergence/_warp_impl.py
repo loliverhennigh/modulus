@@ -20,13 +20,88 @@ import torch
 import warp as wp
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.nn.functional.derivatives._mesh_cotan_operator_utils import (
-    safe_eps,
-    validate_cotan_divergence_inputs,
-)
 
 wp.init()
 wp.config.log_level = wp.LOG_WARNING
+
+
+def _safe_eps(dtype: torch.dtype) -> float:
+    """Return a dtype-aware floor for dual-volume normalization."""
+    info = torch.finfo(dtype)
+    return min(info.tiny**0.25, info.eps)
+
+
+def _validate_inputs(
+    *,
+    points: torch.Tensor,
+    edges: torch.Tensor,
+    cotan_weights: torch.Tensor,
+    dual_volumes: torch.Tensor,
+    vector_field: torch.Tensor,
+) -> None:
+    """Validate cotangent divergence inputs for the Warp implementation."""
+    function_name = "mesh_cotan_divergence"
+    if points.ndim != 2:
+        raise ValueError(
+            f"{function_name}: points must have shape (n_points, dims), "
+            f"got {points.shape=}"
+        )
+    if not torch.is_floating_point(points):
+        raise TypeError(f"{function_name}: points must be floating-point")
+    if vector_field.shape != points.shape:
+        raise ValueError(
+            f"{function_name}: vector_field shape must match points shape, "
+            f"got {vector_field.shape} and {points.shape}"
+        )
+    if not torch.is_floating_point(vector_field):
+        raise TypeError(f"{function_name}: vector_field must be floating-point")
+    if edges.ndim != 2 or edges.shape[1] != 2:
+        raise ValueError(
+            f"{function_name}: edges must have shape (n_edges, 2), got {edges.shape=}"
+        )
+    if edges.dtype not in (torch.int32, torch.int64):
+        raise TypeError(f"{function_name}: edges must be int32 or int64")
+    if cotan_weights.ndim != 1:
+        raise ValueError(
+            f"{function_name}: cotan_weights must have shape (n_edges,), "
+            f"got {cotan_weights.shape=}"
+        )
+    if cotan_weights.shape[0] != edges.shape[0]:
+        raise ValueError(
+            f"{function_name}: cotan_weights length must match edges: "
+            f"{cotan_weights.shape[0]} != {edges.shape[0]}"
+        )
+    if not torch.is_floating_point(cotan_weights):
+        raise TypeError(f"{function_name}: cotan_weights must be floating-point")
+    if dual_volumes.ndim != 1:
+        raise ValueError(
+            f"{function_name}: dual_volumes must have shape (n_points,), "
+            f"got {dual_volumes.shape=}"
+        )
+    if dual_volumes.shape[0] != points.shape[0]:
+        raise ValueError(
+            f"{function_name}: dual_volumes length must match n_points: "
+            f"{dual_volumes.shape[0]} != {points.shape[0]}"
+        )
+    if not torch.is_floating_point(dual_volumes):
+        raise TypeError(f"{function_name}: dual_volumes must be floating-point")
+    if (
+        vector_field.device != points.device
+        or edges.device != points.device
+        or cotan_weights.device != points.device
+        or dual_volumes.device != points.device
+    ):
+        raise ValueError(
+            f"{function_name}: points, vector_field, and geometry must be on same device"
+        )
+    if edges.numel() > 0:
+        idx_min = int(edges.min().item())
+        idx_max = int(edges.max().item())
+        if idx_min < 0 or idx_max >= points.shape[0]:
+            raise ValueError(
+                f"{function_name}: edges must satisfy "
+                f"0 <= index < n_points ({points.shape[0]})"
+            )
 
 
 @wp.kernel
@@ -80,6 +155,7 @@ def _divergence_backward_torch(
     needs_weights: bool,
     needs_volumes: bool,
     needs_vector: bool,
+    eps: float,
 ) -> tuple[
     torch.Tensor | None,
     torch.Tensor | None,
@@ -87,7 +163,7 @@ def _divergence_backward_torch(
     torch.Tensor | None,
 ]:
     """Compute cotangent divergence gradients using explicit edge formulas."""
-    safe_volumes = dual_volumes.clamp(min=safe_eps(dual_volumes.dtype))
+    safe_volumes = dual_volumes.clamp(min=eps)
     q = grad_output / safe_volumes
 
     v0 = edges[:, 0].to(torch.int64)
@@ -112,6 +188,7 @@ def _divergence_backward_torch(
     grad_volumes = None
     if needs_volumes:
         grad_volumes = -(grad_output * output / safe_volumes)
+        grad_volumes = grad_volumes * (dual_volumes >= eps)
 
     grad_vector = None
     if needs_vector:
@@ -135,13 +212,12 @@ def mesh_cotan_divergence_impl(
     eps: float,
 ) -> torch.Tensor:
     """Compute cotangent/DEC mesh divergence with Warp kernels."""
-    validate_cotan_divergence_inputs(
+    _validate_inputs(
         points=points,
         edges=edges,
         cotan_weights=cotan_weights,
         dual_volumes=dual_volumes,
         vector_field=vector_field,
-        function_name="mesh_cotan_divergence",
     )
 
     points_fp32 = points.to(dtype=torch.float32).contiguous()
@@ -265,6 +341,7 @@ def backward_mesh_cotan_divergence(
         needs_weights=needs_weights,
         needs_volumes=needs_volumes,
         needs_vector=needs_vector,
+        eps=ctx.eps,
     )
 
     if grad_points is not None and grad_points.dtype != ctx.points_dtype:
@@ -293,7 +370,7 @@ def mesh_cotan_divergence_warp(
     vector_field: torch.Tensor,
 ) -> torch.Tensor:
     """Compute cotangent/DEC mesh divergence with Warp kernels."""
-    eps = safe_eps(torch.float32)
+    eps = _safe_eps(torch.float32)
     return mesh_cotan_divergence_impl(
         points,
         edges,

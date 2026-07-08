@@ -19,12 +19,36 @@ from __future__ import annotations
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.nn.functional.derivatives._mesh_cotan_operator_utils import (
-    make_cotan_edge_case,
-)
 
 from ._torch_impl import mesh_cotan_divergence_torch
 from ._warp_impl import mesh_cotan_divergence_warp
+
+
+def _make_benchmark_case(
+    *, device: torch.device | str, n_points: int, n_dims: int, seed: int
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Build deterministic edge inputs owned by this functional's spec."""
+    device = torch.device(device)
+    generator = torch.Generator(device=device)
+    generator.manual_seed(seed)
+    points = torch.rand((n_points, n_dims), generator=generator, device=device)
+
+    edge_start = torch.arange(n_points - 1, device=device, dtype=torch.int64)
+    chain_edges = torch.stack((edge_start, edge_start + 1), dim=-1)
+    skip_edges = torch.stack((edge_start[:-1], edge_start[:-1] + 2), dim=-1)
+    edges = torch.cat((chain_edges, skip_edges), dim=0)
+
+    edge_vectors = points[edges[:, 1]] - points[edges[:, 0]]
+    info = torch.finfo(points.dtype)
+    eps = min(info.tiny**0.25, info.eps)
+    cotan_weights = edge_vectors.norm(dim=-1).clamp(min=eps).reciprocal()
+    dual_volumes = torch.ones((n_points,), dtype=torch.float32, device=device)
+    return (
+        points.to(torch.float32),
+        edges,
+        cotan_weights.to(torch.float32),
+        dual_volumes,
+    )
 
 
 class MeshCotanDivergence(FunctionSpec):
@@ -39,6 +63,25 @@ class MeshCotanDivergence(FunctionSpec):
 
     and accumulates the weighted oriented flux at the endpoints before
     normalizing by dual vertex volumes.
+
+    Parameters
+    ----------
+    points : torch.Tensor
+        Vertex coordinates with shape ``(n_points, n_dims)``.
+    edges : torch.Tensor
+        Canonical undirected vertex pairs with shape ``(n_edges, 2)``.
+    cotan_weights : torch.Tensor
+        One cotangent weight per edge with shape ``(n_edges,)``.
+    dual_volumes : torch.Tensor
+        One positive dual volume per vertex with shape ``(n_points,)``.
+    vector_field : torch.Tensor
+        Vertex vector field with the same shape as ``points``.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar divergence at each vertex with shape ``(n_points,)`` and the
+        same dtype as ``vector_field``.
     """
 
     _COMPARE_ATOL = 5e-6
@@ -85,7 +128,7 @@ class MeshCotanDivergence(FunctionSpec):
             ("small-2d-n512", 512, 2),
             ("medium-3d-n1024", 1024, 3),
         ):
-            points, edges, weights, volumes = make_cotan_edge_case(
+            points, edges, weights, volumes = _make_benchmark_case(
                 device=device,
                 n_points=n_points,
                 n_dims=n_dims,

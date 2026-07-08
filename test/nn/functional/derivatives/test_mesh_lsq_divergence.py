@@ -52,4 +52,4 @@ def test_mesh_lsq_divergence_backend_forward_parity(device: str):
 
 @requires_module("warp")
 def test_mesh_lsq_divergence_backend_backward_parity(device: str):
-    check_backend_backward_parity(device, MeshLSQDivergence, (1,))
+    check_backend_backward_parity(device, MeshLSQDivergence, (0, 1))

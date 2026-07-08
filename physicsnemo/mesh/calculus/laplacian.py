@@ -190,11 +190,11 @@ def compute_laplacian_points_dec(
 
 def compute_laplacian_points_lsq(
     mesh: "Mesh",
-    point_values: Float[torch.Tensor, " n_points"],
+    point_values: Float[torch.Tensor, "n_points ..."],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
     implementation: Literal["warp", "torch"] | None = "torch",
-) -> Float[torch.Tensor, " n_points"]:
+) -> Float[torch.Tensor, "n_points ..."]:
     r"""Compute an extrinsic double-LSQ Laplacian at vertices.
 
     ``implementation`` selects the functional backend and defaults to
@@ -218,11 +218,11 @@ def compute_laplacian_points_lsq(
 
 def compute_laplacian_cells_lsq(
     mesh: "Mesh",
-    cell_values: Float[torch.Tensor, " n_cells"],
+    cell_values: Float[torch.Tensor, "n_cells ..."],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
     implementation: Literal["warp", "torch"] | None = "torch",
-) -> Float[torch.Tensor, " n_cells"]:
+) -> Float[torch.Tensor, "n_cells ..."]:
     r"""Compute an extrinsic double-LSQ Laplacian at cell centers.
 
     Cells with fewer than ``min_neighbors`` adjacent cells receive a zero

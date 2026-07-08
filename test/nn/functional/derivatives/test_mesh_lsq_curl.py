@@ -59,4 +59,4 @@ def test_mesh_lsq_curl_backend_forward_parity(device: str):
 
 @requires_module("warp")
 def test_mesh_lsq_curl_backend_backward_parity(device: str):
-    check_backend_backward_parity(device, MeshLSQCurl, (1,))
+    check_backend_backward_parity(device, MeshLSQCurl, (0, 1))

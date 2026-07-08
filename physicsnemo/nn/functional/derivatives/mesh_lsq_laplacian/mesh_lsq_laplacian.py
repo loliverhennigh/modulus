@@ -19,29 +19,52 @@ from __future__ import annotations
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.nn.functional.derivatives._mesh_lsq_operator_utils import (
-    make_knn_csr_case,
-)
 
 from ._torch_impl import mesh_lsq_laplacian_torch
 from ._warp_impl import mesh_lsq_laplacian_warp
 
 
-class MeshLSQLaplacian(FunctionSpec):
-    r"""Compute a double-LSQ Laplacian of an unstructured scalar field.
+def _make_knn_csr_case(
+    *,
+    device: torch.device | str,
+    n_entities: int,
+    n_dims: int,
+    k_neighbors: int,
+    seed: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Build deterministic point-cloud KNN CSR benchmark inputs."""
+    device = torch.device(device)
+    generator = torch.Generator(device=device)
+    generator.manual_seed(seed)
+    points = torch.rand((n_entities, n_dims), generator=generator, device=device)
+    dists = torch.cdist(points, points)
+    knn = torch.topk(dists, k=k_neighbors + 1, largest=False, dim=1).indices[:, 1:]
+    offsets = torch.arange(
+        0,
+        n_entities * k_neighbors + 1,
+        k_neighbors,
+        device=device,
+        dtype=torch.int64,
+    )
+    indices = knn.reshape(-1).to(torch.int64)
+    return points.to(torch.float32), offsets, indices
 
-    This functional first reconstructs the LSQ gradient of a scalar field and
-    then reconstructs the LSQ divergence of that gradient over the same CSR
-    neighborhoods. This is the unstructured analogue of
-    ``div(grad(values))`` and is distinct from the intrinsic cotangent
-    Laplace-Beltrami operator.
+
+class MeshLSQLaplacian(FunctionSpec):
+    r"""Compute a double-LSQ Laplacian of an unstructured field.
+
+    This functional first reconstructs the LSQ gradient and then traces its
+    second LSQ derivative over the same CSR neighborhoods. Trailing value
+    dimensions are treated as independent components. This is the
+    unstructured analogue of ``div(grad(values))`` and is distinct from the
+    intrinsic cotangent Laplace-Beltrami operator.
 
     Parameters
     ----------
     points : torch.Tensor
         Entity coordinates with shape ``(n_entities, dims)``.
     values : torch.Tensor
-        Scalar values with shape ``(n_entities,)``.
+        Values with shape ``(n_entities, ...)``.
     neighbor_offsets : torch.Tensor
         CSR offsets with shape ``(n_entities + 1,)``.
     neighbor_indices : torch.Tensor
@@ -58,7 +81,7 @@ class MeshLSQLaplacian(FunctionSpec):
     Returns
     -------
     torch.Tensor
-        Laplacian with shape ``(n_entities,)``.
+        Laplacian with the same shape as ``values``.
     """
 
     _COMPARE_ATOL = 3.0e-2
@@ -113,14 +136,20 @@ class MeshLSQLaplacian(FunctionSpec):
             ("small-2d-n512-k12", 512, 2, 12),
             ("medium-3d-n1024-k16", 1024, 3, 16),
         ):
-            points, offsets, indices = make_knn_csr_case(
+            points, offsets, indices = _make_knn_csr_case(
                 device=device,
                 n_entities=n_entities,
                 n_dims=n_dims,
                 k_neighbors=k_neighbors,
                 seed=8100 + n_entities + n_dims,
             )
-            values = points.square().sum(dim=-1)
+            values = (
+                points.square().sum(dim=-1)
+                if n_dims == 2
+                else torch.stack(
+                    (points.square().sum(dim=-1), points.prod(dim=-1)), dim=-1
+                )
+            )
             yield label, (points, values, offsets, indices), {}
 
     @classmethod

@@ -3181,16 +3181,16 @@ class Mesh:
 
     def curl(
         self,
-        field: str | tuple[str, ...] | Float[torch.Tensor, "n 3"],
+        field: str | tuple[str, ...] | Float[torch.Tensor, "n n_spatial_dims"],
         data_source: Literal["points", "cells"] = "points",
         implementation: Literal["warp", "torch"] | None = "torch",
-    ) -> Float[torch.Tensor, "n 3"]:
-        r"""Curl of a 3D vector point or cell field (LSQ), returned as a tensor.
+    ) -> Float[torch.Tensor, " n"] | Float[torch.Tensor, "n 3"]:
+        r"""Curl of a 2D or 3D vector point or cell field using LSQ.
 
         Accepts a field key (looked up in ``point_data`` / ``cell_data``
         according to ``data_source``) or a raw vector tensor of shape
-        ``(n, 3)``, mirroring :meth:`integrate`. Only defined for
-        ``n_spatial_dims == 3``.
+        ``(n, n_spatial_dims)``, mirroring :meth:`integrate`. In 2D, returns
+        the scalar out-of-plane curl. In 3D, returns the curl vector.
 
         Parameters
         ----------
@@ -3206,8 +3206,8 @@ class Mesh:
         Returns
         -------
         torch.Tensor
-            Curl vector per entity, shape ``(n_points, 3)`` or ``(n_cells, 3)``
-            according to ``data_source``.
+            Scalar curl with shape ``(n_points,)`` or ``(n_cells,)`` in 2D;
+            vector curl with shape ``(n_points, 3)`` or ``(n_cells, 3)`` in 3D.
         """
         from physicsnemo.mesh.calculus.curl import (
             compute_curl_cells_lsq,

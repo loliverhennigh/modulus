@@ -14,18 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Curl operator for vector fields (3D only).
+r"""Curl operator for 2D and 3D vector fields.
 
-Implements curl using both DEC and LSQ methods.
+Implements curl using weighted least-squares reconstruction.
 
-DEC formula: :math:`\operatorname{curl} = \star\, d\, \flat`,
-
-1. apply flat :math:`\flat` to convert vector field to 1-form,
-2. apply exterior derivative :math:`d` to get 2-form,
-3. apply Hodge star :math:`\star` to get dual 1-form,
-4. convert back to vector field.
-
-For 3D: curl maps vectors to vectors.
+In 2D, curl maps vectors to the scalar out-of-plane component. In 3D, it
+maps vectors to vectors.
 """
 
 from typing import TYPE_CHECKING, Literal
@@ -39,12 +33,21 @@ if TYPE_CHECKING:
 
 def compute_curl_points_lsq(
     mesh: "Mesh",
-    vector_field: Float[torch.Tensor, "n_points 3"],
+    vector_field: Float[torch.Tensor, "n_points n_spatial_dims"],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
     implementation: Literal["warp", "torch"] | None = "torch",
-) -> Float[torch.Tensor, "n_points 3"]:
+) -> Float[torch.Tensor, " n_points"] | Float[torch.Tensor, "n_points 3"]:
     r"""Compute curl at vertices using LSQ gradient method.
+
+    For a 2D vector field :math:`v = (v_x, v_y)`, the scalar out-of-plane
+    curl is
+
+    .. math::
+
+        \operatorname{curl}(v) =
+            \frac{\partial v_y}{\partial x}
+            - \frac{\partial v_x}{\partial y}.
 
     For a 3D vector field :math:`v = (v_x, v_y, v_z)`,
 
@@ -63,8 +66,8 @@ def compute_curl_points_lsq(
     ----------
     mesh : Mesh
         Simplicial mesh.
-    vector_field : Float[torch.Tensor, "n_points 3"]
-        Vectors at vertices.
+    vector_field : Float[torch.Tensor, "n_points n_spatial_dims"]
+        Vectors at vertices on a 2D or 3D mesh.
     weight_power : float, optional
         Exponent for inverse-distance weighting.
     min_neighbors : int, optional
@@ -74,17 +77,19 @@ def compute_curl_points_lsq(
 
     Returns
     -------
-    Float[torch.Tensor, "n_points 3"]
-        Curl at vertices.
+    torch.Tensor
+        Scalar curl with shape ``(n_points,)`` in 2D, or vector curl with
+        shape ``(n_points, 3)`` in 3D.
 
     Raises
     ------
     ValueError
-        If ``n_spatial_dims != 3``.
+        If ``n_spatial_dims`` is not 2 or 3.
     """
-    if mesh.n_spatial_dims != 3:
+    if mesh.n_spatial_dims not in (2, 3):
         raise ValueError(
-            f"Curl is only defined for 3D vector fields, got {mesh.n_spatial_dims=}"
+            "Curl is only defined for 2D or 3D vector fields, "
+            f"got {mesh.n_spatial_dims=}"
         )
 
     from physicsnemo.nn.functional.derivatives.mesh_lsq_curl import mesh_lsq_curl
@@ -103,11 +108,11 @@ def compute_curl_points_lsq(
 
 def compute_curl_cells_lsq(
     mesh: "Mesh",
-    vector_field: Float[torch.Tensor, "n_cells 3"],
+    vector_field: Float[torch.Tensor, "n_cells n_spatial_dims"],
     weight_power: float = 2.0,
     min_neighbors: int = 0,
     implementation: Literal["warp", "torch"] | None = "torch",
-) -> Float[torch.Tensor, "n_cells 3"]:
+) -> Float[torch.Tensor, " n_cells"] | Float[torch.Tensor, "n_cells 3"]:
     r"""Compute curl at cell centers using LSQ gradient method.
 
     Cell-centered analogue of :func:`compute_curl_points_lsq`: computes the
@@ -118,8 +123,8 @@ def compute_curl_cells_lsq(
     ----------
     mesh : Mesh
         Simplicial mesh.
-    vector_field : Float[torch.Tensor, "n_cells 3"]
-        Vectors at cell centers.
+    vector_field : Float[torch.Tensor, "n_cells n_spatial_dims"]
+        Vectors at cell centers on a 2D or 3D mesh.
     weight_power : float, optional
         Exponent for inverse-distance weighting.
     min_neighbors : int, optional
@@ -129,17 +134,19 @@ def compute_curl_cells_lsq(
 
     Returns
     -------
-    Float[torch.Tensor, "n_cells 3"]
-        Curl at cell centers.
+    torch.Tensor
+        Scalar curl with shape ``(n_cells,)`` in 2D, or vector curl with
+        shape ``(n_cells, 3)`` in 3D.
 
     Raises
     ------
     ValueError
-        If ``n_spatial_dims != 3``.
+        If ``n_spatial_dims`` is not 2 or 3.
     """
-    if mesh.n_spatial_dims != 3:
+    if mesh.n_spatial_dims not in (2, 3):
         raise ValueError(
-            f"Curl is only defined for 3D vector fields, got {mesh.n_spatial_dims=}"
+            "Curl is only defined for 2D or 3D vector fields, "
+            f"got {mesh.n_spatial_dims=}"
         )
 
     from physicsnemo.nn.functional.derivatives.mesh_lsq_curl import mesh_lsq_curl

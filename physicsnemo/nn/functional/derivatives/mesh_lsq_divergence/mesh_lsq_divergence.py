@@ -19,12 +19,35 @@ from __future__ import annotations
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.nn.functional.derivatives._mesh_lsq_operator_utils import (
-    make_knn_csr_case,
-)
 
 from ._torch_impl import mesh_lsq_divergence_torch
 from ._warp_impl import mesh_lsq_divergence_warp
+
+
+def _make_knn_csr_case(
+    *,
+    device: torch.device | str,
+    n_entities: int,
+    n_dims: int,
+    k_neighbors: int,
+    seed: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Build deterministic point-cloud KNN CSR benchmark inputs."""
+    device = torch.device(device)
+    generator = torch.Generator(device=device)
+    generator.manual_seed(seed)
+    points = torch.rand((n_entities, n_dims), generator=generator, device=device)
+    dists = torch.cdist(points, points)
+    knn = torch.topk(dists, k=k_neighbors + 1, largest=False, dim=1).indices[:, 1:]
+    offsets = torch.arange(
+        0,
+        n_entities * k_neighbors + 1,
+        k_neighbors,
+        device=device,
+        dtype=torch.int64,
+    )
+    indices = knn.reshape(-1).to(torch.int64)
+    return points.to(torch.float32), offsets, indices
 
 
 class MeshLSQDivergence(FunctionSpec):
@@ -111,7 +134,7 @@ class MeshLSQDivergence(FunctionSpec):
             ("small-2d-n512-k12", 512, 2, 12),
             ("medium-3d-n1024-k16", 1024, 3, 16),
         ):
-            points, offsets, indices = make_knn_csr_case(
+            points, offsets, indices = _make_knn_csr_case(
                 device=device,
                 n_entities=n_entities,
                 n_dims=n_dims,

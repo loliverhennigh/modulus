@@ -18,12 +18,23 @@ from __future__ import annotations
 
 import torch
 
-from physicsnemo.nn.functional.derivatives._mesh_lsq_operator_utils import (
-    validate_lsq_vector_field,
-)
 from physicsnemo.nn.functional.derivatives.mesh_lsq_gradient._torch_impl import (
     mesh_lsq_gradient_torch,
 )
+
+
+def _validate_vector_field(points: torch.Tensor, vector_field: torch.Tensor) -> None:
+    """Validate divergence-specific vector-field shape constraints."""
+    if vector_field.ndim != 2:
+        raise ValueError(
+            "mesh_lsq_divergence: vector_field must have shape "
+            f"(n_entities, dims), got {vector_field.shape=}"
+        )
+    if vector_field.shape != points.shape:
+        raise ValueError(
+            "mesh_lsq_divergence: vector_field shape must match points shape, "
+            f"got {vector_field.shape} and {points.shape}"
+        )
 
 
 def mesh_lsq_divergence_torch(
@@ -36,14 +47,7 @@ def mesh_lsq_divergence_torch(
     safe_epsilon: float | None = None,
 ) -> torch.Tensor:
     """Compute LSQ mesh divergence with eager PyTorch."""
-    validate_lsq_vector_field(
-        points=points,
-        vector_field=vector_field,
-        neighbor_offsets=neighbor_offsets,
-        neighbor_indices=neighbor_indices,
-        min_neighbors=min_neighbors,
-        function_name="mesh_lsq_divergence",
-    )
+    _validate_vector_field(points, vector_field)
     jacobian = mesh_lsq_gradient_torch(
         points=points,
         values=vector_field,

@@ -48,4 +48,4 @@ def test_mesh_lsq_laplacian_backend_forward_parity(device: str):
 
 @requires_module("warp")
 def test_mesh_lsq_laplacian_backend_backward_parity(device: str):
-    check_backend_backward_parity(device, MeshLSQLaplacian, (1,))
+    check_backend_backward_parity(device, MeshLSQLaplacian, (0, 1))

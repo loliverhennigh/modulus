@@ -61,6 +61,36 @@ def _tet_mesh(device: str):
     return Mesh(points=points, cells=cells)
 
 
+def _triangle_fan_mesh_2d(device: str):
+    torch_device = torch.device(device)
+    points = torch.tensor(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.5, 0.8660254],
+            [-0.5, 0.8660254],
+            [-1.0, 0.0],
+            [-0.5, -0.8660254],
+            [0.5, -0.8660254],
+        ],
+        dtype=torch.float32,
+        device=torch_device,
+    )
+    cells = torch.tensor(
+        [
+            [0, 1, 2],
+            [0, 2, 3],
+            [0, 3, 4],
+            [0, 4, 5],
+            [0, 5, 6],
+            [0, 6, 1],
+        ],
+        dtype=torch.int64,
+        device=torch_device,
+    )
+    return Mesh(points=points, cells=cells)
+
+
 @pytest.mark.parametrize(
     "wrapper",
     [
@@ -155,6 +185,22 @@ def test_mesh_divergence_uses_functional_wiring(device: str):
     )
 
     torch.testing.assert_close(output, expected)
+
+
+@pytest.mark.parametrize("data_source", ["points", "cells"])
+def test_mesh_curl_exposes_2d_scalar_curl(device: str, data_source: str):
+    mesh = _triangle_fan_mesh_2d(device)
+    locations = mesh.points if data_source == "points" else mesh.cell_centroids
+    vector_field = torch.stack((-locations[:, 1], locations[:, 0]), dim=-1)
+
+    output = mesh.curl(
+        vector_field,
+        data_source=data_source,
+        implementation="torch",
+    )
+
+    assert output.shape == (locations.shape[0],)
+    torch.testing.assert_close(output, torch.full_like(output, 2.0))
 
 
 def test_mesh_laplacian_cotan_uses_functional_wiring(device: str):

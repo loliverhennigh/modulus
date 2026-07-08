@@ -18,14 +18,18 @@ from __future__ import annotations
 
 import torch
 
-from physicsnemo.nn.functional.derivatives._mesh_lsq_operator_utils import (
-    validate_lsq_scalar_field,
-)
 from physicsnemo.nn.functional.derivatives.mesh_lsq_gradient._torch_impl import (
     mesh_lsq_gradient_torch,
 )
 
-from ..mesh_lsq_divergence._torch_impl import mesh_lsq_divergence_torch
+
+def _validate_values(values: torch.Tensor) -> None:
+    """Validate the Laplacian-specific leading entity dimension."""
+    if values.ndim < 1:
+        raise ValueError(
+            "mesh_lsq_laplacian: values must have shape (n_entities, ...), "
+            f"got {values.shape=}"
+        )
 
 
 def mesh_lsq_laplacian_torch(
@@ -38,14 +42,7 @@ def mesh_lsq_laplacian_torch(
     safe_epsilon: float | None = None,
 ) -> torch.Tensor:
     """Compute a double-LSQ mesh Laplacian with eager PyTorch."""
-    validate_lsq_scalar_field(
-        points=points,
-        values=values,
-        neighbor_offsets=neighbor_offsets,
-        neighbor_indices=neighbor_indices,
-        min_neighbors=min_neighbors,
-        function_name="mesh_lsq_laplacian",
-    )
+    _validate_values(values)
     gradient = mesh_lsq_gradient_torch(
         points=points,
         values=values,
@@ -55,12 +52,13 @@ def mesh_lsq_laplacian_torch(
         min_neighbors=min_neighbors,
         safe_epsilon=safe_epsilon,
     )
-    return mesh_lsq_divergence_torch(
+    second_derivative = mesh_lsq_gradient_torch(
         points=points,
-        vector_field=gradient,
+        values=gradient,
         neighbor_offsets=neighbor_offsets,
         neighbor_indices=neighbor_indices,
         weight_power=weight_power,
         min_neighbors=min_neighbors,
         safe_epsilon=safe_epsilon,
     )
+    return second_derivative.diagonal(dim1=1, dim2=2).sum(dim=-1)

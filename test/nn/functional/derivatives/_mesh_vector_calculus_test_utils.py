@@ -19,21 +19,26 @@ from __future__ import annotations
 import torch
 
 from physicsnemo.core.function_spec import FunctionSpec
-from physicsnemo.nn.functional.derivatives._mesh_lsq_operator_utils import (
-    make_knn_csr_case,
-)
 from test.nn.functional._parity_utils import clone_case
 
 
 def make_lsq_case(device: str, n_dims: int = 3):
     """Build deterministic KNN-CSR data for an LSQ mesh functional."""
-    return make_knn_csr_case(
-        device=device,
-        n_entities=384,
-        n_dims=n_dims,
-        k_neighbors=14,
-        seed=1900 + n_dims,
+    torch_device = torch.device(device)
+    generator = torch.Generator(device=torch_device)
+    generator.manual_seed(1900 + n_dims)
+    points = torch.rand((384, n_dims), generator=generator, device=torch_device)
+    dists = torch.cdist(points, points)
+    knn = torch.topk(dists, k=15, largest=False, dim=1).indices[:, 1:]
+    offsets = torch.arange(
+        0,
+        384 * 14 + 1,
+        14,
+        device=torch_device,
+        dtype=torch.int64,
     )
+    indices = knn.reshape(-1).to(torch.int64)
+    return points.to(torch.float32), offsets, indices
 
 
 def make_simple_cotan_case(device: str):
@@ -78,27 +83,27 @@ def check_backend_backward_parity(
     grad_arg_indices: tuple[int, ...],
 ) -> None:
     """Compare selected Warp argument gradients with the torch baseline."""
-    _label, args, kwargs = next(iter(spec.make_inputs_backward(device=device)))
-    args_torch, kwargs_torch = clone_case(args, kwargs)
-    args_warp, kwargs_warp = clone_case(args, kwargs)
+    for _label, args, kwargs in spec.make_inputs_backward(device=device):
+        args_torch, kwargs_torch = clone_case(args, kwargs)
+        args_warp, kwargs_warp = clone_case(args, kwargs)
 
-    out_torch = spec.dispatch(
-        *args_torch,
-        implementation="torch",
-        **kwargs_torch,
-    )
-    out_torch.square().mean().backward()
+        out_torch = spec.dispatch(
+            *args_torch,
+            implementation="torch",
+            **kwargs_torch,
+        )
+        out_torch.square().mean().backward()
 
-    out_warp = spec.dispatch(
-        *args_warp,
-        implementation="warp",
-        **kwargs_warp,
-    )
-    out_warp.square().mean().backward()
+        out_warp = spec.dispatch(
+            *args_warp,
+            implementation="warp",
+            **kwargs_warp,
+        )
+        out_warp.square().mean().backward()
 
-    for arg_index in grad_arg_indices:
-        grad_torch = args_torch[arg_index].grad
-        grad_warp = args_warp[arg_index].grad
-        assert grad_torch is not None
-        assert grad_warp is not None
-        spec.compare_backward(grad_warp, grad_torch)
+        for arg_index in grad_arg_indices:
+            grad_torch = args_torch[arg_index].grad
+            grad_warp = args_warp[arg_index].grad
+            assert grad_torch is not None
+            assert grad_warp is not None
+            spec.compare_backward(grad_warp, grad_torch)

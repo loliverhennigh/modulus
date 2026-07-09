@@ -122,8 +122,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dataloader / collate / metric tooling (refactored into `datasets.py`
   and `utils.py`).
 - Adds a mesh-native signed distance field to `physicsnemo.mesh.spatial`
-  (`physicsnemo.mesh.spatial.signed_distance_field_mesh`), built on the `BVH`
-  and `ClusterTree` spatial structures it lives alongside.
+  (`physicsnemo.mesh.spatial.signed_distance_field`), built on the `BVH`
+  and `ClusterTree` spatial structures it lives alongside. Returns a
+  `SignedDistanceFieldResult` named tuple: the signed distance, the closest
+  surface point, and the nearest-face index per query.
   The nearest-triangle query runs as a single-kernel per-thread BVH traversal
   (Triton on CUDA, a bounded-stack PyTorch DFS as the CPU reference; per-query
   indices are int64 so query counts past tens of millions do not overflow). The

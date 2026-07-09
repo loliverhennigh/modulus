@@ -41,12 +41,14 @@ Deformations
 
 .. currentmodule:: physicsnemo.mesh.transformations.deform
 
-Dense displacement and sparse control-point morphing are available from the
-``deform`` namespace and as methods on :class:`~physicsnemo.mesh.mesh.Mesh`.
+Dense displacement, sparse control-point morphing, and lattice free-form
+deformation are available from the ``deform`` namespace and as methods on
+:class:`~physicsnemo.mesh.mesh.Mesh`.
 
 The mesh methods wrap the tensor-level
-:func:`~physicsnemo.nn.functional.displace_points` and
-:func:`~physicsnemo.nn.functional.morph_points` operations.
+:func:`~physicsnemo.nn.functional.displace_points`,
+:func:`~physicsnemo.nn.functional.morph_points`, and
+:func:`~physicsnemo.nn.functional.ffd_points` operations.
 
 Dense displacement accepts a tensor or a point-data key (including a nested
 tuple key). The operation returns a new mesh without changing ``mesh.points``.
@@ -154,6 +156,54 @@ and magnitudes.
    :alt: Original sphere and single-control and multiple-control sphere morphing
    :width: 100%
 
+Lattice Free-Form Deformation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:meth:`~physicsnemo.mesh.mesh.Mesh.ffd` defines a regular array of control
+displacements over an axis-aligned evaluation box and deforms every point
+inside the box by tensor-product basis interpolation.
+Compared with sparse morphing, the design parameters form a structured grid of
+fixed size, which suits parametric shape optimization: a lattice of zeros is
+exactly the identity, and the same lattice deforms any geometry embedded in
+the box.
+
+When ``origin`` and ``extent`` are omitted, the box spans the mesh bounds. Each
+coordinate axis must have positive range; planar or linear geometry embedded
+in a higher-dimensional space therefore needs an explicit positive extent.
+``basis="bernstein"`` is classic global-support free-form deformation for
+coarse lattices. ``basis="bspline"`` gives local four-node-per-axis support
+and scales to fine lattices for local sculpting; its first and last coefficient
+planes lie one knot spacing outside the evaluation box.
+
+.. code:: python
+
+    # A 4x4x4 Bernstein lattice spanning the mesh bounds; zero displacements
+    # start at the identity.
+    control_displacements = torch.zeros(4, 4, 4, 3, requires_grad=True)
+    deformed = mesh.ffd(control_displacements)
+
+    # Autograd continues through the returned point coordinates.
+    objective = deformed.points.square().mean()
+    objective.backward()
+
+Points outside the lattice box are unchanged. The deformation is generally not
+continuous across the box boundary. A sufficient condition for a fixed
+exterior is to zero the outermost coefficient plane on every Bernstein face,
+or the first and last three coefficient planes on every axis for cubic
+B-splines. ``origin`` and ``extent`` are non-differentiable lattice
+configuration; optimize ``control_displacements`` instead.
+
+.. rubric:: Visualization
+
+The panels compare the original sphere with two lattice deformations. A coarse
+Bernstein lattice tapers the whole sphere because every node acts globally,
+while three independently displaced regions in a finer cubic B-spline lattice
+produce two local bulges and a local indentation.
+
+.. figure:: /img/mesh/sphere_ffd.png
+   :alt: Sphere with control lattice, Bernstein taper, and local B-spline sculpt
+   :width: 100%
+
 Domain Meshes
 ^^^^^^^^^^^^^
 
@@ -200,20 +250,28 @@ resolved values also match.
         morphed_domain.boundaries["wall"].points,
     )
 
-Morphing preserves connectivity and attached point, cell, global, and domain
-data. Attached vector and tensor fields are treated as Lagrangian data and are
-not pushed forward. Geometry-dependent caches are discarded and recomputed
-lazily; topology caches are retained.
+:meth:`~physicsnemo.mesh.domain_mesh.DomainMesh.ffd` follows the same pattern
+for lattice free-form deformation: one lattice field is evaluated over the
+combined interior and boundary points, and the default box spans the combined
+component bounds. The combined bounds must have positive range on every
+coordinate axis unless an explicit extent is supplied.
+
+Every deformation preserves connectivity and attached point, cell, global, and
+domain data. Attached vector and tensor fields are treated as Lagrangian data
+and are not pushed forward. Geometry-dependent caches are discarded and
+recomputed lazily; topology caches are retained.
 
 .. warning::
 
-   Displacement and morphing do not detect or repair inverted, degenerate, or
+   Deformations do not detect or repair inverted, degenerate, or
    self-intersecting output cells. Call
    :meth:`~physicsnemo.mesh.mesh.Mesh.validate` or
    :meth:`~physicsnemo.mesh.domain_mesh.DomainMesh.validate` explicitly when a
    deformation could compromise validity.
 
 .. autofunction:: displace
+
+.. autofunction:: ffd
 
 .. autofunction:: morph
 

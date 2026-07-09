@@ -80,6 +80,62 @@ For connectivity-preserving object APIs, use
 :meth:`~physicsnemo.mesh.mesh.Mesh.morph`, or
 :meth:`~physicsnemo.mesh.domain_mesh.DomainMesh.morph`.
 
+Lattice Free-Form Deformation
+-----------------------------
+
+.. autofunction:: physicsnemo.nn.functional.ffd_points
+
+.. code:: python
+
+    import torch
+    from physicsnemo.nn.functional import ffd_points
+
+    points = torch.rand(1024, 3)
+    control_displacements = torch.zeros(4, 4, 4, 3, requires_grad=True)
+
+    deformed = ffd_points(
+        points,
+        control_displacements,
+        origin=[0.0, 0.0, 0.0],
+        extent=[1.0, 1.0, 1.0],
+        basis="bernstein",
+    )
+    deformed.square().mean().backward()
+
+With zero control displacements the operation is exactly the identity, so a
+lattice initialized at zero is a well-behaved starting point for shape
+optimization: an optimizer—or a model producing the lattice
+displacements—learns the deformation from a differentiable objective on
+``deformed``.
+
+Choosing a basis:
+
+- ``"bernstein"`` is classic free-form deformation. Every lattice node
+  influences every point in the box, which suits coarse design lattices. The
+  polynomial degree, global support, and evaluation cost grow with the
+  resolution.
+- ``"bspline"`` uses uniform cubic B-splines with local four-node-per-axis
+  support. The per-point cost is independent of the lattice resolution, so it
+  scales to fine lattices for local sculpting and registration-style
+  deformation. Along an axis with ``n``
+  coefficients, index ``i`` is associated with the Greville coordinate
+  ``(i - 1) / (n - 3)``. The first and last coefficient planes therefore lie
+  one knot spacing outside the evaluation box.
+
+The evaluation cost is proportional to
+``batch_size * n_points * prod(resolution) * n_spatial_dims`` for
+``"bernstein"`` and
+``batch_size * n_points * 4**n_spatial_dims * n_spatial_dims`` for
+``"bspline"``. Points outside the lattice box pass through unchanged. A
+sufficient condition for continuity with a fixed exterior is to zero the
+outermost coefficient plane on every Bernstein face. For cubic B-splines,
+zero the first and last three coefficient planes on every axis because three
+planes have nonzero weight at each box face.
+
+For connectivity-preserving object APIs, use
+:meth:`~physicsnemo.mesh.mesh.Mesh.ffd` or
+:meth:`~physicsnemo.mesh.domain_mesh.DomainMesh.ffd`.
+
 Mesh Poisson Disk Sample
 ------------------------
 

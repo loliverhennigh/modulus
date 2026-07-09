@@ -38,7 +38,7 @@ from tensordict import NonTensorData, TensorDict, tensorclass
 
 from physicsnemo.mesh.geometry._cell_areas import compute_cell_areas
 from physicsnemo.mesh.geometry._cell_normals import compute_cell_normals
-from physicsnemo.mesh.transformations.deform import displace, morph
+from physicsnemo.mesh.transformations.deform import displace, ffd, morph
 from physicsnemo.mesh.transformations.geometric import (
     rotate,
     scale,
@@ -2708,6 +2708,37 @@ class Mesh:
             radius=radius,
             point_weights=point_weights,
             kernel=kernel,
+            implementation=implementation,
+        )
+
+    def ffd(
+        self,
+        control_displacements: torch.Tensor,
+        *,
+        origin: torch.Tensor | Sequence[builtins.float] | None = None,
+        extent: torch.Tensor | Sequence[builtins.float] | None = None,
+        basis: Literal["bernstein", "bspline"] = "bernstein",
+        point_weights: str | tuple[str, ...] | torch.Tensor | None = None,
+        implementation: Literal["torch", "warp"] | None = None,
+    ) -> "Mesh":
+        """Deform points with a control-point lattice by free-form deformation.
+
+        Convenience wrapper for
+        :func:`physicsnemo.mesh.transformations.deform.ffd`, which documents
+        all parameters and numerical behavior.
+
+        Returns
+        -------
+        Mesh
+            New mesh with deformed points, unchanged connectivity and fields.
+        """
+        return ffd(
+            self,
+            control_displacements,
+            origin=origin,
+            extent=extent,
+            basis=basis,
+            point_weights=point_weights,
             implementation=implementation,
         )
 

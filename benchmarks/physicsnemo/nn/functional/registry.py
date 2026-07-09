@@ -43,6 +43,7 @@ from physicsnemo.nn.functional.fourier_spectral import (
 from physicsnemo.nn.functional.geometry import (
     DisplacePoints,
     FarthestPointSampling,
+    FFDPoints,
     MeshPoissonDiskSample,
     MeshToVoxelFraction,
     MorphPoints,
@@ -84,6 +85,7 @@ FUNCTIONAL_SPECS: tuple[type[FunctionSpec], ...] = (
     # Geometry.
     DisplacePoints,
     MorphPoints,
+    FFDPoints,
     FarthestPointSampling,
     MeshPoissonDiskSample,
     MeshToVoxelFraction,

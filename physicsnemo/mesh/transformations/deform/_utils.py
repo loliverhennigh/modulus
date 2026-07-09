@@ -59,6 +59,84 @@ def _resolve_point_field(
     return resolved
 
 
+def _resolve_domain_point_weights(
+    components: "list[tuple[str, Mesh]]",
+    point_weights: str | tuple[str, ...] | None,
+    reference: torch.Tensor,
+    reference_name: str,
+) -> list[torch.Tensor]:
+    """Validate components against a reference tensor and resolve point weights.
+
+    Every component's points must share the reference dtype and device. When a
+    ``point_weights`` key is supplied, it is resolved independently on each
+    component and validated to one common bool or floating dtype.
+    """
+    resolved_point_weights: list[torch.Tensor] = []
+    for label, component in components:
+        if component.points.device != reference.device:
+            raise ValueError(
+                f"{label} and {reference_name} must be on the same device, got "
+                f"{component.points.device} and {reference.device}"
+            )
+        if component.points.dtype != reference.dtype:
+            raise TypeError(
+                f"{label} and {reference_name} must have the same dtype, got "
+                f"{component.points.dtype} and {reference.dtype}"
+            )
+        if point_weights is not None:
+            component_point_weights = _resolve_point_field(
+                component,
+                point_weights,
+                argument_name="point_weights",
+                owner_label=label,
+            )
+            if tuple(component_point_weights.shape) != (component.n_points,):
+                raise ValueError(
+                    f"point_weights field {point_weights!r} in "
+                    f"{label}.point_data must have "
+                    f"shape ({component.n_points},), got "
+                    f"{tuple(component_point_weights.shape)}"
+                )
+            if component_point_weights.device != component.points.device:
+                raise ValueError(
+                    f"point_weights field {point_weights!r} in "
+                    f"{label}.point_data and points must be on the same "
+                    f"device, got {component_point_weights.device} and "
+                    f"{component.points.device}"
+                )
+            if (
+                component_point_weights.dtype != torch.bool
+                and not torch.is_floating_point(component_point_weights)
+            ):
+                raise TypeError(
+                    f"point_weights field {point_weights!r} in "
+                    f"{label}.point_data must have bool or floating-point "
+                    f"dtype, got {component_point_weights.dtype}"
+                )
+            if (
+                component_point_weights.dtype != torch.bool
+                and component_point_weights.dtype != component.points.dtype
+            ):
+                raise TypeError(
+                    f"point_weights field {point_weights!r} in "
+                    f"{label}.point_data and points must have the same dtype "
+                    "for floating weights, got "
+                    f"{component_point_weights.dtype} and {component.points.dtype}"
+                )
+            if (
+                resolved_point_weights
+                and component_point_weights.dtype != resolved_point_weights[0].dtype
+            ):
+                raise TypeError(
+                    f"point_weights field {point_weights!r} must have one "
+                    f"common dtype across all components; {label}.point_data "
+                    f"has {component_point_weights.dtype}, expected "
+                    f"{resolved_point_weights[0].dtype}"
+                )
+            resolved_point_weights.append(component_point_weights)
+    return resolved_point_weights
+
+
 def _mesh_with_deformed_points(mesh: "Mesh", points: torch.Tensor) -> "Mesh":
     """Construct a geometry-invalidated mesh while retaining topology caches."""
     from physicsnemo.mesh.mesh import Mesh

@@ -34,17 +34,6 @@ if TYPE_CHECKING:
     from physicsnemo.mesh.mesh import Mesh
 
 
-def _to_mesh_gradient_layout(
-    gradients: torch.Tensor,
-    values: torch.Tensor,
-) -> torch.Tensor:
-    """Convert functional layout ``(n, dims, ...)`` to mesh layout ``(n, ..., dims)``."""
-    if values.ndim == 1:
-        return gradients
-    perm = [0] + list(range(2, gradients.ndim)) + [1]
-    return gradients.permute(*perm)
-
-
 def compute_point_gradient_lsq(
     mesh: "Mesh",
     point_values: Float[torch.Tensor, "n_points ..."],
@@ -89,6 +78,8 @@ def compute_point_gradient_lsq(
     -------
     Float[torch.Tensor, "n_points n_spatial_dims ..."]
         Gradients at vertices, shape ``(n_points, n_spatial_dims, ...)``.
+        The derivative-coordinate axis is always axis 1. For a vector field,
+        ``gradient[i, k, j]`` is :math:`\partial v_j / \partial x_k`.
 
     Notes
     -----
@@ -119,7 +110,7 @@ def compute_point_gradient_lsq(
         mesh_lsq_gradient,
     )
 
-    gradients = mesh_lsq_gradient(
+    return mesh_lsq_gradient(
         points=mesh.points,
         values=point_values,
         neighbor_offsets=adjacency.offsets,
@@ -128,7 +119,6 @@ def compute_point_gradient_lsq(
         min_neighbors=min_neighbors,
         implementation=implementation,
     )
-    return _to_mesh_gradient_layout(gradients, point_values)
 
 
 def compute_cell_gradient_lsq(
@@ -157,6 +147,8 @@ def compute_cell_gradient_lsq(
     -------
     Float[torch.Tensor, "n_cells n_spatial_dims ..."]
         Gradients at cells, shape ``(n_cells, n_spatial_dims, ...)``.
+        The derivative-coordinate axis is always axis 1. For a vector field,
+        ``gradient[i, k, j]`` is :math:`\partial v_j / \partial x_k`.
 
     Notes
     -----
@@ -174,7 +166,7 @@ def compute_cell_gradient_lsq(
         mesh_lsq_gradient,
     )
 
-    gradients = mesh_lsq_gradient(
+    return mesh_lsq_gradient(
         points=cell_centroids,
         values=cell_values,
         neighbor_offsets=adjacency.offsets,
@@ -183,4 +175,3 @@ def compute_cell_gradient_lsq(
         min_neighbors=0,  # Cells may have fewer neighbors than points.
         implementation=implementation,
     )
-    return _to_mesh_gradient_layout(gradients, cell_values)

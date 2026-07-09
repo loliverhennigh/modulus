@@ -152,6 +152,46 @@ def test_mesh_compute_point_derivatives_exposes_warp_implementation(device: str)
     torch.testing.assert_close(output.point_data["f_gradient"], expected)
 
 
+@pytest.mark.parametrize("data_source", ["points", "cells"])
+@requires_module("warp")
+def test_mesh_warp_gradient_uses_derivative_first_layout(device: str, data_source: str):
+    mesh = _tet_mesh(device)
+    coordinates = mesh.points if data_source == "points" else mesh.cell_centroids
+    derivatives = coordinates.new_tensor(
+        [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 10.0]]
+    )
+    vector_field = coordinates @ derivatives
+
+    gradient = mesh.gradient(
+        vector_field,
+        gradient_type="extrinsic",
+        data_source=data_source,
+        implementation="warp",
+    )
+    expected = derivatives.expand_as(gradient)
+    torch.testing.assert_close(gradient, expected, atol=5.0e-3, rtol=5.0e-3)
+
+    if data_source == "points":
+        mesh.point_data["affine_vector"] = vector_field
+        derived = mesh.compute_point_derivatives(
+            keys="affine_vector",
+            method="lsq",
+            gradient_type="extrinsic",
+            implementation="warp",
+        )
+        stored_gradient = derived.point_data["affine_vector_gradient"]
+    else:
+        mesh.cell_data["affine_vector"] = vector_field
+        derived = mesh.compute_cell_derivatives(
+            keys="affine_vector",
+            method="lsq",
+            gradient_type="extrinsic",
+            implementation="warp",
+        )
+        stored_gradient = derived.cell_data["affine_vector_gradient"]
+    torch.testing.assert_close(stored_gradient, expected, atol=5.0e-3, rtol=5.0e-3)
+
+
 def test_intrinsic_point_gradient_rejects_warp_implementation(device: str):
     points = torch.tensor(
         [

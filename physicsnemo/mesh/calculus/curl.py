@@ -59,8 +59,9 @@ def compute_curl_points_lsq(
             \partial v_y / \partial x - \partial v_x / \partial y
         \end{pmatrix}.
 
-    Computes the Jacobian of the vector field, then takes its antisymmetric
-    part.
+    Computes the derivative-first Jacobian of the vector field, then takes its
+    antisymmetric part. The Jacobian layout is
+    ``jacobian[i, k, j] = ∂v_j/∂x_k``.
 
     Parameters
     ----------

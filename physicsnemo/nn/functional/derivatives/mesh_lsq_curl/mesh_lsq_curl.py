@@ -84,6 +84,8 @@ class MeshLSQCurl(FunctionSpec):
         shape ``(n_entities, 3)`` in 3D.
     """
 
+    # Curl inherits fp32 differences between Warp QR and torch.linalg.lstsq on
+    # ill-conditioned local neighborhoods.
     _COMPARE_ATOL = 8e-3
     _COMPARE_RTOL = 8e-3
 

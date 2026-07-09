@@ -106,8 +106,9 @@ def compute_gradient_points_lsq(
         if implementation not in (None, "torch"):
             raise NotImplementedError(
                 "Warp implementation is not available for intrinsic tangent-space "
-                "LSQ gradients. Use gradient_type='extrinsic' or "
-                "implementation='torch'."
+                "LSQ gradients. Call this function with intrinsic=False or "
+                "implementation='torch' (Mesh.gradient callers can use "
+                "gradient_type='extrinsic')."
             )
         # Use intrinsic LSQ (solves in tangent space)
         from physicsnemo.mesh.calculus._lsq_intrinsic import (

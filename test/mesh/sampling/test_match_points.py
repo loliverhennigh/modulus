@@ -25,16 +25,16 @@ from physicsnemo.mesh.sampling import match_points
 @pytest.mark.parametrize(
     ("call_kwargs", "expected_implementation"),
     [
-        pytest.param({}, "torch", id="default"),
+        pytest.param({}, None, id="default"),
         pytest.param({"implementation": "scipy"}, "scipy", id="explicit"),
     ],
 )
 def test_knn_implementation_forwarded(
     monkeypatch: pytest.MonkeyPatch,
     call_kwargs: dict[str, str],
-    expected_implementation: str,
+    expected_implementation: str | None,
 ):
-    """The public helper pins Torch by default and forwards explicit choices."""
+    """The public helper auto-dispatches by default and forwards choices."""
     source = torch.tensor([[0.0, 0.0]])
     target = torch.tensor([[0.0, 0.0]])
     captured: dict[str, str | None] = {}

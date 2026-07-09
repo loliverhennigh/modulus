@@ -85,8 +85,11 @@ def compute_point_derivatives(
         - ``"both"``: Compute and store both.
     implementation : {"warp", "torch"} or None, optional
         Backend implementation used by LSQ gradient functionals. Defaults to
-        ``"torch"`` for backwards-compatible numerical precision. Intrinsic
-        tangent-space LSQ gradients use their existing Torch implementation.
+        ``"torch"`` to preserve backwards-compatible behavior. Requesting
+        ``"warp"`` for intrinsic tangent-space LSQ gradients raises
+        ``NotImplementedError``; use ``gradient_type="extrinsic"`` or
+        ``implementation="torch"``. DEC gradients likewise have no Warp
+        backend.
 
     Returns
     -------
@@ -113,6 +116,16 @@ def compute_point_derivatives(
         compute_gradient_points_lsq,
         project_to_tangent_space,
     )
+
+    if method == "dec" and implementation not in (None, "torch"):
+        if implementation == "warp":
+            raise NotImplementedError(
+                "Warp implementation is not available for DEC gradients. "
+                "Use method='lsq' or implementation='torch'."
+            )
+        raise ValueError(
+            f"Invalid {implementation=!r}. Must be 'warp', 'torch', or None."
+        )
 
     ### Parse keys: normalize to list of key paths
     if keys is None:
@@ -233,7 +246,7 @@ def compute_cell_derivatives(
         Type of gradient to compute.
     implementation : {"warp", "torch"} or None, optional
         Backend implementation used by LSQ gradient functionals. Defaults to
-        ``"torch"`` for backwards-compatible numerical precision.
+        ``"torch"`` to preserve backwards-compatible behavior.
 
     Returns
     -------

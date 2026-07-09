@@ -40,16 +40,16 @@ def _make_point_cloud_mesh(n: int = 100) -> Mesh:
 @pytest.mark.parametrize(
     ("call_kwargs", "expected_implementation"),
     [
-        pytest.param({}, "torch", id="default"),
+        pytest.param({}, None, id="default"),
         pytest.param({"implementation": "scipy"}, "scipy", id="explicit"),
     ],
 )
 def test_knn_implementation_forwarded(
     monkeypatch: pytest.MonkeyPatch,
     call_kwargs: dict[str, str],
-    expected_implementation: str,
+    expected_implementation: str | None,
 ):
-    """The public helper pins Torch by default and forwards explicit choices."""
+    """The public helper auto-dispatches by default and forwards choices."""
     mesh = _make_point_cloud_mesh(3)
     query = mesh.points[:1]
     captured: dict[str, str | None] = {}

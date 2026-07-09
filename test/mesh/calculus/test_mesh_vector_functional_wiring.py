@@ -187,6 +187,32 @@ def test_mesh_divergence_uses_functional_wiring(device: str):
     torch.testing.assert_close(output, expected)
 
 
+@requires_module("warp")
+def test_mesh_divergence_none_uses_automatic_dispatch(device: str):
+    mesh = _tet_mesh(device)
+    vector_field = mesh.points.clone()
+
+    output = mesh.divergence(vector_field, implementation=None)
+    expected = compute_divergence_points_lsq(
+        mesh,
+        vector_field,
+        implementation="warp",
+    )
+
+    torch.testing.assert_close(output, expected)
+
+
+def test_mesh_dec_gradient_rejects_warp_implementation(device: str):
+    mesh = _triangle_fan_mesh_2d(device)
+    values = mesh.points[:, 0]
+
+    with pytest.raises(NotImplementedError, match="DEC gradients"):
+        mesh.gradient(values, method="dec", implementation="warp")
+
+    with pytest.raises(ValueError, match="Invalid implementation='invalid'"):
+        mesh.gradient(values, method="dec", implementation="invalid")
+
+
 @pytest.mark.parametrize("data_source", ["points", "cells"])
 def test_mesh_curl_exposes_2d_scalar_curl(device: str, data_source: str):
     mesh = _triangle_fan_mesh_2d(device)
@@ -235,6 +261,16 @@ def test_mesh_laplacian_lsq_method_uses_functional_wiring(device: str):
     )
 
     torch.testing.assert_close(output, expected)
+
+
+def test_mesh_laplacian_distinguishes_invalid_arguments(device: str):
+    mesh = _tet_mesh(device)
+    values = mesh.points.square().sum(dim=-1)
+
+    with pytest.raises(ValueError, match="Invalid method='invalid'"):
+        mesh.laplacian(values, method="invalid")
+    with pytest.raises(ValueError, match="Invalid data_source='invalid'"):
+        mesh.laplacian(values, data_source="invalid")
 
 
 def test_cell_lsq_operators_expose_min_neighbors(device: str):

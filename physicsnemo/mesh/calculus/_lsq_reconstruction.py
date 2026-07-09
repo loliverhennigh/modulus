@@ -83,7 +83,7 @@ def compute_point_gradient_lsq(
         dims) and zero for isolated points with no neighbors.
     implementation : {"warp", "torch"} or None, optional
         Backend implementation used by the underlying LSQ gradient functional.
-        Defaults to ``"torch"`` for backwards-compatible numerical precision.
+        Defaults to ``"torch"`` to preserve backwards-compatible behavior.
 
     Returns
     -------
@@ -151,7 +151,7 @@ def compute_cell_gradient_lsq(
         Exponent for inverse-distance weighting (default 2.0).
     implementation : {"warp", "torch"} or None, optional
         Backend implementation used by the underlying LSQ gradient functional.
-        Defaults to ``"torch"`` for backwards-compatible numerical precision.
+        Defaults to ``"torch"`` to preserve backwards-compatible behavior.
 
     Returns
     -------

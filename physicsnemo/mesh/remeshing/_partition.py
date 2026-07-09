@@ -71,7 +71,7 @@ class CellPartition(NamedTuple):
 def partition_cells(
     mesh: Mesh,
     seeds: Float[torch.Tensor, "n_seeds n_spatial_dims"],
-    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
+    implementation: Literal["cuml", "torch", "scipy"] | None = None,
 ) -> CellPartition:
     """Partition mesh cells into Voronoi regions around seed points.
 
@@ -85,9 +85,8 @@ def partition_cells(
     original mesh is infinitely fine relative to the seed spacing.
 
     The nearest-neighbor search uses
-    :func:`~physicsnemo.nn.functional.neighbors.knn`. The default Torch
-    implementation keeps mesh APIs deterministic across environments; pass
-    ``None`` to use KNN's automatic backend selection.
+    :func:`~physicsnemo.nn.functional.neighbors.knn`, using its automatic
+    scalable backend selection by default.
 
     Parameters
     ----------
@@ -99,8 +98,8 @@ def partition_cells(
         Seed point positions.  ``n_spatial_dims`` must match
         ``mesh.n_spatial_dims``.
     implementation : {"cuml", "torch", "scipy"} or None, optional
-        KNN backend. Defaults to ``"torch"``. Pass ``None`` to select cuML on
-        CUDA when available or SciPy on CPU.
+        KNN backend. ``None`` (default) selects cuML on CUDA when available or
+        SciPy on CPU. Pass ``"torch"`` explicitly for the brute-force backend.
 
     Returns
     -------

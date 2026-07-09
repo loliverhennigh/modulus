@@ -161,21 +161,3 @@ def compute_curl_cells_lsq(
         min_neighbors=min_neighbors,
         implementation=implementation,
     )
-
-
-def _curl_from_jacobian(
-    jacobian: Float[torch.Tensor, "n 3 3"],
-) -> Float[torch.Tensor, "n 3"]:
-    r"""Extract the curl (antisymmetric part) from a batch of 3D Jacobians.
-
-    With ``jacobian[i, j, k] = ∂v_j/∂x_k``:
-    curl = [∂vz/∂y - ∂vy/∂z, ∂vx/∂z - ∂vz/∂x, ∂vy/∂x - ∂vx/∂y].
-    """
-    return torch.stack(
-        [
-            jacobian[:, 2, 1] - jacobian[:, 1, 2],
-            jacobian[:, 0, 2] - jacobian[:, 2, 0],
-            jacobian[:, 1, 0] - jacobian[:, 0, 1],
-        ],
-        dim=-1,
-    )

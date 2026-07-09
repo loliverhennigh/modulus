@@ -82,6 +82,8 @@ class MeshLSQDivergence(FunctionSpec):
         Divergence with shape ``(n_entities,)``.
     """
 
+    # Divergence inherits fp32 differences between Warp QR and
+    # torch.linalg.lstsq on ill-conditioned local neighborhoods.
     _COMPARE_ATOL = 8e-3
     _COMPARE_RTOL = 8e-3
 

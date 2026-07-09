@@ -14,12 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Laplace-Beltrami operator for scalar fields.
+r"""Laplacian operators for fields on simplicial meshes.
 
-The Laplace-Beltrami operator is the generalization of the Laplacian to
-curved manifolds.
+This module provides two complementary discretizations:
 
-This implementation uses the analyst's sign convention,
+- :func:`compute_laplacian_points_dec` is an intrinsic cotangent
+  Laplace--Beltrami operator based on Discrete Exterior Calculus (DEC).
+- :func:`compute_laplacian_points_lsq` and
+  :func:`compute_laplacian_cells_lsq` are extrinsic double least-squares
+  operators: they estimate a gradient in ambient coordinates, then estimate
+  its divergence.
+
+The DEC implementation uses the analyst's sign convention,
 
 .. math::
 
@@ -29,9 +35,10 @@ This implementation uses the analyst's sign convention,
 
 which is positive for locally convex functions (e.g. :math:`\Delta(x^2) = 2`).
 
-For functions (0-forms), this gives the discrete Laplace-Beltrami operator
-which reduces to the standard Laplacian on flat manifolds. This is the
-cotangent Laplacian, intrinsic to the manifold.
+For functions (0-forms), the cotangent formula is intrinsic to the manifold
+and reduces to the standard Laplacian on a flat domain.  The LSQ formulation
+instead differentiates in the embedding space, which is useful for general
+point and cell fields but is not an intrinsic surface Laplacian.
 """
 
 from typing import TYPE_CHECKING, Literal
@@ -165,7 +172,7 @@ def compute_laplacian_points_dec(
         Laplacian at vertices, same shape as ``point_values``.
     """
     from physicsnemo.mesh.geometry.dual_meshes import (
-        compute_cotan_weights_fem,
+        get_or_compute_cotan_weights_fem,
         get_or_compute_dual_volumes_0,
     )
     from physicsnemo.nn.functional.derivatives.mesh_cotan_laplacian import (
@@ -173,7 +180,7 @@ def compute_laplacian_points_dec(
     )
 
     ### Get cotangent weights and edges via FEM stiffness matrix (works for any dimension)
-    cotan_weights, sorted_edges = compute_cotan_weights_fem(mesh)
+    cotan_weights, sorted_edges = get_or_compute_cotan_weights_fem(mesh)
 
     ### Normalize by Voronoi areas
     # Standard cotangent Laplacian: Δf_i = (1/A_voronoi_i) × accumulated_sum
@@ -197,8 +204,40 @@ def compute_laplacian_points_lsq(
 ) -> Float[torch.Tensor, "n_points ..."]:
     r"""Compute an extrinsic double-LSQ Laplacian at vertices.
 
-    ``implementation`` selects the functional backend and defaults to
-    ``"torch"``.
+    First estimates the ambient gradient at every vertex by a weighted local
+    least-squares fit, then applies the same LSQ differentiation to the
+    gradient and takes its trace:
+
+    .. math::
+
+        \Delta f(x_i) \approx \operatorname{tr}\!\left[
+        \operatorname{LSQGrad}\left(
+        \operatorname{LSQGrad}(f)
+        \right)_i\right].
+
+    This is an **extrinsic** operator: derivatives are taken in the mesh's
+    embedding coordinates.  On irregular or one-sided neighborhoods, applying
+    LSQ twice can amplify first-derivative error; accuracy therefore depends on
+    neighborhood quality and is generally lower near boundaries.  Use the DEC
+    variant for an intrinsic Laplace--Beltrami operator on a simplicial surface.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Simplicial mesh.
+    point_values : torch.Tensor
+        Scalar or tensor values at vertices, shape ``(n_points, ...)``.
+    weight_power : float, optional
+        Exponent of inverse-distance neighbor weights. Defaults to ``2.0``.
+    min_neighbors : int, optional
+        Vertices with fewer neighbors receive zero. Defaults to ``0``.
+    implementation : {"warp", "torch"} or None, optional
+        Functional backend. Defaults to ``"torch"``.
+
+    Returns
+    -------
+    torch.Tensor
+        Estimated ambient Laplacian, with the same shape as ``point_values``.
     """
     from physicsnemo.nn.functional.derivatives.mesh_lsq_laplacian import (
         mesh_lsq_laplacian,
@@ -225,9 +264,39 @@ def compute_laplacian_cells_lsq(
 ) -> Float[torch.Tensor, "n_cells ..."]:
     r"""Compute an extrinsic double-LSQ Laplacian at cell centers.
 
-    Cells with fewer than ``min_neighbors`` adjacent cells receive a zero
-    Laplacian. ``implementation`` selects the functional backend and defaults
-    to ``"torch"``.
+    The operator estimates a weighted least-squares gradient over adjacent
+    cell centroids, differentiates that gradient with a second LSQ fit, and
+    takes the ambient trace:
+
+    .. math::
+
+        \Delta f(c_i) \approx \operatorname{tr}\!\left[
+        \operatorname{LSQGrad}\left(
+        \operatorname{LSQGrad}(f)
+        \right)_i\right].
+
+    This is an **extrinsic** approximation.  Its accuracy depends on the
+    geometry and rank of the cell-neighbor stencil, and the second LSQ pass can
+    amplify error on skewed meshes or near boundaries.  Cells with fewer than
+    ``min_neighbors`` adjacent cells receive zero.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        Simplicial mesh.
+    cell_values : torch.Tensor
+        Scalar or tensor values at cell centers, shape ``(n_cells, ...)``.
+    weight_power : float, optional
+        Exponent of inverse-distance neighbor weights. Defaults to ``2.0``.
+    min_neighbors : int, optional
+        Cells with fewer neighbors receive zero. Defaults to ``0``.
+    implementation : {"warp", "torch"} or None, optional
+        Functional backend. Defaults to ``"torch"``.
+
+    Returns
+    -------
+    torch.Tensor
+        Estimated ambient Laplacian, with the same shape as ``cell_values``.
     """
     from physicsnemo.nn.functional.derivatives.mesh_lsq_laplacian import (
         mesh_lsq_laplacian,

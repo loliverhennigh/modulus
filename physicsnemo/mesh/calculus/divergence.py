@@ -88,7 +88,7 @@ def compute_divergence_points_dec(
         Divergence at vertices, shape ``(n_points,)``.
     """
     from physicsnemo.mesh.geometry.dual_meshes import (
-        compute_cotan_weights_fem,
+        get_or_compute_cotan_weights_fem,
         get_or_compute_dual_volumes_0,
     )
     from physicsnemo.nn.functional.derivatives.mesh_cotan_divergence import (
@@ -96,7 +96,7 @@ def compute_divergence_points_dec(
     )
 
     ### Get FEM cotangent weights and canonical edges (one consistent source)
-    cotan_weights, edges = compute_cotan_weights_fem(mesh)  # (n_edges,), (n_edges, 2)
+    cotan_weights, edges = get_or_compute_cotan_weights_fem(mesh)
 
     ### Get dual 0-cell volumes |⋆v| at vertices
     dual_volumes_0 = get_or_compute_dual_volumes_0(mesh)  # (n_points,)

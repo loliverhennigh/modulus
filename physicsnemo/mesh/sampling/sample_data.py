@@ -405,16 +405,15 @@ def find_all_containing_cells(
 def find_nearest_cells(
     mesh: "Mesh",
     query_points: Float[torch.Tensor, "n_queries n_spatial_dims"],
-    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
+    implementation: Literal["cuml", "torch", "scipy"] | None = None,
 ) -> tuple[
     Int[torch.Tensor, " n_queries"],
     Float[torch.Tensor, "n_queries n_spatial_dims"],
 ]:
     """Find the nearest cell for each query point (by centroid distance).
 
-    Uses :func:`~physicsnemo.nn.functional.neighbors.knn`. The default Torch
-    implementation is consistent with other mesh functional wrappers; pass
-    ``None`` to use KNN's automatic backend selection.
+    Uses :func:`~physicsnemo.nn.functional.neighbors.knn` with automatic
+    scalable backend selection by default.
 
     Parameters
     ----------
@@ -423,8 +422,8 @@ def find_nearest_cells(
     query_points : torch.Tensor
         Query point locations, shape ``(n_queries, n_spatial_dims)``.
     implementation : {"cuml", "torch", "scipy"} or None, optional
-        KNN backend. Defaults to ``"torch"``. Pass ``None`` to select cuML on
-        CUDA when available or SciPy on CPU.
+        KNN backend. ``None`` (default) selects cuML on CUDA when available or
+        SciPy on CPU. Pass ``"torch"`` explicitly for the brute-force backend.
 
     Returns
     -------
@@ -456,7 +455,7 @@ def match_points(
     source: Float[torch.Tensor, "n_source n_spatial_dims"],
     target: Float[torch.Tensor, "n_target n_spatial_dims"],
     tolerance: float = 1e-6,
-    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
+    implementation: Literal["cuml", "torch", "scipy"] | None = None,
 ) -> tuple[Int[torch.Tensor, " n_matched"], Int[torch.Tensor, " n_matched"]]:
     r"""Find near-exact vertex matches between two point sets.
 
@@ -473,8 +472,8 @@ def match_points(
         Maximum L2 distance for a pair to be considered coincident. The
         comparison is inclusive (``distance <= tolerance``).
     implementation : {"cuml", "torch", "scipy"} or None, optional
-        KNN backend. Defaults to ``"torch"``. Pass ``None`` to use KNN's
-        automatic backend selection.
+        KNN backend. ``None`` (default) uses automatic backend selection. Pass
+        ``"torch"`` explicitly for the brute-force backend.
 
     Returns
     -------
@@ -650,7 +649,7 @@ def sample_data_at_points(
     project_onto_nearest_cell: bool = False,
     tolerance: float = 1e-6,
     bvh: BVH | None = None,
-    implementation: Literal["cuml", "torch", "scipy"] | None = "torch",
+    implementation: Literal["cuml", "torch", "scipy"] | None = None,
 ) -> TensorDict:
     """Extract or interpolate mesh data at specified query points.
 
@@ -687,8 +686,9 @@ def sample_data_at_points(
         built automatically. For repeated queries on the same mesh, pre-build
         with ``BVH.from_mesh(mesh)`` and pass it here to avoid redundant work.
     implementation : {"cuml", "torch", "scipy"} or None, optional
-        KNN backend used when ``project_onto_nearest_cell=True``. Defaults to
-        ``"torch"``. Pass ``None`` to use KNN's automatic backend selection.
+        KNN backend used when ``project_onto_nearest_cell=True``. ``None``
+        (default) uses automatic backend selection. Pass ``"torch"``
+        explicitly for the brute-force backend.
 
     Returns
     -------

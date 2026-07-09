@@ -65,7 +65,7 @@ def _brute_force_assignments(
 @pytest.mark.parametrize(
     ("call_kwargs", "expected_implementation"),
     [
-        pytest.param({}, "torch", id="default"),
+        pytest.param({}, None, id="default"),
         pytest.param({"implementation": "scipy"}, "scipy", id="explicit"),
     ],
 )
@@ -73,9 +73,9 @@ def test_knn_implementation_forwarded(
     monkeypatch: pytest.MonkeyPatch,
     two_triangles_3d: Mesh,
     call_kwargs: dict[str, str],
-    expected_implementation: str,
+    expected_implementation: str | None,
 ):
-    """Cell partitioning pins Torch by default and forwards explicit choices."""
+    """Cell partitioning auto-dispatches by default and forwards choices."""
     seeds = torch.tensor([[0.25, 0.25, 0.0], [0.75, 0.75, 0.0]], dtype=torch.float64)
     captured: dict[str, str | None] = {}
 

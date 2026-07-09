@@ -84,6 +84,8 @@ class MeshLSQLaplacian(FunctionSpec):
         Laplacian with the same shape as ``values``.
     """
 
+    # Composing two first-order reconstructions amplifies the fp32 difference
+    # between Warp QR and torch.linalg.lstsq on ill-conditioned neighborhoods.
     _COMPARE_ATOL = 3.0e-2
     _COMPARE_RTOL = 3.0e-2
 

@@ -89,8 +89,8 @@ def _validate_inputs(
             f"{function_name}: points, vector_field, and geometry must be on same device"
         )
     if edges.numel() > 0:
-        idx_min = int(edges.min().item())
-        idx_max = int(edges.max().item())
+        # Transfer both bounds together so CUDA validation incurs one host sync.
+        idx_min, idx_max = torch.stack(torch.aminmax(edges)).tolist()
         if idx_min < 0 or idx_max >= points.shape[0]:
             raise ValueError(
                 f"{function_name}: edges must satisfy "

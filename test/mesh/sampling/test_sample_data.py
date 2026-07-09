@@ -56,14 +56,14 @@ def _single_triangle_mesh() -> Mesh:
 @pytest.mark.parametrize(
     ("call_kwargs", "expected_implementation"),
     [
-        pytest.param({}, "torch", id="default"),
+        pytest.param({}, None, id="default"),
         pytest.param({"implementation": "scipy"}, "scipy", id="explicit"),
     ],
 )
 def test_sampling_function_forwards_knn_implementation(
     monkeypatch: pytest.MonkeyPatch,
     call_kwargs: dict[str, str],
-    expected_implementation: str,
+    expected_implementation: str | None,
 ):
     """Projection sampling forwards its KNN backend to nearest-cell lookup."""
     mesh = _single_triangle_mesh()
@@ -94,14 +94,14 @@ def test_sampling_function_forwards_knn_implementation(
 @pytest.mark.parametrize(
     ("call_kwargs", "expected_implementation"),
     [
-        pytest.param({}, "torch", id="default"),
+        pytest.param({}, None, id="default"),
         pytest.param({"implementation": "scipy"}, "scipy", id="explicit"),
     ],
 )
 def test_mesh_sampling_method_forwards_knn_implementation(
     monkeypatch: pytest.MonkeyPatch,
     call_kwargs: dict[str, str],
-    expected_implementation: str,
+    expected_implementation: str | None,
 ):
     """Mesh.sample_data_at_points preserves the selected KNN backend."""
     mesh = _single_triangle_mesh()

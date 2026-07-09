@@ -702,7 +702,11 @@ class FunctionSpec:
 
     @staticmethod
     @contextlib.contextmanager
-    def warp_stream_scope(wp_launch_stream: wp.Stream | None):
+    def warp_stream_scope(
+        wp_launch_stream: wp.Stream | None,
+        *,
+        requires_cleanup_guard: bool = True,
+    ):
         """Scope Warp work on a borrowed torch stream with a cleanup guard.
 
         Warp and torch have different stream semantics: Warp streams are
@@ -725,6 +729,11 @@ class FunctionSpec:
             The borrowed Warp stream to launch on (as returned by
             :meth:`warp_launch_context`). ``None`` selects the CPU / no-stream
             path, where the scope is a no-op and no guard is installed.
+        requires_cleanup_guard : bool, optional
+            Whether to order Warp's stream-managed cleanup after the borrowed
+            stream, by default ``True``. Set this to ``False`` only when every
+            kernel buffer is owned externally (for example, by Torch) and the
+            enclosed kernels do not allocate Warp-managed resources.
 
         Yields
         ------
@@ -732,9 +741,10 @@ class FunctionSpec:
             Control is yielded with ``wp_launch_stream`` installed as the active
             Warp stream for the duration of the ``with`` block.
         """
-        # CPU / no-stream path: no-op scope, no guard needed.
-        if wp_launch_stream is None:
-            with wp.ScopedStream(None):
+        # CPU / no-stream and externally-owned-buffer paths do not need a
+        # Warp-owned stream solely to guard allocator cleanup.
+        if wp_launch_stream is None or not requires_cleanup_guard:
+            with wp.ScopedStream(wp_launch_stream):
                 yield
             return
 

@@ -23,7 +23,7 @@ from jaxtyping import Int
 from tensordict import TensorDict
 
 from physicsnemo.mesh.boundaries._facet_extraction import extract_candidate_facets
-from physicsnemo.mesh.utilities._index_tuple_ops import unique_index_tuples
+from physicsnemo.utils._index_tuple_ops import unique_index_tuples
 
 if TYPE_CHECKING:
     from physicsnemo.mesh.mesh import Mesh

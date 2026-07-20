@@ -89,8 +89,11 @@ performance benefits.
   (interpolating) schemes
 - **Smoothing**: [Laplacian smoothing](https://en.wikipedia.org/wiki/Laplacian_smoothing)
   with feature preservation
-- **Remeshing**: Uniform remeshing via clustering (dimension-agnostic)
+- **Remeshing**: Uniform Warp-based remeshing on CPU and CUDA for triangle
+  surfaces embedded in 3D
 - **Repair**: Remove duplicates, fix orientation, fill holes, clean topology
+- **Morphing**: Dense point displacement and sparse, compactly supported
+  control-point deformation
 - **Tessellation**: Triangulate polygon soups into simplicial meshes (convex
   fan + [ear clipping](https://en.wikipedia.org/wiki/Polygon_triangulation) for
   non-convex polygons); also `Mesh.from_polygons`
@@ -303,7 +306,7 @@ Comprehensive overview of PhysicsNeMo-Mesh capabilities:
 | **Smoothing** | | |
 | Laplacian smoothing | ✅ | |
 | **Remeshing** | | |
-| Uniform remeshing | ✅ | Clustering-based |
+| Uniform remeshing | ✅ | Warp (CPU and CUDA) |
 | **Tessellation** | | |
 | Polygon-soup triangulation | ✅ | Convex fan + ear-clip; `Mesh.from_polygons` |
 | **Spatial Queries** | | |
@@ -319,6 +322,8 @@ Comprehensive overview of PhysicsNeMo-Mesh capabilities:
 | Rotation | ✅ | In 2D or 3D (angle-axis); for higher dimensions rotation is ill-defined, use `transform()` instead |
 | Scaling | ✅ | Uniform or anisotropic |
 | Arbitrary matrix transform | ✅ | |
+| Dense point displacement | ✅ | Aligned tensor or `point_data` key, with optional point weights |
+| Sparse control-point morphing | ✅ | Wendland-C2 compact support with scalar or per-control radii |
 | Extrusion | ✅ | Manifold → higher dimension |
 | Coordinate projection (drop ambient dims) | ✅ | `projections.project` (e.g. 3D → 2D embedding) |
 | Surface projection / mesh intersection | ❌ | Manifold → lower *manifold* dimension; work in progress |
@@ -369,6 +374,37 @@ mesh_rotated = mesh.rotate(axis=[0, 0, 1], angle=np.pi/4)
 mesh_scaled = mesh.scale(2.0)  # Or [2.0, 1.0, 0.5] for anisotropic
 ```
 
+### Dense and Sparse Morphing
+
+```python
+import torch
+
+# Dense displacement: one displacement vector per mesh point
+displacement = torch.zeros_like(mesh.points)
+displacement[:, -1] = 0.05
+displaced = mesh.displace(displacement)
+
+# Sparse morphing: one control at the point with the largest last coordinate
+control_index = mesh.points[:, -1].argmax()
+control_points = mesh.points[control_index].unsqueeze(0)  # Shape: (1, D)
+extent = mesh.points.amax(dim=0) - mesh.points.amin(dim=0)
+control_displacements = torch.zeros_like(control_points)
+control_displacements[:, -1] = 0.1 * extent.norm()
+
+morphed = mesh.morph(
+    control_points,
+    control_displacements,
+    radius=0.4 * extent.norm(),
+)
+```
+
+Tensor-valued radii must remain finite and strictly positive. For a learned
+radius, use a positive parameterization such as
+`torch.nn.functional.softplus(raw_radius) + radius_epsilon`; tensor radius
+values are not validated at runtime. Floating `point_weights` are applied as
+supplied and may be signed or greater than one. The current morphing kernel is
+`"wendland_c2"`, which is also the default.
+
 ### Subdivision
 
 ```python
@@ -376,6 +412,29 @@ refined = mesh.subdivide(levels=2, filter="linear")    # Topology only
 smooth = mesh.subdivide(levels=2, filter="loop")       # C² continuous
 interp = mesh.subdivide(levels=2, filter="butterfly")  # Interpolating
 ```
+
+### Remeshing
+
+```python
+# The result remains on the input device.
+coarse = mesh.remesh(n_clusters=1_000)
+
+# Move the mesh to CUDA first to accelerate large inputs.
+coarse_cuda = mesh.to("cuda").remesh(n_clusters=1_000)
+
+# Backend tuning is available through the advanced tensor functional.
+from physicsnemo.nn.functional.geometry.remeshing import remeshing
+
+tuned_points, tuned_cells = remeshing(
+    mesh.points,
+    mesh.cells,
+    n_clusters=1_000,
+    search_radius_scale=2.0,
+)
+```
+
+Remeshing currently supports triangle surfaces embedded in 3D. It creates new
+topology, so point and cell data are discarded. Global data is preserved.
 
 ### Discrete Calculus
 

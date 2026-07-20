@@ -23,7 +23,7 @@ import inspect
 import re
 import warnings
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Literal, Sequence, Tuple
 
 import torch
 import warp as wp
@@ -400,7 +400,8 @@ class FunctionSpec:
     @classmethod
     def make_function(cls, name: str | None = None):
         """Create a functional wrapper around the class dispatch.
-        The function created this way will be whats exposed to the user.
+
+        The generated function is the public functional API.
 
         Parameters
         ----------
@@ -417,16 +418,56 @@ class FunctionSpec:
         def _function(*args, **kwargs):
             return cls.dispatch(*args, **kwargs)
 
-        # Resolve a representative implementation signature for docs/introspection.
-        # Prefer the lowest-rank registered implementation to reflect default dispatch.
+        # Prefer a subclass's public dispatcher because it may expose selection
+        # logic or a more precise signature than any one backend. Classes using
+        # the generic dispatcher inherit their argument list from the preferred
+        # implementation and receive a synthesized backend selector.
         impls = cls._get_impls()
         if impls:
             preferred_impl = sorted(impls.values(), key=lambda impl: impl.rank)[0]
-            _function.__signature__ = inspect.signature(preferred_impl.func)
-            _function.__annotations__ = dict(
-                getattr(preferred_impl.func, "__annotations__", {})
+            dispatch_owner = next(
+                base for base in cls.__mro__ if "dispatch" in base.__dict__
             )
-            _function.__wrapped__ = preferred_impl.func
+            custom_dispatch = dispatch_owner is not FunctionSpec
+            signature_source = cls.dispatch if custom_dispatch else preferred_impl.func
+            try:
+                signature = inspect.signature(signature_source, eval_str=True)
+            except NameError:
+                # Preserve valid forward references whose definitions are only
+                # available to static type checkers.
+                signature = inspect.signature(signature_source)
+            annotations = {
+                parameter.name: parameter.annotation
+                for parameter in signature.parameters.values()
+                if parameter.annotation is not inspect.Parameter.empty
+            }
+            if signature.return_annotation is not inspect.Signature.empty:
+                annotations["return"] = signature.return_annotation
+
+            if not custom_dispatch and "implementation" not in signature.parameters:
+                implementation_names = tuple(impls)
+                implementation_annotation = Literal[implementation_names] | None
+                implementation = inspect.Parameter(
+                    "implementation",
+                    kind=inspect.Parameter.KEYWORD_ONLY,
+                    default=None,
+                    annotation=implementation_annotation,
+                )
+                parameters = list(signature.parameters.values())
+                insertion = next(
+                    (
+                        index
+                        for index, parameter in enumerate(parameters)
+                        if parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    ),
+                    len(parameters),
+                )
+                parameters.insert(insertion, implementation)
+                signature = signature.replace(parameters=parameters)
+                annotations["implementation"] = implementation_annotation
+            _function.__signature__ = signature
+            _function.__annotations__ = annotations
+            _function.__wrapped__ = signature_source
 
         # Set the function attributes
         # This keeps things like docstrings for API documentation.
@@ -706,8 +747,10 @@ class FunctionSpec:
         wp_launch_stream: wp.Stream | None,
         *,
         requires_cleanup_guard: bool = True,
+        sync_enter: bool = True,
+        sync_exit: bool = False,
     ):
-        """Scope Warp work on a borrowed torch stream with a cleanup guard.
+        """Scope Warp work on a borrowed torch stream.
 
         Warp and torch have different stream semantics: Warp streams are
         blocking (they implicitly synchronize with the NULL stream) while torch
@@ -718,10 +761,11 @@ class FunctionSpec:
         the launch finishes, which crashes.
 
         This context manager runs the enclosed Warp work inside
-        ``wp.ScopedStream(wp_launch_stream)`` (preserving torch's own ordering of
-        the inputs and outputs on that stream), then, on exit, has a temporary
-        Warp-owned (blocking) stream wait on the borrowed stream so Warp's
-        cleanup is ordered after the compute instead of firing early.
+        ``wp.ScopedStream(wp_launch_stream)``. By default, a temporary
+        Warp-owned (blocking) stream waits on the borrowed stream at exit so
+        Warp's cleanup is ordered after the compute instead of firing early.
+        The guard can be disabled for kernels that use only externally owned
+        buffers and allocate no Warp-managed resources.
 
         Parameters
         ----------
@@ -734,6 +778,13 @@ class FunctionSpec:
             stream, by default ``True``. Set this to ``False`` only when every
             kernel buffer is owned externally (for example, by Torch) and the
             enclosed kernels do not allocate Warp-managed resources.
+        sync_enter : bool, optional
+            Whether the borrowed stream should wait on Warp's previous stream
+            when entering the scope. Set to ``False`` for CUDA Graph capture,
+            where that cross-stream dependency is invalid. Default is ``True``.
+        sync_exit : bool, optional
+            Whether Warp's previous stream should wait on the borrowed stream
+            when leaving the scope. Default is ``False``.
 
         Yields
         ------
@@ -741,10 +792,21 @@ class FunctionSpec:
             Control is yielded with ``wp_launch_stream`` installed as the active
             Warp stream for the duration of the ``with`` block.
         """
-        # CPU / no-stream and externally-owned-buffer paths do not need a
-        # Warp-owned stream solely to guard allocator cleanup.
-        if wp_launch_stream is None or not requires_cleanup_guard:
-            with wp.ScopedStream(wp_launch_stream):
+        # CPU / no-stream path: no-op scope, no guard needed.
+        if wp_launch_stream is None:
+            with wp.ScopedStream(None):
+                yield
+            return
+
+        # Externally-owned-buffer paths do not need a Warp-owned stream solely
+        # to guard allocator cleanup, but still honor the requested stream
+        # synchronization behavior.
+        if not requires_cleanup_guard:
+            with wp.ScopedStream(
+                wp_launch_stream,
+                sync_enter=sync_enter,
+                sync_exit=sync_exit,
+            ):
                 yield
             return
 
@@ -753,7 +815,11 @@ class FunctionSpec:
         # once the launch has been enqueued.
         guard = wp.Stream(wp_launch_stream.device)
         try:
-            with wp.ScopedStream(wp_launch_stream):
+            with wp.ScopedStream(
+                wp_launch_stream,
+                sync_enter=sync_enter,
+                sync_exit=sync_exit,
+            ):
                 yield
         finally:
             # Order Warp's stream-ordered cleanup after the compute so mesh /

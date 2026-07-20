@@ -57,10 +57,17 @@ from physicsnemo.mesh.calculus.integration import (
     integrate,
     integrate_cell_data,
     integrate_flux,
+    integrate_moment,
     integrate_point_data,
 )
 from physicsnemo.mesh.calculus.laplacian import (
     compute_laplacian_cells_lsq,
     compute_laplacian_points_dec,
     compute_laplacian_points_lsq,
+)
+from physicsnemo.mesh.calculus.measure import (
+    MEASURE_WEIGHTS_KEY,
+    cell_measure_weights,
+    cell_measures,
+    compose_measure_weights,
 )

@@ -160,19 +160,7 @@ patches. Full-domain reference solves are opt-in with `run.ground_truth=true`
 and limited to at most 26 subdomains. Larger requests emit a warning and
 continue without reference metrics.
 
-## Validation And Scope
-
-Run the focused tests from the repository root:
-
-```bash
-pytest -q test/examples/test_fp_ddm.py test/examples/test_fp_ddm_elasticity.py
-```
-
-The automated tests cover data orientation, the source term, FNO output and
-boundary behavior, mixed-convergence finite-volume batches, interface exchange,
-PhysicsNeMo checkpoint round trips, test-time adaptation state restoration, and
-an end-to-end thermal Schwarz run. The elasticity tests cover the plane-stress
-operator, batched local solves, and the decomposed-to-monolithic comparison.
+## Scope
 
 This is a research example of the FP-DDM algorithm, not a validated
 production-scale simulator. A smoke checkpoint only verifies execution.

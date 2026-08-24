@@ -56,7 +56,6 @@ The several examples inside PhysicsNeMo can be classified based on their domains
 | --- | --- |
 |[FP-DDM Thermal and Elasticity Domain Decomposition](./tcad/fp_ddm/)|FNO + Schwarz (thermal); numerical Schwarz (elasticity)|
 
-
 ### Weather
 
 |Use case|Model|

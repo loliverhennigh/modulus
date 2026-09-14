@@ -104,14 +104,21 @@ def _reference_solve(
     temperature_bc = domain.fields[Fields.TEMPERATURE_BC]
     heat_source = domain.fields[Fields.HEAT_SOURCE]
     original_shape = conductivity.shape
+    spacing_scale = 1.0
     if coarse:
         factor = 9
         conductivity = _downsample(conductivity, factor)
         temperature_bc = _downsample(temperature_bc, factor)
         heat_source = _downsample(heat_source, factor)
+        spacing_scale = float(factor)
         output_dir = output_dir / "coarse_mesh"
     output_dir.mkdir(parents=True, exist_ok=True)
-    temperature = solver.solve(conductivity, temperature_bc, heat_source)[0].cpu()
+    temperature = solver.solve(
+        conductivity,
+        temperature_bc,
+        heat_source,
+        spacing_scale=spacing_scale,
+    )[0].cpu()
     if coarse:
         temperature = _upsample(temperature, factor)[
             : original_shape[0], : original_shape[1]
@@ -180,6 +187,8 @@ def run_fpddm(
     )
     reference_solver = ThermalFEMSolver(
         batch_size=int(fem_config.get("batch_size", 10)),
+        dx=1.0 / (domain.width - 1),
+        dy=1.0 / (domain.height - 1),
         max_iter=int(fem_config.get("max_iter", 1000)),
         tolerance=float(fem_config.get("tolerance", 1.0e-12)),
         device=device,

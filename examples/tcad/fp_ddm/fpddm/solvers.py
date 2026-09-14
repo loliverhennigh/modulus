@@ -101,6 +101,8 @@ class ThermalFEMSolver(DomainSolver):
         self,
         batch_size: int = 15,
         *,
+        dx: float,
+        dy: float,
         max_iter: int = 1000,
         tolerance: float = 1.0e-12,
         device: str | torch.device | None = None,
@@ -110,10 +112,16 @@ class ThermalFEMSolver(DomainSolver):
         super().__init__(device=device)
         self.batch_size = batch_size
         self.solver = Heat2DSolver(
-            max_iter=max_iter, tolerance=tolerance, device=self.device
+            dx=dx,
+            dy=dy,
+            max_iter=max_iter,
+            tolerance=tolerance,
+            device=self.device,
         )
 
-    def model(self, inputs: torch.Tensor) -> torch.Tensor:
+    def model(
+        self, inputs: torch.Tensor, *, spacing_scale: float = 1.0
+    ) -> torch.Tensor:
         """Solve a batch of five-channel local thermal inputs."""
 
         batch, _, height, width = inputs.shape
@@ -131,6 +139,7 @@ class ThermalFEMSolver(DomainSolver):
             temperature_bc,
             dirichlet,
             neumann,
+            spacing_scale=spacing_scale,
         )
         return temperature[:, None]
 
@@ -149,11 +158,13 @@ class ThermalFEMSolver(DomainSolver):
         conductivity: torch.Tensor,
         temperature_bc: torch.Tensor,
         heat_source: torch.Tensor,
+        *,
+        spacing_scale: float = 1.0,
     ) -> torch.Tensor:
         """Solve one full-domain thermal system from unbatched fields."""
 
         inputs = self._input_from_fields([conductivity, temperature_bc, heat_source])
-        return self.model(inputs[None])[:, 0]
+        return self.model(inputs[None], spacing_scale=spacing_scale)[:, 0]
 
 
 class NeuralDomainSolver(DomainSolver):

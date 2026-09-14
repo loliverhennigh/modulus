@@ -60,8 +60,12 @@ class Heat2DSolver:
         dirichlet_mask: torch.Tensor,
         neumann_mask: torch.Tensor,
         neumann_value: torch.Tensor | None = None,
+        spacing_scale: float = 1.0,
     ) -> torch.Tensor:
-        """Solve a batch of rectangular thermal systems and return temperature."""
+        """Solve rectangular thermal systems on the optionally coarsened grid."""
+
+        if spacing_scale <= 0.0:
+            raise ValueError("spacing_scale must be positive")
 
         conductivity = conductivity.to(self.device, self.dtype)
         heat_source = heat_source.to(self.device, self.dtype)
@@ -75,8 +79,10 @@ class Heat2DSolver:
         neumann = neumann_mask.to(self.device).bool() & ~dirichlet
 
         batch, height, width = conductivity.shape
-        dx2 = self.dx * self.dx
-        dy2 = self.dy * self.dy
+        dx = self.dx * spacing_scale
+        dy = self.dy * spacing_scale
+        dx2 = dx * dx
+        dy2 = dy * dy
 
         # Harmonic face values preserve normal heat flux across material jumps.
         east = torch.zeros_like(conductivity)
@@ -119,13 +125,13 @@ class Heat2DSolver:
         diagonal = diagonal.clone()
         diagonal[dirichlet] = 1.0
         if has_left:
-            diagonal[left] = east[left] / self.dx
+            diagonal[left] = east[left] / dx
         if has_right:
-            diagonal[right] = west[right] / self.dx
+            diagonal[right] = west[right] / dx
         if has_top:
-            diagonal[top] = south[top] / self.dy
+            diagonal[top] = south[top] / dy
         if has_bottom:
-            diagonal[bottom] = north[bottom] / self.dy
+            diagonal[bottom] = north[bottom] / dy
         inverse_diagonal = 1.0 / diagonal.clamp_min(1.0e-12)
 
         # Applying the stencil directly avoids assembling one sparse matrix per
@@ -143,16 +149,16 @@ class Heat2DSolver:
             )
             result[dirichlet] = values[dirichlet]
             if has_left:
-                coefficient = east[left] / self.dx
+                coefficient = east[left] / dx
                 result[left] = coefficient * (values[left] - shifted_right[left])
             if has_right:
-                coefficient = west[right] / self.dx
+                coefficient = west[right] / dx
                 result[right] = coefficient * (values[right] - shifted_left[right])
             if has_top:
-                coefficient = south[top] / self.dy
+                coefficient = south[top] / dy
                 result[top] = coefficient * (values[top] - shifted_down[top])
             if has_bottom:
-                coefficient = north[bottom] / self.dy
+                coefficient = north[bottom] / dy
                 result[bottom] = coefficient * (values[bottom] - shifted_up[bottom])
             return result
 

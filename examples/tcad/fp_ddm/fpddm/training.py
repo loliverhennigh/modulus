@@ -88,6 +88,15 @@ def _reduce_metrics(
     }
 
 
+def _distributed_stop_requested(stop_requested: bool, dist: DistributedManager) -> bool:
+    """Return whether any rank requested that training stop."""
+
+    stop = torch.tensor(int(stop_requested), device=dist.device)
+    if dist.distributed:
+        torch.distributed.all_reduce(stop, op=torch.distributed.ReduceOp.MAX)
+    return bool(stop.item())
+
+
 def _run_epoch(
     model: torch.nn.Module,
     loader,
@@ -242,7 +251,9 @@ def train_model(config: Mapping[str, object], dist: DistributedManager) -> Path:
                     metadata={"best_validation_loss": best_loss},
                 )
 
-        if deadline is not None and time.monotonic() >= deadline:
+        if _distributed_stop_requested(
+            deadline is not None and time.monotonic() >= deadline, dist
+        ):
             break
 
     with LaunchLogger("test", epoch=last_epoch) as logger:

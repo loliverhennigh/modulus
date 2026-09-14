@@ -49,12 +49,14 @@ def thermal_residual(
 
     conductivity = inputs[:, 2:3]
     heat_source = inputs[:, 4:5]
-    grad_x = torch.gradient(temperature, dim=3)[0]
-    grad_y = torch.gradient(temperature, dim=2)[0]
+    x_coordinates = inputs[0, 0, 0, :]
+    y_coordinates = inputs[0, 1, :, 0]
+    grad_x = torch.gradient(temperature, spacing=(x_coordinates,), dim=(3,))[0]
+    grad_y = torch.gradient(temperature, spacing=(y_coordinates,), dim=(2,))[0]
     flux_x = conductivity * grad_x
     flux_y = conductivity * grad_y
-    div_x = torch.gradient(flux_x, dim=3)[0]
-    div_y = torch.gradient(flux_y, dim=2)[0]
+    div_x = torch.gradient(flux_x, spacing=(x_coordinates,), dim=(3,))[0]
+    div_y = torch.gradient(flux_y, spacing=(y_coordinates,), dim=(2,))[0]
     return div_x + div_y + source_scale * heat_source
 
 
